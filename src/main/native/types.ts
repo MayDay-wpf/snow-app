@@ -4134,6 +4134,8 @@ export type NativeBridge = ImageGenerationNativeApi & {
   killDetachedTask: (id: string) => Promise<boolean>;
   /** 移除已完成的后台任务记录（连同日志文件一起删除）；仍在运行的任务返回 false */
   forgetDetachedTask: (id: string) => Promise<boolean>;
+  /** 批量移除已完成的后台任务记录与日志；返回实际移除的 id（运行中的跳过） */
+  forgetDetachedTasks: (ids: string[]) => Promise<string[]>;
   /** 整理本进程内存（仅 Windows 支持）：配合主进程 V8 GC 收缩 OS 工作集 */
   optimizeMemory: () => Promise<MemoryOptimizeResult>;
   /** 修复数据库（runtime=运行库 / archive=归档库）：完整性检查、损坏恢复与压缩 */

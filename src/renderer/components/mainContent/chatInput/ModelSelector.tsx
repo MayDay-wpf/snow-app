@@ -24,7 +24,7 @@ import type { RefObject } from "react";
 import { useI18n } from "../../../i18n";
 import { OAuthQuotaPanel } from "../../common/OAuthQuotaPanel";
 import { ThinkingStrengthMenu } from "./ThinkingStrengthMenu";
-import { getThinkingTint } from "./thinkingIcons";
+import { getThinkingGradient, getThinkingTint } from "./thinkingIcons";
 import { useDropdownDirection } from "./useDropdownDirection";
 import type { MainContentView } from "../types";
 import type { ChatInputActions, ChatInputState } from "./types";
@@ -131,6 +131,13 @@ export const ModelSelector = ({
     }
     const tint = getThinkingTint(thinkingOptions, thinkingValue);
     return tint ? { color: tint } : undefined;
+  }, [isLoadingApiConfig, thinkingError, thinkingOptions, thinkingValue]);
+  const thinkingLabelStyle = useMemo(() => {
+    if (thinkingError || isLoadingApiConfig) {
+      return undefined;
+    }
+    const gradient = getThinkingGradient(thinkingOptions, thinkingValue);
+    return gradient ? { backgroundImage: gradient } : undefined;
   }, [isLoadingApiConfig, thinkingError, thinkingOptions, thinkingValue]);
   const [modelSearchQuery, setModelSearchQuery] = useState("");
   const [apiProfileSearchQuery, setApiProfileSearchQuery] = useState("");
@@ -473,7 +480,14 @@ export const ModelSelector = ({
           ) : (
             <ActiveThinkingIcon size={12} />
           )}
-          <span className="model-trigger-thinking-label">{thinkingLabel}</span>
+          <span
+            className={`model-trigger-thinking-label${
+              thinkingLabelStyle ? " thinking-grad-text" : ""
+            }`}
+            style={thinkingLabelStyle}
+          >
+            {thinkingLabel}
+          </span>
         </span>
         {requestMethod === "responses" && responsesFastMode !== "off" && (
           <span
@@ -533,7 +547,14 @@ export const ModelSelector = ({
                   ) : (
                     <ActiveThinkingIcon size={14} style={thinkingTintStyle} />
                   )}
-                  <span className="model-menu-value-text">{thinkingLabel}</span>
+                  <span
+                    className={`model-menu-value-text${
+                      thinkingLabelStyle ? " thinking-grad-text" : ""
+                    }`}
+                    style={thinkingLabelStyle}
+                  >
+                    {thinkingLabel}
+                  </span>
                   <ChevronRight size={12} />
                 </span>
               </button>

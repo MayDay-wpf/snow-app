@@ -51,6 +51,16 @@ export const registerProcessHandlers = (native: NativeBridge): void => {
     native.forgetDetachedTask(requireTaskId(id)),
   );
 
+  ipcMain.handle(
+    "processes:background-task-forget-many",
+    (_event, ids: unknown) => {
+      if (!Array.isArray(ids)) {
+        throw new Error("A list of background task ids is required");
+      }
+      return native.forgetDetachedTasks(ids.map(requireTaskId));
+    },
+  );
+
   // 进程采样日志（全局开关）：读取 / 保存开关与间隔，保存即时生效。
   ipcMain.handle("processes:sampling-log:get", () =>
     readProcessSamplingLog(native),

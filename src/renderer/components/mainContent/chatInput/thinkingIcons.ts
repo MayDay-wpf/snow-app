@@ -66,24 +66,54 @@ const TINT_STOPS: Array<[number, [number, number, number]]> = [
   [1, [236, 72, 153]],
 ];
 
+function tintAt(p: number): string {
+  const clamped = Math.min(1, Math.max(0, p));
+  for (let i = 1; i < TINT_STOPS.length; i++) {
+    const [end, to] = TINT_STOPS[i];
+    if (clamped <= end) {
+      const [start, from] = TINT_STOPS[i - 1];
+      const k = (clamped - start) / (end - start);
+      const [r, g, b] = from.map((c, j) => Math.round(c + (to[j] - c) * k));
+      return `rgb(${r}, ${g}, ${b})`;
+    }
+  }
+  const [r, g, b] = TINT_STOPS[TINT_STOPS.length - 1][1];
+  return `rgb(${r}, ${g}, ${b})`;
+}
+
+function thinkingProgress(
+  options: ReadonlyArray<{ value: string }>,
+  value: string,
+): number | null {
+  const index = options.findIndex((option) => option.value === value);
+  if (index <= 0 || options.length < 2) {
+    return null;
+  }
+  return index / (options.length - 1);
+}
+
 /** 按档位在进度条渐变上取色；最低档（none）与非预设值返回 null */
 export function getThinkingTint(
   options: ReadonlyArray<{ value: string }>,
   value: string,
 ): string | null {
-  const index = options.findIndex((option) => option.value === value);
-  if (index <= 0 || options.length < 2) {
+  const p = thinkingProgress(options, value);
+  return p === null ? null : tintAt(p);
+}
+
+/** 文字渐变：截取进度条上到当前档位为止的一段；loop 首尾同色供流光平铺 */
+export function getThinkingGradient(
+  options: ReadonlyArray<{ value: string }>,
+  value: string,
+  loop = false,
+): string | null {
+  const p = thinkingProgress(options, value);
+  if (p === null) {
     return null;
   }
-  const p = index / (options.length - 1);
-  for (let i = 1; i < TINT_STOPS.length; i++) {
-    const [end, to] = TINT_STOPS[i];
-    if (p <= end) {
-      const [start, from] = TINT_STOPS[i - 1];
-      const k = (p - start) / (end - start);
-      const [r, g, b] = from.map((c, j) => Math.round(c + (to[j] - c) * k));
-      return `rgb(${r}, ${g}, ${b})`;
-    }
-  }
-  return null;
+  const from = tintAt(p - 0.4);
+  const to = tintAt(p);
+  return loop
+    ? `linear-gradient(90deg, ${from}, ${to}, ${from})`
+    : `linear-gradient(90deg, ${from}, ${to})`;
 }

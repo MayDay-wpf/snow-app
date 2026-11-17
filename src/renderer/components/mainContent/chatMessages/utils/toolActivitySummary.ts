@@ -203,61 +203,64 @@ const LATEST_KEY: Record<ActivityKind, string> = {
 };
 
 const LATEST_DEFAULTS: Record<string, string> = {
-  read: "正在读取 {{name}}",
   readDone: "已读取 {{name}}",
-  search: "正在搜索 {{name}}",
   searchDone: "已搜索 {{name}}",
-  edit: "正在编辑 {{name}}",
   editDone: "已编辑 {{name}}",
-  command: "正在运行 {{name}}",
   commandDone: "已运行 {{name}}",
-  web: "正在访问 {{name}}",
   webDone: "已访问 {{name}}",
-  other: "正在执行 {{name}}",
   otherDone: "已完成 {{name}}",
-  pending: "等待执行 {{name}}",
   error: "{{name}} 失败",
 };
 
-/**
- * 最新一条工具的状态描述：取最后创建的那一条（不按状态回跳），
- * 这样标题只在「新工具开始」和「它自己状态变化」时变字，不会因为并发
- * 工具依次完成而反复改写；文案优先用工具的 description / summary。
- */
-const describeLatestActivity = (
-  toolCalls: readonly ToolCallInfo[],
-  t: Translate,
-): string => {
-  const latest = toolCalls[toolCalls.length - 1];
-
-  const { kind, summary, target } = digestOf(latest);
-  const name = summary ?? target ?? resolveToolDisplayName(t, latest.name);
-  const key =
-    latest.status === "pending"
-      ? "pending"
-      : latest.status === "error"
-        ? "error"
-        : latest.status === "running"
-          ? LATEST_KEY[kind]
-          : `${LATEST_KEY[kind]}Done`;
-  return t(`toolCall.latest.${key}`, {
-    defaultValue: LATEST_DEFAULTS[key] ?? "{{name}}",
-    values: { name },
-  });
+/** 仍未结束的工具数（排队 + 运行中）。 */
+const countActive = (toolCalls: readonly ToolCallInfo[]): number => {
+  let active = 0;
+  for (const toolCall of toolCalls) {
+    if (toolCall.status === "running" || toolCall.status === "pending") {
+      active += 1;
+    }
+  }
+  return active;
 };
 
 /**
- * 工具集合标题行：「活动摘要 · 最新一条工具」。
- *
- * 摘要是整组工具的聚合（读了几个文件、搜了几次、跑了几条命令），
- * 末尾跟最新一条工具的状态，随执行推进实时更新。
+ * 最近一条已结束工具的结果描述：只展示结果，不展示等待/执行中状态。
+ * 读取类工具瞬间就完成，先显示「正在读取」再改「已读取」只会让标题连闪。
+ */
+const describeSettledActivity = (
+  toolCalls: readonly ToolCallInfo[],
+  t: Translate,
+): string => {
+  for (let index = toolCalls.length - 1; index >= 0; index -= 1) {
+    const toolCall = toolCalls[index];
+    if (toolCall.status !== "completed" && toolCall.status !== "error") {
+      continue;
+    }
+    const { kind, summary, target } = digestOf(toolCall);
+    const name = summary ?? target ?? resolveToolDisplayName(t, toolCall.name);
+    const key =
+      toolCall.status === "error" ? "error" : `${LATEST_KEY[kind]}Done`;
+    return t(`toolCall.latest.${key}`, {
+      defaultValue: LATEST_DEFAULTS[key] ?? "{{name}}",
+      values: { name },
+    });
+  }
+  return "";
+};
+
+/**
+ * 工具集合标题行：执行中只显示最近一条工具的结果，整组结束后显示
+ * 「活动摘要 · 结果」。摘要计数会随每个工具启动/完成改写，放在执行中
+ * 会导致标题行持续变字，所以只在结束后出现。
  */
 export const describeToolRunHeader = (
   toolCalls: readonly ToolCallInfo[],
   t: Translate,
 ): string => {
   if (toolCalls.length === 0) return "";
+  const settled = describeSettledActivity(toolCalls, t);
   const summary = summarizeActivities(toolCalls, t);
-  const latest = describeLatestActivity(toolCalls, t);
-  return summary ? `${summary} · ${latest}` : latest;
+  // 还没有结果时先给聚合计数，避免标题行空白。
+  if (countActive(toolCalls) > 0) return settled || summary;
+  return summary ? `${summary} · ${settled}` : settled;
 };

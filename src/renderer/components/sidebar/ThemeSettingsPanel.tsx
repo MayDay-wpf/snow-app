@@ -45,6 +45,8 @@ import { ThemeFontSection } from "./themeSettings/ThemeFontSection";
 import { ThemeTypographySection } from "./themeSettings/ThemeTypographySection";
 import { ThemeModeSelector } from "./themeSettings/ThemeModeSelector";
 import { ThemeLayoutStyleSelector } from "./themeSettings/ThemeLayoutStyleSelector";
+import { ThemeTranscriptStyleSelector } from "./themeSettings/ThemeTranscriptStyleSelector";
+import { TOOL_CARD_STYLE_SHORTCUT_KEY } from "../../utils/toolCardStyle";
 import { ThemePresetGrid } from "./themeSettings/ThemePresetGrid";
 import { ThemePreview } from "./themeSettings/ThemePreview";
 import {
@@ -883,6 +885,24 @@ export function ThemeSettingsPanel(): React.JSX.Element {
               disabled={busy}
               onChange={handleLayoutStyleChange}
             />
+          </div>
+
+          <div className="api-settings-form-section">
+            <div className="api-settings-form-section-header">
+              <strong className="api-settings-form-section-title">
+                {t("settings.themeTranscriptStyle", {
+                  defaultValue: "Transcript display",
+                })}
+              </strong>
+            </div>
+            <span className="settings-item-description">
+              {t("settings.themeTranscriptStyleInfo", {
+                defaultValue:
+                  "How tool calls appear in the transcript. Classic keeps full tool cards, Chips compacts them into pill rows, Minimal hides thinking and merges tools into one group. Press {{shortcut}} to cycle.",
+                values: { shortcut: TOOL_CARD_STYLE_SHORTCUT_KEY },
+              })}
+            </span>
+            <ThemeTranscriptStyleSelector disabled={busy} />
           </div>
 
           <div className="api-settings-form-section">

@@ -78,3 +78,11 @@ pub async fn forget_detached_task(id: String) -> napi::Result<bool> {
         .await
         .map_err(|error| Error::from_reason(format!("Background task cleanup failed: {error}")))
 }
+
+/// 批量移除已完成任务的记录与日志；返回实际移除的 id，运行中的任务被跳过。
+#[napi]
+pub async fn forget_detached_tasks(ids: Vec<String>) -> napi::Result<Vec<String>> {
+    tokio::task::spawn_blocking(move || detached::forget_many(&ids))
+        .await
+        .map_err(|error| Error::from_reason(format!("Background task cleanup failed: {error}")))
+}

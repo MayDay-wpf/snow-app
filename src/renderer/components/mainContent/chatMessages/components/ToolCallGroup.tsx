@@ -76,7 +76,7 @@ export const ToolCallGroup = ({
     return plugin ? [plugin] : [];
   }, [ownerPluginId, pluginsState.plugins]);
 
-  // 极简模式标题行：「活动摘要 · 最新工具状态」，随执行推进实时更新。
+  // 极简模式标题行：执行中只显示最近一条工具的结果，结束后显示「摘要 · 结果」。
   const latestActivity = useMemo(
     () => (isMinimal && toolCalls ? describeToolRunHeader(toolCalls, t) : ""),
     [isMinimal, toolCalls, t],

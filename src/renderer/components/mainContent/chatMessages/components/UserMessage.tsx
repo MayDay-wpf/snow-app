@@ -245,7 +245,9 @@ export const UserMessage = memo(
               if (segment.type === "text") {
                 return (
                   <span key={index}>
-                    {renderPromptInline(segment.content, `${index}-`)}
+                    {renderPromptInline(segment.content, `${index}-`, {
+                      codeSpans: false,
+                    })}
                   </span>
                 );
               }

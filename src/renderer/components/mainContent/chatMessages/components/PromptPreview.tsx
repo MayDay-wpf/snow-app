@@ -10,36 +10,113 @@ import {
 import { useI18n } from "../../../../i18n";
 import { HoverCopyButton } from "../../../common/HoverCopyButton";
 
-// 行内代码 / Windows 路径 / 多段或 ./ ~/ 开头的 POSIX 路径
-const INLINE_CODE_RE =
-  /`[^`\n]+`|[A-Za-z]:[\\/][^\s`'"，。；：、（）()<>]*|(?:~|\.{1,2})\/[\w.@/-]+|\/[\w.@-]+(?:\/[\w.@-]+)+\/?/g;
+// Windows 路径 / 多段或 ./ ~/ 开头的 POSIX 路径
+const PATH_RE =
+  /[A-Za-z]:[\\/][^\s`'"，。；：、（）()<>]*|(?:~|\.{1,2})\/[\w.@/-]+|\/[\w.@-]+(?:\/[\w.@-]+)+\/?/g;
 
 // 命令行（整行等宽）
 const COMMAND_LINE_RE =
   /^\s*(?:\$\s|>\s|(?:npm|npx|pnpm|yarn|cargo|git|node|python3?|pip3?|cd|ls|rm|mv|cp|mkdir|docker|make|go|bash|sh)\s)/;
 
+type InlineToken = { type: "text" | "code"; value: string };
+
+/**
+ * 按 CommonMark 规则切分行内代码：反引号串必须等长闭合、内容非空，
+ * 否则保持原文（`` 这类孤立反引号不再被当成代码）。
+ */
+const splitCodeSpans = (line: string): InlineToken[] => {
+  const tokens: InlineToken[] = [];
+  const runs = Array.from(line.matchAll(/`+/g), (match) => ({
+    start: match.index ?? 0,
+    length: match[0].length,
+  }));
+  let cursor = 0;
+  let runIndex = 0;
+  while (runIndex < runs.length) {
+    const open = runs[runIndex];
+    // 代码片段不跨行（与原行为一致，避免整段被吞）
+    const lineBreak = line.indexOf("\n", open.start + open.length);
+    const limit = lineBreak === -1 ? line.length : lineBreak;
+    const closeIndex = runs.findIndex(
+      (run, index) =>
+        index > runIndex && run.length === open.length && run.start < limit,
+    );
+    const close = closeIndex === -1 ? null : runs[closeIndex];
+    let content = close
+      ? line.slice(open.start + open.length, close.start)
+      : "";
+    // 首尾各一个空格且有实体内容时各去掉一个
+    if (
+      content.length >= 2 &&
+      content.startsWith(" ") &&
+      content.endsWith(" ")
+    ) {
+      content = content.slice(1, -1);
+    }
+    if (!close || !content.trim()) {
+      runIndex += 1;
+      continue;
+    }
+    if (open.start > cursor) {
+      tokens.push({ type: "text", value: line.slice(cursor, open.start) });
+    }
+    tokens.push({ type: "code", value: content });
+    cursor = close.start + close.length;
+    runIndex = closeIndex + 1;
+  }
+  if (cursor < line.length) {
+    tokens.push({ type: "text", value: line.slice(cursor) });
+  }
+  return tokens;
+};
+
+type RenderPromptInlineOptions = {
+  /** 是否把反引号包裹的内容渲染为行内代码，默认 true */
+  codeSpans?: boolean;
+};
+
 /** 把一行文本中的路径/行内代码渲染为等宽片段。 */
 export const renderPromptInline = (
   line: string,
   keyPrefix = "",
+  { codeSpans = true }: RenderPromptInlineOptions = {},
 ): ReactNode[] => {
   const nodes: ReactNode[] = [];
-  let last = 0;
-  for (const match of line.matchAll(INLINE_CODE_RE)) {
-    const index = match.index ?? 0;
-    const value = match[0];
-    const isBacktick = value.startsWith("`");
-    // 前一字符为单词字符时不是独立路径（如 a/b/c、https://）
-    if (!isBacktick && index > 0 && /\w/.test(line[index - 1])) continue;
-    if (index > last) nodes.push(line.slice(last, index));
-    nodes.push(
-      <code key={`${keyPrefix}${index}`} className="prompt-inline-code">
-        {isBacktick ? value.slice(1, -1) : value}
-      </code>,
-    );
-    last = index + value.length;
-  }
-  if (last < line.length) nodes.push(line.slice(last));
+  const tokens: InlineToken[] = codeSpans
+    ? splitCodeSpans(line)
+    : [{ type: "text", value: line }];
+  tokens.forEach((token, tokenIndex) => {
+    if (token.type === "code") {
+      nodes.push(
+        <code
+          key={`${keyPrefix}code-${tokenIndex}`}
+          className="prompt-inline-code"
+        >
+          {token.value}
+        </code>,
+      );
+      return;
+    }
+    const text = token.value;
+    let last = 0;
+    for (const match of text.matchAll(PATH_RE)) {
+      const index = match.index ?? 0;
+      const value = match[0];
+      // 前一字符为单词字符时不是独立路径（如 a/b/c、https://）
+      if (index > 0 && /\w/.test(text[index - 1])) continue;
+      if (index > last) nodes.push(text.slice(last, index));
+      nodes.push(
+        <code
+          key={`${keyPrefix}${tokenIndex}-${index}`}
+          className="prompt-inline-code"
+        >
+          {value}
+        </code>,
+      );
+      last = index + value.length;
+    }
+    if (last < text.length) nodes.push(text.slice(last));
+  });
   return nodes;
 };
 

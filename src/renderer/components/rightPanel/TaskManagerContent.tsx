@@ -136,6 +136,9 @@ export const TaskManagerContent = ({
   // 移除记录会连日志一起删除，必须二次确认
   const [pendingTaskForget, setPendingTaskForget] =
     useState<DetachedTaskInfo | null>(null);
+  const [pendingTaskForgetMany, setPendingTaskForgetMany] = useState<
+    DetachedTaskInfo[] | null
+  >(null);
   const [isTaskForgetting, setIsTaskForgetting] = useState(false);
   const [taskForgetError, setTaskForgetError] = useState<string | null>(null);
   const inFlightRef = useRef(false);
@@ -553,6 +556,28 @@ export const TaskManagerContent = ({
       setIsTaskForgetting(false);
     }
   };
+  // 批量移除：Rust 侧一次加锁落盘，运行中的任务自动跳过
+  const handleConfirmTaskForgetMany = async (): Promise<void> => {
+    if (!pendingTaskForgetMany?.length || taskForgetLockRef.current) return;
+    taskForgetLockRef.current = true;
+    setIsTaskForgetting(true);
+    setTaskForgetError(null);
+    try {
+      await window.snow.forgetDetachedTasks(
+        pendingTaskForgetMany.map((task) => task.id),
+      );
+      setPendingTaskForgetMany(null);
+      breakSampling();
+      await refresh(true);
+    } catch (error) {
+      setTaskForgetError(
+        error instanceof Error ? error.message : String(error),
+      );
+    } finally {
+      taskForgetLockRef.current = false;
+      setIsTaskForgetting(false);
+    }
+  };
   const handleOpenTaskLog = (task: DetachedTaskInfo): void => {
     const fileName = task.logPath.split("/").pop() || `${task.id}.log`;
     rightPanelEvents.emit("open-file", { filePath: task.logPath, fileName });
@@ -954,7 +979,8 @@ export const TaskManagerContent = ({
               isTaskKilling ||
               isTaskForgetting ||
               pendingTaskKill !== null ||
-              pendingTaskForget !== null
+              pendingTaskForget !== null ||
+              pendingTaskForgetMany !== null
             }
             onKill={(task) => {
               setTaskKillError(null);
@@ -963,6 +989,10 @@ export const TaskManagerContent = ({
             onForget={(task) => {
               setTaskForgetError(null);
               setPendingTaskForget(task);
+            }}
+            onForgetMany={(tasks) => {
+              setTaskForgetError(null);
+              setPendingTaskForgetMany(tasks);
             }}
             onOpenLog={handleOpenTaskLog}
           />
@@ -1102,6 +1132,29 @@ export const TaskManagerContent = ({
         onCancel={() => {
           if (!taskForgetLockRef.current) {
             setPendingTaskForget(null);
+            setTaskForgetError(null);
+          }
+        }}
+        isConfirming={isTaskForgetting}
+        variant="danger"
+      >
+        {taskForgetError && (
+          <p className="task-manager-kill-error">{taskForgetError}</p>
+        )}
+      </ConfirmDialog>
+
+      <ConfirmDialog
+        open={pendingTaskForgetMany !== null}
+        title={t("taskManager.backgroundForgetManyTitle")}
+        message={t("taskManager.backgroundForgetManyConfirm", {
+          values: { count: pendingTaskForgetMany?.length ?? 0 },
+        })}
+        confirmLabel={t("taskManager.backgroundForgetSelected")}
+        cancelLabel={t("common.cancel", { defaultValue: "Cancel" })}
+        onConfirm={() => void handleConfirmTaskForgetMany()}
+        onCancel={() => {
+          if (!taskForgetLockRef.current) {
+            setPendingTaskForgetMany(null);
             setTaskForgetError(null);
           }
         }}

@@ -4306,6 +4306,9 @@ export const en = {
   "settings.themeLayoutStyleIsland": "Island",
   "settings.themeLayoutStyleLayered": "Layered",
   "settings.themeLayoutStyleFlush": "Flush",
+  "settings.themeTranscriptStyle": "Transcript display",
+  "settings.themeTranscriptStyleInfo":
+    "How tool calls appear in the transcript: Classic keeps full tool cards, Chips compacts them into pill rows, Minimal hides thinking and merges tools into one group. Press {{shortcut}} to cycle.",
   "settings.themeCustomTitle": "Custom theme",
   "settings.themeCustomInfo":
     "Enable to fine-tune every color. Light and dark palettes are edited separately.",
@@ -5818,6 +5821,17 @@ export const en = {
   "taskManager.backgroundForgetTitle": "Remove background task record",
   "taskManager.backgroundForgetConfirm":
     'Delete the record for "{{name}}" and its log file {{path}}? This cannot be undone.',
+  "taskManager.backgroundMultiSelect": "Select multiple",
+  "taskManager.backgroundMultiSelectExit": "Exit multi-select",
+  "taskManager.backgroundSelectedCount": "{{count}} selected",
+  "taskManager.backgroundSelectAll": "Select all",
+  "taskManager.backgroundDeselectAll": "Deselect all",
+  "taskManager.backgroundForgetSelected": "Delete selected",
+  "taskManager.backgroundSelectRunningHint":
+    "Stop a running task before removing it",
+  "taskManager.backgroundForgetManyTitle": "Remove background task records",
+  "taskManager.backgroundForgetManyConfirm":
+    "Delete the records and log files of {{count}} selected tasks? This cannot be undone.",
   "taskManager.backgroundFocusMissing":
     "This background task is no longer listed (its record or log file may have been removed).",
   "taskManager.backgroundError": "Failed to read background tasks",

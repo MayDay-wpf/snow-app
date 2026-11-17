@@ -44,7 +44,8 @@ export const getToolCardStyle = (): ToolCardStyle => {
   return currentStyle;
 };
 
-const setToolCardStyle = (style: ToolCardStyle): void => {
+/** 直接设置显示方案（主题设置面板使用）。 */
+export const setToolCardStyle = (style: ToolCardStyle): void => {
   currentStyle = style;
   try {
     window.localStorage.setItem(STORAGE_KEY, style);

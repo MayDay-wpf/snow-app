@@ -39,6 +39,10 @@ export const resourceApi = {
   forgetDetachedTask: (id: string): Promise<boolean> =>
     ipcRenderer.invoke("processes:background-task-forget", id),
 
+  /** 批量移除已完成的后台任务记录与日志；返回实际移除的 id */
+  forgetDetachedTasks: (ids: string[]): Promise<string[]> =>
+    ipcRenderer.invoke("processes:background-task-forget-many", ids),
+
   /** 整理本进程内存（仅 Windows 支持；其它平台快速失败），返回整理前后常驻内存 */
   optimizeMemory: (): Promise<MemoryOptimizeResult> =>
     ipcRenderer.invoke("settings:optimize-memory"),

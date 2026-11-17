@@ -1,5 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { FileText, Search, Square, Terminal, Trash2, X } from "lucide-react";
+import {
+  Check,
+  CheckSquare,
+  FileText,
+  ListChecks,
+  Search,
+  Square,
+  Terminal,
+  Trash2,
+  X,
+} from "lucide-react";
 import { useI18n } from "../../i18n";
 import { formatDisplayPath } from "../../utils/formatDisplayPath";
 import type { DetachedTaskInfo } from "../../../preload";
@@ -25,6 +35,8 @@ type Props = {
   actionsDisabled: boolean;
   onKill: (task: DetachedTaskInfo) => void;
   onForget: (task: DetachedTaskInfo) => void;
+  /** 多选批量移除（仅已退出的任务） */
+  onForgetMany: (tasks: DetachedTaskInfo[]) => void;
   onOpenLog: (task: DetachedTaskInfo) => void;
 };
 
@@ -71,10 +83,13 @@ export function TaskManagerBackgroundTasks({
   actionsDisabled,
   onKill,
   onForget,
+  onForgetMany,
   onOpenLog,
 }: Props): React.JSX.Element {
   const { t } = useI18n();
   const [query, setQuery] = useState("");
+  const [multiSelect, setMultiSelect] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const locatedRowRef = useRef<HTMLLIElement | null>(null);
   // 定位请求会清空搜索，避免目标行被上一次的筛选条件挡住。
   useEffect(() => {
@@ -124,6 +139,41 @@ export function TaskManagerBackgroundTasks({
     loaded &&
     !tasks.some((task) => matchesFocus(task, focusTarget));
   const aliveCount = tasks.filter((task) => task.alive).length;
+  // 只认仍存在且已退出的任务：删掉或重新运行的条目自动脱离选中
+  const checkedTasks = useMemo(
+    () => tasks.filter((task) => !task.alive && selected.has(task.id)),
+    [tasks, selected],
+  );
+  const selectableRows = useMemo(
+    () => rows.filter((task) => !task.alive),
+    [rows],
+  );
+  const allChecked =
+    selectableRows.length > 0 &&
+    selectableRows.every((task) => selected.has(task.id));
+  const toggleTask = (task: DetachedTaskInfo): void => {
+    if (task.alive) return;
+    setSelected((previous) => {
+      const next = new Set(previous);
+      if (next.has(task.id)) next.delete(task.id);
+      else next.add(task.id);
+      return next;
+    });
+  };
+  const toggleAll = (): void => {
+    setSelected((previous) => {
+      const next = new Set(previous);
+      for (const task of selectableRows) {
+        if (allChecked) next.delete(task.id);
+        else next.add(task.id);
+      }
+      return next;
+    });
+  };
+  const exitMultiSelect = (): void => {
+    setMultiSelect(false);
+    setSelected(new Set());
+  };
 
   return (
     <div className="task-manager-tab-content">
@@ -147,11 +197,67 @@ export function TaskManagerBackgroundTasks({
             </button>
           )}
         </label>
-        <span className="task-manager-background-count">
-          {t("taskManager.backgroundSummary", {
-            values: { running: aliveCount, total: tasks.length },
-          })}
-        </span>
+        {multiSelect ? (
+          <>
+            <button
+              type="button"
+              className="memo-multi-select-exit-btn"
+              disabled={actionsDisabled}
+              onClick={exitMultiSelect}
+              title={t("taskManager.backgroundMultiSelectExit")}
+              aria-label={t("taskManager.backgroundMultiSelectExit")}
+            >
+              <X size={14} strokeWidth={2} />
+            </button>
+            <span className="memo-multi-select-count">
+              {t("taskManager.backgroundSelectedCount", {
+                values: { count: checkedTasks.length },
+              })}
+            </span>
+            <div className="memo-multi-select-actions">
+              <button
+                type="button"
+                className="memo-multi-select-action-btn"
+                disabled={actionsDisabled || selectableRows.length === 0}
+                onClick={toggleAll}
+              >
+                <CheckSquare size={13} aria-hidden="true" />
+                <span>
+                  {allChecked
+                    ? t("taskManager.backgroundDeselectAll")
+                    : t("taskManager.backgroundSelectAll")}
+                </span>
+              </button>
+              <button
+                type="button"
+                className="memo-multi-select-action-btn danger"
+                disabled={actionsDisabled || checkedTasks.length === 0}
+                onClick={() => onForgetMany(checkedTasks)}
+              >
+                <Trash2 size={13} aria-hidden="true" />
+                <span>{t("taskManager.backgroundForgetSelected")}</span>
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <span className="task-manager-background-count">
+              {t("taskManager.backgroundSummary", {
+                values: { running: aliveCount, total: tasks.length },
+              })}
+            </span>
+            <button
+              type="button"
+              className="task-manager-refresh-btn"
+              disabled={tasks.length === aliveCount}
+              onClick={() => setMultiSelect(true)}
+              title={t("taskManager.backgroundMultiSelect")}
+              aria-label={t("taskManager.backgroundMultiSelect")}
+            >
+              <ListChecks size={13} aria-hidden="true" />
+            </button>
+          </>
+        )}
       </div>
 
       {focusMissing && (
@@ -171,15 +277,42 @@ export function TaskManagerBackgroundTasks({
         >
           {rows.map((task) => {
             const isLocated = task.id === locatedId;
+            const isChecked =
+              multiSelect && !task.alive && selected.has(task.id);
             return (
               <li
                 key={task.id}
                 ref={isLocated ? locatedRowRef : undefined}
                 className={`task-manager-background-item ${
                   task.alive ? "is-running" : "is-exited"
-                } ${isLocated ? "is-located" : ""}`}
+                } ${isLocated ? "is-located" : ""} ${
+                  multiSelect && !task.alive ? "is-selectable" : ""
+                } ${isChecked ? "is-checked" : ""}`}
+                onClick={multiSelect ? () => toggleTask(task) : undefined}
               >
                 <div className="task-manager-background-head">
+                  {multiSelect && (
+                    <button
+                      type="button"
+                      role="checkbox"
+                      aria-checked={isChecked}
+                      disabled={task.alive}
+                      className={`memo-item-checkbox task-manager-background-check${
+                        isChecked ? " checked" : ""
+                      }`}
+                      title={
+                        task.alive
+                          ? t("taskManager.backgroundSelectRunningHint")
+                          : undefined
+                      }
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        toggleTask(task);
+                      }}
+                    >
+                      {isChecked ? <Check size={11} strokeWidth={3} /> : null}
+                    </button>
+                  )}
                   <span className="task-manager-background-icon">
                     <Terminal size={13} aria-hidden="true" />
                   </span>
@@ -221,7 +354,10 @@ export function TaskManagerBackgroundTasks({
                   </span>
                 </div>
 
-                <div className="task-manager-background-actions">
+                <div
+                  className="task-manager-background-actions"
+                  onClick={(event) => event.stopPropagation()}
+                >
                   <button
                     type="button"
                     className="task-manager-background-action"

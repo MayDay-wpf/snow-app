@@ -4062,6 +4062,9 @@ export const zhTW = {
   "settings.themeLayoutStyleIsland": "孤島",
   "settings.themeLayoutStyleLayered": "層疊",
   "settings.themeLayoutStyleFlush": "平鋪",
+  "settings.themeTranscriptStyle": "會話記錄",
+  "settings.themeTranscriptStyleInfo":
+    "控制工具呼叫在會話中的呈現方式：經典保留完整工具卡，簡潔壓成緊湊的膠囊工具列，極簡隱藏思考並把工具合併為一個集合。快捷鍵 {{shortcut}} 可循環切換。",
   "settings.themeCustomTitle": "自訂主題",
   "settings.themeCustomInfo":
     "啟用後可調整每一個顏色，淺色和深色調色盤分別編輯。",
@@ -5390,6 +5393,16 @@ export const zhTW = {
   "taskManager.backgroundForgetTitle": "移除背景任務紀錄",
   "taskManager.backgroundForgetConfirm":
     "將刪除「{{name}}」的紀錄及其日誌檔案 {{path}}，此操作無法復原。",
+  "taskManager.backgroundMultiSelect": "多選",
+  "taskManager.backgroundMultiSelectExit": "結束多選",
+  "taskManager.backgroundSelectedCount": "已選 {{count}} 筆",
+  "taskManager.backgroundSelectAll": "全選",
+  "taskManager.backgroundDeselectAll": "取消全選",
+  "taskManager.backgroundForgetSelected": "刪除所選",
+  "taskManager.backgroundSelectRunningHint": "執行中的任務需先結束才能移除",
+  "taskManager.backgroundForgetManyTitle": "批次移除背景任務紀錄",
+  "taskManager.backgroundForgetManyConfirm":
+    "將刪除所選 {{count}} 筆任務的紀錄及其日誌檔案，此操作無法復原。",
   "taskManager.backgroundFocusMissing":
     "找不到此背景任務：紀錄或日誌檔可能已被移除",
   "taskManager.backgroundError": "讀取背景任務失敗",

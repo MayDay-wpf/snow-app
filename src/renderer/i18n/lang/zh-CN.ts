@@ -4060,6 +4060,9 @@ export const zhCN = {
   "settings.themeLayoutStyleIsland": "孤岛",
   "settings.themeLayoutStyleLayered": "层叠",
   "settings.themeLayoutStyleFlush": "平铺",
+  "settings.themeTranscriptStyle": "会话记录",
+  "settings.themeTranscriptStyleInfo":
+    "控制工具调用在会话中的呈现方式：经典保留完整工具卡，简洁压成紧凑的胶囊工具行，极简隐藏思考并把工具合并为一个集合。快捷键 {{shortcut}} 可循环切换。",
   "settings.themeCustomTitle": "自定义主题",
   "settings.themeCustomInfo":
     "启用后可调整每一个颜色，浅色和深色调色板分别编辑。",
@@ -5449,6 +5452,16 @@ export const zhCN = {
   "taskManager.backgroundForgetTitle": "移除后台任务记录",
   "taskManager.backgroundForgetConfirm":
     "将删除「{{name}}」的记录及其日志文件 {{path}}，此操作不可撤销。",
+  "taskManager.backgroundMultiSelect": "多选",
+  "taskManager.backgroundMultiSelectExit": "退出多选",
+  "taskManager.backgroundSelectedCount": "已选 {{count}} 条",
+  "taskManager.backgroundSelectAll": "全选",
+  "taskManager.backgroundDeselectAll": "取消全选",
+  "taskManager.backgroundForgetSelected": "删除所选",
+  "taskManager.backgroundSelectRunningHint": "运行中的任务需先结束才能移除",
+  "taskManager.backgroundForgetManyTitle": "批量移除后台任务记录",
+  "taskManager.backgroundForgetManyConfirm":
+    "将删除所选 {{count}} 条任务的记录及其日志文件，此操作不可撤销。",
   "taskManager.backgroundFocusMissing":
     "未找到该后台任务：记录或日志文件可能已被移除",
   "taskManager.backgroundError": "读取后台任务失败",

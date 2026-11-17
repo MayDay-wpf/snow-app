@@ -31466,6 +31466,14 @@ button.user-message-source:hover {
   max-width: 72px;
 }
 
+/* 思考档位渐变文字，背景由内联 backgroundImage 提供 */
+.thinking-grad-text {
+  font-weight: 600;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
 .model-trigger-fast {
   display: inline-flex;
   align-items: center;
@@ -31550,7 +31558,6 @@ button.user-message-source:hover {
   position: absolute;
   min-width: 260px;
   max-width: 360px;
-  max-height: 320px;
   display: flex;
   flex-direction: column;
   padding: 6px;
@@ -31842,12 +31849,7 @@ button.user-message-source:hover {
 }
 
 .thinking-slider-summary.is-top .thinking-slider-summary-label {
-  color: #a855f7;
-  background: linear-gradient(90deg, #8b5cf6, #ec4899, #8b5cf6);
   background-size: 200% 100%;
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
   animation: thinking-text-shimmer 2.4s linear infinite;
 }
 
@@ -34420,6 +34422,36 @@ body.is-right-pane-resizing-y * {
 
 .task-manager-background-action:disabled {
   opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* 后台任务多选：复用备忘录勾选框，选中行强调边框 */
+.task-manager-background-item.is-selectable {
+  cursor: pointer;
+}
+
+.task-manager-background-item.is-checked {
+  border-color: var(--accent-color);
+  background: color-mix(in srgb, var(--accent-color) 8%, var(--surface-island));
+}
+
+.task-manager-background-check {
+  margin-top: 3px;
+  padding: 0;
+  cursor: pointer;
+}
+
+.task-manager-background-check:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.task-manager-background-check:disabled:hover {
+  border-color: var(--text-muted);
+}
+
+.task-manager-toolbar .task-manager-refresh-btn:disabled {
+  opacity: 0.4;
   cursor: not-allowed;
 }
 

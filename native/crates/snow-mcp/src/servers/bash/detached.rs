@@ -349,25 +349,43 @@ pub fn kill(id: &str) -> Result<bool, String> {
 
 /// 移除记录并删除对应日志文件；仍在运行的记录不允许移除。
 pub fn forget(id: &str) -> bool {
+    !forget_many(&[id.to_string()]).is_empty()
+}
+
+/// 批量移除：一次加锁、一次落盘；返回实际移除的 id（运行中的跳过）。
+pub fn forget_many(ids: &[String]) -> Vec<String> {
     let mut entries = registry();
-    let Some(index) = entries.iter().position(|entry| entry.id == id) else {
-        return false;
-    };
-    {
-        let entry = &entries[index];
-        if ended_at_of(entry).is_none() {
-            if !entry.foreign || foreign_alive(entry) {
-                return false;
-            }
-            mark_ended(entry, estimate_ended_at(entry));
+    let mut removed = Vec::new();
+    let mut logs = Vec::new();
+    entries.retain(|entry| {
+        if !ids.iter().any(|id| *id == entry.id) || !removable(entry) {
+            return true;
         }
+        removed.push(entry.id.clone());
+        logs.push(entry.log_path.clone());
+        false
+    });
+    if removed.is_empty() {
+        return removed;
     }
-    let log_path = entries[index].log_path.clone();
-    entries.remove(index);
     let snapshot = snapshot(entries.as_slice());
     drop(entries);
-    let _ = std::fs::remove_file(&log_path);
+    for path in logs {
+        let _ = std::fs::remove_file(path);
+    }
     persist_async(snapshot);
+    removed
+}
+
+/// 已退出才可移除；失效的恢复条目顺手定格退出时刻。
+fn removable(entry: &Entry) -> bool {
+    if ended_at_of(entry).is_some() {
+        return true;
+    }
+    if !entry.foreign || foreign_alive(entry) {
+        return false;
+    }
+    mark_ended(entry, estimate_ended_at(entry));
     true
 }
 

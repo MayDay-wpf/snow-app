@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Check, ChevronLeft, Keyboard, Sparkles } from "lucide-react";
 import { useI18n } from "../../../i18n";
 import type { ThinkingOption } from "./types";
-import { getThinkingTint } from "./thinkingIcons";
+import { getThinkingGradient, getThinkingTint } from "./thinkingIcons";
 
 // 与 CSS 中 --thinking-knob 保持一致
 const KNOB_SIZE = 18;
@@ -291,6 +291,10 @@ export function ThinkingStrengthMenu({
     displayIndex >= 0
       ? getThinkingTint(options, options[displayIndex].value)
       : null;
+  const activeGradient =
+    displayIndex >= 0
+      ? getThinkingGradient(options, options[displayIndex].value, isTopLevel)
+      : null;
   const sliderStyle = {
     "--thinking-p": progress,
   } as React.CSSProperties;
@@ -341,7 +345,16 @@ export function ThinkingStrengthMenu({
             className="thinking-slider-summary-icon"
             style={activeTint ? { color: activeTint } : undefined}
           />
-          <span className="thinking-slider-summary-label">{activeLabel}</span>
+          <span
+            className={`thinking-slider-summary-label${
+              activeGradient ? " thinking-grad-text" : ""
+            }`}
+            style={
+              activeGradient ? { backgroundImage: activeGradient } : undefined
+            }
+          >
+            {activeLabel}
+          </span>
         </div>
         <div
           ref={sliderRef}
