@@ -9,10 +9,12 @@ import type {
   ConversationContextValue,
   ToolCallInfo,
 } from "../utils/conversationTypes";
-import type { ChatRunStats } from "../utils/types";
+import type { ChatRunStats, ToolCallRun } from "../utils/types";
 
 export type MessageContentProps = {
   message: ChatConversationMessage;
+  /** 极简模式合并后的工具集合：取代本条消息自己的工具调用。 */
+  toolRun?: ToolCallRun;
   /** 会话工作目录：正文里的 HTML 文件链接据此解析后在内置浏览器打开。 */
   artifactWorkspace?: string;
   /** 会话累计运行统计：只有最后一条 AI 响应会展示到操作栏。 */
@@ -52,6 +54,7 @@ export type MessageContentProps = {
 export const MessageContent = memo(
   ({
     message,
+    toolRun,
     artifactWorkspace,
     runStats,
     isStreaming,
@@ -105,7 +108,12 @@ export const MessageContent = memo(
     }
 
     const isLastAssistant = message.id === lastAssistantMessageId;
-    const hasToolCalls = (message.toolCalls?.length ?? 0) > 0;
+    // 极简模式：合并后的工具集合（可含后续无正文响应的工具）取代本条消息的。
+    const effectiveToolCalls = toolRun ? toolRun.toolCalls : message.toolCalls;
+    const effectiveHookExecutions = toolRun
+      ? toolRun.hookExecutions
+      : message.hookExecutions;
+    const hasToolCalls = (effectiveToolCalls?.length ?? 0) > 0;
     const isMessageStreaming = message.status === "sending";
 
     // Hook records bound to a tool call of this message (via
@@ -113,9 +121,9 @@ export const MessageContent = memo(
     // Only unbound records — or bound records whose card is not in this
     // message (should not happen) — stay in the message footer.
     const boundInteractionIds = new Set(
-      (message.toolCalls ?? []).map((tc) => tc.interactionId),
+      (effectiveToolCalls ?? []).map((tc) => tc.interactionId),
     );
-    const footerHookExecutions = (message.hookExecutions ?? []).filter(
+    const footerHookExecutions = (effectiveHookExecutions ?? []).filter(
       (record) =>
         !record.toolCallInteractionId ||
         !boundInteractionIds.has(record.toolCallInteractionId),
@@ -168,8 +176,8 @@ export const MessageContent = memo(
               />
             ) : undefined
           }
-          toolCalls={message.toolCalls}
-          hookExecutions={message.hookExecutions}
+          toolCalls={effectiveToolCalls}
+          hookExecutions={effectiveHookExecutions}
           pendingToolAuthorizations={
             isLastAssistant
               ? pendingToolAuthorizations.filter(
@@ -184,6 +192,7 @@ export const MessageContent = memo(
           onRejectToolAuthorization={onRejectToolAuthorization}
           conversationId={activeConversationId}
           messageId={message.id}
+          toolCallMessageIds={toolRun?.messageIds}
           responseId={message.responseId}
           updateSessionMessages={updateSessionMessages}
           onFork={onFork}

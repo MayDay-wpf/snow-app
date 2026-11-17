@@ -126,9 +126,9 @@ export const useViewportVirtualization = (
   const [visibleIds, setVisibleIds] = useState<ReadonlySet<string> | null>(
     () => initialVisibleIds ?? null,
   );
-  const [heights, setHeights] = useState<ReadonlyMap<string, number>>(
-    () => new Map<string, number>(),
-  );
+  // 高度缓存只在「真实 → 占位符」切换的那次渲染被读取（切换由 visibleIds 变化
+  // 驱动，写入发生在 flush 之前），无需作为 state：否则每次测量都让整列消息重渲染。
+  const heightsRef = useRef<Map<string, number>>(new Map());
 
   // Shared observers, lazily created once the scroll container is available.
   const intersectionObserverRef = useRef<IntersectionObserver | null>(null);
@@ -251,16 +251,10 @@ export const useViewportVirtualization = (
   }, [eagerVisibleIds, flushVisibleIds]);
 
   const updateHeights = useCallback((updates: Array<[string, number]>) => {
-    if (updates.length === 0) return;
-    setHeights((prev) => {
-      let next: Map<string, number> | undefined;
-      for (const [id, height] of updates) {
-        if (prev.get(id) === height) continue;
-        next ??= new Map(prev);
-        next.set(id, height);
-      }
-      return next ?? prev;
-    });
+    const heights = heightsRef.current;
+    for (const [id, height] of updates) {
+      heights.set(id, height);
+    }
   }, []);
 
   // IntersectionObserver callback factory. Kept as a stable function so both
@@ -494,8 +488,8 @@ export const useViewportVirtualization = (
   // memo, causing all VirtualizedMessage instances to re-render on every
   // streaming chunk even though their visibility did not change.
   const virtualization = useMemo(
-    () => ({ visibleIds, heights, register }),
-    [visibleIds, heights, register],
+    () => ({ visibleIds, heights: heightsRef.current, register }),
+    [visibleIds, register],
   );
 
   return virtualization;

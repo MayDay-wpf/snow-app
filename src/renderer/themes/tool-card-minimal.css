@@ -2,139 +2,63 @@
    Transcript style: minimal
 
    仅在根节点 data-tool-card-style="minimal" 时生效：
-   - 每轮中间过程折叠为「已处理 Xs」行（.turn-work）
-   - 工具组标题显示活动摘要，工具行为无底色的纯文本行
+   - 工具集合恒展开（只有用户点击才折叠），标题行是「活动摘要 · 最新一条工具」
+   - 工具行为无底色的纯文本行
    选择器额外带 .tcg / .tcn 祖先，压过主题预设的同名规则。
    ============================================================ */
 
-/* ---------- 轮次折叠块 ---------- */
+/* ---------- 工具组：活动摘要 + 最新工具状态标题 ---------- */
 
-/* 标题行在生成过程中常驻，结束时只折叠下方内容，块本身不重新插入。 */
-.turn-work {
-  display: block;
-  width: min(100%, calc(var(--chat-content-max, 720px) - 40px));
+/* 标题文案切换：交叉淡入淡出（见 FadingLabel），任意时刻都有一层可见，
+   工具连续执行时也不会看起来在闪烁。 */
+.tcg .tcg-label {
+  display: inline-grid;
+  max-width: 100%;
+  vertical-align: middle;
 }
 
-.turn-work-header {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.turn-work-toggle {
-  display: inline-flex;
-  flex-shrink: 0;
-  align-items: center;
-  gap: 6px;
-  height: 26px;
-  padding: 0 6px 0 2px;
-  border: none;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--text-tertiary);
-  font-size: 13px;
-  font-weight: 500;
-  font-variant-numeric: tabular-nums;
-  line-height: 1;
-  cursor: pointer;
-  transition: color 0.12s ease;
-}
-
-.turn-work-toggle:hover {
-  color: var(--text-primary);
-}
-
-.turn-work-meta {
-  color: var(--text-muted, var(--text-tertiary));
-  font-weight: 400;
-}
-
-.turn-work-meta::before {
-  content: "\00B7";
-  margin-right: 6px;
-}
-
-.turn-work-alert {
-  flex-shrink: 0;
-  color: var(--accent-red);
-}
-
-.turn-work-chevron {
-  flex-shrink: 0;
-  opacity: 0.6;
-  transition:
-    transform 0.24s cubic-bezier(0.23, 1, 0.32, 1),
-    opacity 0.12s ease;
-}
-
-.turn-work-toggle:hover .turn-work-chevron {
-  opacity: 1;
-}
-
-.turn-work.is-open .turn-work-chevron {
-  transform: rotate(90deg);
-}
-
-.turn-work-line {
-  flex: 1;
-  height: 1px;
-  background: var(--border-light);
-}
-
-/* 内容区：1fr ↔ 0fr 的高度过渡，收起后再卸载内容，避免瞬间消失 */
-.turn-work-body {
-  display: grid;
-  grid-template-rows: 1fr;
-  opacity: 1;
-  transition:
-    grid-template-rows 0.3s cubic-bezier(0.23, 1, 0.32, 1),
-    opacity 0.24s ease;
-}
-
-.turn-work-body.is-collapsed {
-  grid-template-rows: 0fr;
-  opacity: 0;
-  transition:
-    grid-template-rows 0.3s cubic-bezier(0.33, 1, 0.68, 1),
-    opacity 0.18s ease;
-}
-
-.turn-work-body-inner {
-  display: flex;
-  flex-direction: column;
-  gap: 24px;
-  min-height: 0;
-}
-
-/* 仅在收起过程中裁剪，展开态保持可见溢出（工具卡浮层不被切掉） */
-.turn-work-body.is-collapsed .turn-work-body-inner {
+.tcg .tcg-label > .fading-label-layer {
+  grid-area: 1 / 1;
+  min-width: 0;
   overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  /* 行高不能跟着按钮的 line-height: 1，否则 overflow 会裁掉英文字母的下伸部 */
+  line-height: 1.4;
 }
 
-/* 生成中：标题做轻微呼吸，和最终态的静态文案区分 */
-.turn-work.is-live .turn-work-label {
-  animation: turn-work-live-pulse 1.6s ease-in-out infinite;
+.tcg .tcg-label > .is-entering {
+  animation: tcg-label-fade-in 0.18s ease-out both;
 }
 
-@keyframes turn-work-live-pulse {
-  0%,
-  100% {
+.tcg .tcg-label > .is-leaving {
+  animation: tcg-label-fade-out 0.18s ease-in both;
+}
+
+@keyframes tcg-label-fade-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes tcg-label-fade-out {
+  from {
     opacity: 1;
   }
 
-  50% {
-    opacity: 0.55;
+  to {
+    opacity: 0;
   }
-}
-
-/* ---------- 工具组：活动摘要标题 ---------- */
-
-:root[data-tool-card-style="minimal"] .tcg {
-  margin-bottom: 4px;
 }
 
 :root[data-tool-card-style="minimal"] .tcg .tcg-toggle {
   gap: 6px;
+  max-width: 100%;
+  min-width: 0;
   height: 24px;
   padding: 0 4px 0 0;
   border: none;
@@ -160,9 +84,14 @@
 
 :root[data-tool-card-style="minimal"] .tcg .tcg-label {
   order: 1;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
   font-size: 13px;
   font-weight: 500;
   font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 :root[data-tool-card-style="minimal"] .tcg .tcg-plugins {
@@ -365,17 +294,13 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .turn-work,
-  .turn-work-toggle,
-  .turn-work-chevron,
-  .turn-work-body,
+  .tcg .tcg-label > .fading-label-layer,
   :root[data-tool-card-style="minimal"] .tcg .tcg-chevron,
   :root[data-tool-card-style="minimal"] .tcn .tcn-chevron {
     animation: none;
     transition: none;
   }
 
-  .turn-work.is-live .turn-work-label,
   :root[data-tool-card-style="minimal"]
     .tcn--running
     > .tcn-header

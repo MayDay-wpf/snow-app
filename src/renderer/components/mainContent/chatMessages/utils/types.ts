@@ -34,6 +34,18 @@ export type ChatRunStats = {
   model?: string;
 };
 
+/**
+ * 极简模式的工具集合：从一条 AI 正文之后开始，包含到下一次正文出现之前的
+ * 全部工具调用（可能跨多条没有正文的 AI 响应）。
+ */
+export type ToolCallRun = {
+  toolCalls: ToolCallInfo[];
+  /** interactionId -> 所属消息 id：工具卡的本地结算必须写回正确的消息。 */
+  messageIds: Map<string, string>;
+  /** 集合内工具绑定的 hook 记录（跨消息合并）。 */
+  hookExecutions?: HookExecutionRecord[];
+};
+
 export type AiResponseProps = {
   title?: string;
   summary: string;
@@ -92,6 +104,8 @@ export type AiResponseProps = {
   /** 本条响应消息的 id：工具卡片在看门狗中止未被后端接受时据此把这次调用
    *  本地结算为超时，避免卡片永久停在「执行中」。 */
   messageId?: string;
+  /** 极简模式合并工具集合时：每条工具调用原本所属的消息 id。 */
+  toolCallMessageIds?: Map<string, string>;
   responseId?: string;
   /** 会话消息更新函数（来自 ChatConversationProvider）：透传给工具卡片做本地
    *  收口（超时/缺执行 id 时结算自己所在的 tool call）。 */

@@ -9935,10 +9935,6 @@ body.is-panel-resizing * {
   --chat-content-max: 720px;
 }
 
-.chat-area.is-scroll-anchor-off {
-  overflow-anchor: none;
-}
-
 .chat-area::-webkit-scrollbar {
   width: 8px;
 }

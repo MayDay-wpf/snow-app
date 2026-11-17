@@ -1,12 +1,13 @@
 import { ChevronRight, CircleAlert } from "lucide-react";
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useI18n } from "../../../../i18n";
 import { resolveLocalized } from "../../../../plugins/manifest";
 import { usePluginStore } from "../../../../plugins/pluginStore";
 import { useSharedPluginToolOwner } from "../../../../plugins/pluginToolIndex";
 import type { ToolCallInfo } from "../utils/conversationTypes";
-import { summarizeToolActivity } from "../utils/toolActivitySummary";
+import { describeToolRunHeader } from "../utils/toolActivitySummary";
 import { useToolCardStyle } from "../../../../utils/toolCardStyle";
+import { FadingLabel } from "./FadingLabel";
 import { MessageTimestamp } from "./MessageTimestamp";
 
 type ToolCallGroupProps = {
@@ -19,9 +20,14 @@ type ToolCallGroupProps = {
   isRunning?: boolean;
   /** Whether any tool encountered an error */
   hasError?: boolean;
+  /** 有需要用户当场处理的卡片（提问 / 授权 / 共享确认）：强制展开。 */
+  forceOpen?: boolean;
   /** The tool call nodes. */
   children: ReactNode;
 };
+
+/** 与 .tcg-collapse 的 grid 过渡时长一致。 */
+const COLLAPSE_MS = 220;
 
 export const ToolCallGroup = ({
   count,
@@ -29,13 +35,32 @@ export const ToolCallGroup = ({
   timestamp,
   isRunning = false,
   hasError = false,
+  forceOpen = false,
   children,
 }: ToolCallGroupProps): React.JSX.Element => {
   const { t, locale } = useI18n();
   const isMinimal = useToolCardStyle() === "minimal";
-  // 未手动开合时：极简模式仅运行中展开，其余风格默认展开
+  // 默认恒展开：没有自动收起，只有用户手动点击才会折叠（提问/授权等交互
+  // 卡片等待处理时即使被手动收起也会重新展开）。
   const [userOpen, setUserOpen] = useState<boolean | null>(null);
-  const isOpen = userOpen ?? (isMinimal ? isRunning : true);
+  const isOpen = forceOpen || (userOpen ?? true);
+
+  // 收起状态不挂载工具卡：极简模式下滚动历史时不必为每个折叠集合重建
+  // 几十张卡片（滚动卡涩的主要来源）。展开中或仍在执行的集合保持挂载，
+  // 收起动画播完后再卸载。
+  const wantBody = isOpen || isRunning;
+  const [bodyMounted, setBodyMounted] = useState(wantBody);
+  useEffect(() => {
+    if (wantBody) {
+      setBodyMounted(true);
+      return;
+    }
+    if (!bodyMounted) {
+      return;
+    }
+    const timer = window.setTimeout(() => setBodyMounted(false), COLLAPSE_MS);
+    return () => window.clearTimeout(timer);
+  }, [wantBody, bodyMounted]);
 
   const toolNames = useMemo(
     () => toolCalls?.map((tc) => tc.name) ?? [],
@@ -51,13 +76,14 @@ export const ToolCallGroup = ({
     return plugin ? [plugin] : [];
   }, [ownerPluginId, pluginsState.plugins]);
 
-  const activitySummary = useMemo(
-    () => (isMinimal && toolCalls ? summarizeToolActivity(toolCalls, t) : ""),
+  // 极简模式标题行：「活动摘要 · 最新工具状态」，随执行推进实时更新。
+  const latestActivity = useMemo(
+    () => (isMinimal && toolCalls ? describeToolRunHeader(toolCalls, t) : ""),
     [isMinimal, toolCalls, t],
   );
 
-  const label = activitySummary
-    ? activitySummary
+  const label = latestActivity
+    ? latestActivity
     : isRunning
       ? t("toolCall.group.runningSteps", {
           defaultValue: "{{count}} steps",
@@ -68,6 +94,7 @@ export const ToolCallGroup = ({
           values: { count },
         });
 
+  // 标题文案变化时交叉淡入淡出（见 FadingLabel），不会整行消失。
   return (
     <div className={`tcg${hasError ? " tcg--has-error" : ""}`}>
       <button
@@ -76,7 +103,7 @@ export const ToolCallGroup = ({
         onClick={() => setUserOpen(!isOpen)}
         aria-expanded={isOpen}
       >
-        <span className="tcg-label">{label}</span>
+        <FadingLabel className="tcg-label" text={label} />
         {involvedPlugins.length > 0 && (
           <span className="tcg-plugins" aria-label="Plugins">
             {involvedPlugins.map((plugin) => (
@@ -113,10 +140,11 @@ export const ToolCallGroup = ({
           aria-hidden="true"
         />
       </button>
-      {/* 列表常挂载（收起时由 .tcg-collapse 折叠为 0 高度），
-          这样展开/收起都能走 grid-rows 高度过渡动画，而非瞬间闪现。 */}
+      {/* 收起态不挂载工具卡（见 bodyMounted）；展开/收起仍走 grid-rows 过渡。 */}
       <div className={`tcg-collapse${isOpen ? " is-open" : ""}`}>
-        <div className="tcg-list">{children}</div>
+        <div className="tcg-list">
+          {bodyMounted || isOpen ? children : null}
+        </div>
       </div>
     </div>
   );

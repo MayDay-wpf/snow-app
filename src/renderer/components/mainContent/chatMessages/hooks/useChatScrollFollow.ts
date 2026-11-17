@@ -22,17 +22,24 @@ type PendingScrollRestore = {
   rounds: number;
 };
 
+type ScrollAnchorCandidate = {
+  element: Element;
+  contentOffset: number;
+};
+
 type ScrollAnchorLock = {
   container: HTMLDivElement;
-  anchorElement: Element | null;
-  anchorContentOffset: number;
-  scrollHeight: number;
-  scrollTop: number;
+  /** 视口内自上而下的若干锚点：首个被移除（极简模式集合改挂）时顺延下一个。 */
+  anchors: ScrollAnchorCandidate[];
+  /** 上次同步时的 scrollTop：与之的差值即浏览器原生锚定已做的补偿。 */
   expectedScrollTop: number;
-  anchorLost: boolean;
 };
 
 const LOAD_OLDER_SCROLL_THRESHOLD = 96;
+// 提前翻页距离（视口高度倍数）：新页在视口上方落地，由原生滚动锚定无感补偿，
+// 不必等滚到顶再硬停翻页（极简模式一页常常只有几像素可见高度）。
+const LOAD_OLDER_PREFETCH_SCREENS = 2;
+const MAX_SCROLL_ANCHOR_CANDIDATES = 4;
 const SHOW_SCROLL_TO_BOTTOM_THRESHOLD = 160;
 const STICK_TO_BOTTOM_THRESHOLD = 16;
 
@@ -42,7 +49,6 @@ const USER_SCROLL_INTENT_WINDOW_MS = 750;
 // 在此窗口内保持钉底资格，把最终总结带到可视底部。
 const RUN_FINISH_FOLLOW_GRACE_MS = 1200;
 
-const SCROLL_ANCHOR_OFF_CLASS = "is-scroll-anchor-off";
 const SCROLL_RESTORE_WATCHDOG_STABLE_FRAMES = 12;
 const SCROLL_RESTORE_WATCHDOG_MAX_FRAMES = 90;
 
@@ -53,6 +59,70 @@ const measureAnchorContentOffset = (
   anchor.getBoundingClientRect().top -
   container.getBoundingClientRect().top +
   container.scrollTop;
+
+/** 取视口内自上而下的若干消息节点作为锚点（节点文档顺序即纵向顺序，二分定位）。 */
+const collectScrollAnchors = (
+  container: HTMLDivElement,
+): ScrollAnchorCandidate[] => {
+  const nodes = container.querySelectorAll<HTMLElement>("[data-message-id]");
+  const viewTop = container.getBoundingClientRect().top;
+  const viewBottom = viewTop + container.clientHeight;
+  let low = 0;
+  let high = nodes.length;
+  while (low < high) {
+    const mid = (low + high) >> 1;
+    if (nodes[mid].getBoundingClientRect().bottom <= viewTop) {
+      low = mid + 1;
+    } else {
+      high = mid;
+    }
+  }
+  const anchors: ScrollAnchorCandidate[] = [];
+  for (
+    let index = low;
+    index < nodes.length && anchors.length < MAX_SCROLL_ANCHOR_CANDIDATES;
+    index++
+  ) {
+    const rect = nodes[index].getBoundingClientRect();
+    if (rect.top >= viewBottom) {
+      break;
+    }
+    anchors.push({
+      element: nodes[index],
+      contentOffset: rect.top - viewTop + container.scrollTop,
+    });
+  }
+  return anchors;
+};
+
+/** 重新取样锚点基线（不做校正）：滚动事件里调用，吸收用户位移。 */
+const resyncScrollAnchorLock = (lock: ScrollAnchorLock): void => {
+  const { container } = lock;
+  const first = lock.anchors.find((anchor) =>
+    container.contains(anchor.element),
+  );
+  const firstRect = first?.element.getBoundingClientRect();
+  const viewTop = container.getBoundingClientRect().top;
+  // 锚点已离开视口（用户滚远）：换成当前视口内的节点。
+  if (
+    !firstRect ||
+    firstRect.bottom <= viewTop ||
+    firstRect.top >= viewTop + container.clientHeight
+  ) {
+    lock.anchors = collectScrollAnchors(container);
+  } else {
+    lock.anchors = lock.anchors.filter((anchor) =>
+      container.contains(anchor.element),
+    );
+    for (const anchor of lock.anchors) {
+      anchor.contentOffset = measureAnchorContentOffset(
+        container,
+        anchor.element,
+      );
+    }
+  }
+  lock.expectedScrollTop = container.scrollTop;
+};
 
 const willNestedScrollerConsumeWheel = (
   container: HTMLElement,
@@ -339,6 +409,11 @@ export const useChatScrollFollow = ({
     requestAnimationFrame(() => recheckLoadOlderRef.current());
   }, []);
 
+  // 只补「原生滚动锚定没补上的残差」：原生锚定在平滑滚轮动画中也能无缝补偿，
+  // 程序写 scrollTop 却会打断滚动动画（阻力感的来源），所以只有残差才写。
+  // 原生锚定在 scrollTop 为 0 或其锚点节点被移除时不生效，残差即在这些时刻出现。
+  // 调用时机（提交后的 layout effect / rAF）与上次基线（滚动事件或上轮校正）
+  // 之间没有用户位移，scrollTop 的变化只可能来自原生锚定。
   const applyAnchorCorrection = useCallback((): boolean => {
     const lock = scrollAnchorLockRef.current;
     if (!lock) {
@@ -350,34 +425,33 @@ export const useChatScrollFollow = ({
       return false;
     }
 
-    const anchorEl = lock.anchorElement;
-    if (!anchorEl || !container.contains(anchorEl)) {
-      if (lock.anchorLost) {
-        return false;
-      }
-      lock.anchorLost = true;
-      const addedHeight = container.scrollHeight - lock.scrollHeight;
-      container.scrollTop = lock.scrollTop + Math.max(0, addedHeight);
-      lock.expectedScrollTop = container.scrollTop;
-      return true;
-    }
-
-    const anchorContentNow = measureAnchorContentOffset(container, anchorEl);
-    const pushSinceLastRound = anchorContentNow - lock.anchorContentOffset;
-    if (pushSinceLastRound === 0) {
+    const anchor = lock.anchors.find((candidate) =>
+      container.contains(candidate.element),
+    );
+    if (!anchor) {
+      resyncScrollAnchorLock(lock);
       return false;
     }
 
-    const externalShift = container.scrollTop - lock.expectedScrollTop;
-    const isAlreadyCompensated =
-      externalShift !== 0 &&
-      Math.sign(externalShift) === Math.sign(pushSinceLastRound) &&
-      Math.abs(externalShift - pushSinceLastRound) <= 1;
-    const correction = isAlreadyCompensated ? 0 : pushSinceLastRound;
-
-    lock.anchorContentOffset = anchorContentNow;
-    if (correction !== 0) {
-      container.scrollTop += correction;
+    const push =
+      measureAnchorContentOffset(container, anchor.element) -
+      anchor.contentOffset;
+    if (Math.abs(push) < 0.5) {
+      lock.expectedScrollTop = container.scrollTop;
+      return false;
+    }
+    const residual = push - (container.scrollTop - lock.expectedScrollTop);
+    if (Math.abs(residual) > 1) {
+      container.scrollTop += residual;
+    }
+    lock.anchors = lock.anchors.filter((candidate) =>
+      container.contains(candidate.element),
+    );
+    for (const candidate of lock.anchors) {
+      candidate.contentOffset = measureAnchorContentOffset(
+        container,
+        candidate.element,
+      );
     }
     lock.expectedScrollTop = container.scrollTop;
     return true;
@@ -390,9 +464,6 @@ export const useChatScrollFollow = ({
     }
     scrollRestoreWatchdogFramesRef.current = 0;
     scrollRestoreStableFramesRef.current = 0;
-    scrollAnchorLockRef.current?.container.classList.remove(
-      SCROLL_ANCHOR_OFF_CLASS,
-    );
     scrollAnchorLockRef.current = null;
   }, []);
 
@@ -402,7 +473,6 @@ export const useChatScrollFollow = ({
     if (!container) {
       return;
     }
-    container.classList.add(SCROLL_ANCHOR_OFF_CLASS);
     scrollRestoreWatchdogFramesRef.current = 0;
     scrollRestoreStableFramesRef.current = 0;
     if (scrollRestoreWatchdogRafRef.current !== 0) {
@@ -1007,19 +1077,6 @@ export const useChatScrollFollow = ({
       // 后的 scrollHeight 偏小、校正被钳制，必须先即时释放。
       growthSmootherRef.current?.release();
 
-      let anchorElement: Element | null = null;
-      let anchorContentOffset = 0;
-      const containerTop = container.getBoundingClientRect().top;
-      for (const el of container.querySelectorAll<HTMLElement>(
-        "[data-message-id]",
-      )) {
-        if (el.getBoundingClientRect().bottom > containerTop) {
-          anchorElement = el;
-          anchorContentOffset = measureAnchorContentOffset(container, el);
-          break;
-        }
-      }
-
       let resolveRestore: () => void = () => {};
       const restoreFinished = new Promise<void>((resolve) => {
         resolveRestore = resolve;
@@ -1029,12 +1086,8 @@ export const useChatScrollFollow = ({
 
       scrollAnchorLockRef.current = {
         container,
-        anchorElement,
-        anchorContentOffset,
-        scrollHeight: container.scrollHeight,
-        scrollTop: container.scrollTop,
+        anchors: collectScrollAnchors(container),
         expectedScrollTop: container.scrollTop,
-        anchorLost: false,
       };
 
       pendingScrollRestoreRef.current = {
@@ -1347,6 +1400,12 @@ export const useChatScrollFollow = ({
 
     deriveFollowStateFromScroll(container);
 
+    // 翻页恢复期间每次滚动都刷新锚点基线：用户位移不能被当成需要校正的推挤。
+    const anchorLock = scrollAnchorLockRef.current;
+    if (anchorLock && anchorLock.container === container) {
+      resyncScrollAnchorLock(anchorLock);
+    }
+
     // 只有“加载更早消息”检查走 rAF 节流，避免快速滚动时频繁触发分页逻辑。
     if (scrollRafIdRef.current !== 0) {
       return;
@@ -1365,8 +1424,16 @@ export const useChatScrollFollow = ({
         return;
       }
 
+      // 提前预取只在用户离开底部阅读历史时启用：跟随最新输出时视口上方
+      // 的头部还会被消息窗口裁剪，预取只会与裁剪来回拉扯。
+      const loadOlderThreshold = shouldStickToBottomRef.current
+        ? LOAD_OLDER_SCROLL_THRESHOLD
+        : Math.max(
+            LOAD_OLDER_SCROLL_THRESHOLD,
+            throttledContainer.clientHeight * LOAD_OLDER_PREFETCH_SCREENS,
+          );
       if (
-        throttledContainer.scrollTop > LOAD_OLDER_SCROLL_THRESHOLD ||
+        throttledContainer.scrollTop > loadOlderThreshold ||
         !hasMoreMessages ||
         isLoadingOlderMessages ||
         isLoadingOlderWithScrollRef.current

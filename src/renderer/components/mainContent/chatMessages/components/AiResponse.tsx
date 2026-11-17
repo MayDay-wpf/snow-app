@@ -19,6 +19,8 @@ import type { AiResponseProps } from "../utils/types";
 import type { ToolCallInfo } from "../utils/conversationTypes";
 import type { HookExecutionRecord } from "../utils/conversationTypes";
 import { useMessageTimeVisible } from "../utils/messageTimeVisibility";
+import { hasPendingUserInteraction } from "../utils/toolCallInteraction";
+import { useToolCardStyle } from "../../../../utils/toolCardStyle";
 
 /** 工具调用渲染单元：连续的 imagegen-generate 合并为画廊、连续的多个提问合并
  *  为 Tab 组，其余逐个渲染。 */
@@ -109,6 +111,7 @@ export const AiResponse = memo(
     onRejectToolAuthorization,
     conversationId,
     messageId,
+    toolCallMessageIds,
     responseId,
     updateSessionMessages,
     onFork,
@@ -117,6 +120,8 @@ export const AiResponse = memo(
     const { t } = useI18n();
     const openHtmlArtifact = useHtmlArtifactOpen();
     const showMessageTime = useMessageTimeVisible();
+    // 极简模式：思考内容完全不展示，思考阶段只由会话级流光指示槽呈现。
+    const isMinimalTranscript = useToolCardStyle() === "minimal";
     const [showRawMarkdown, setShowRawMarkdown] = useState(false);
     const normalizedThinking = thinking?.trim();
     const normalizedSummary = summary.trim();
@@ -186,6 +191,12 @@ export const AiResponse = memo(
       [toolCalls],
     );
 
+    // 提问 / 待授权 / 共享确认这类卡片必须露出来，极简模式下强制展开集合。
+    const requiresUserInteraction = useMemo(
+      () => hasPendingUserInteraction(toolCalls),
+      [toolCalls],
+    );
+
     // Records bound to a specific tool call (toolCallInteractionId) are
     // rendered attached to that tool card (e.g. beforeSubAgentStart above
     // the sub-agent card).  Unbound records stay in the message footer.
@@ -230,8 +241,8 @@ export const AiResponse = memo(
 
           {/* 1. Thinking — the block auto-collapses once the thinking phase
               ends (first content delta / stream end) unless the user has
-              expanded or collapsed it manually. */}
-          {normalizedThinking ? (
+              expanded or collapsed it manually. 极简模式下整块不渲染。 */}
+          {normalizedThinking && !isMinimalTranscript ? (
             <ThinkingBlock
               content={normalizedThinking}
               isStreaming={isStreaming}
@@ -289,6 +300,7 @@ export const AiResponse = memo(
                   tc.correction?.status === "running",
               )}
               hasError={toolCalls.some((tc) => tc.status === "error")}
+              forceOpen={requiresUserInteraction}
             >
               {groupedToolCalls.map((item) =>
                 item.type === "gallery" ? (
@@ -303,7 +315,10 @@ export const AiResponse = memo(
                     key={item.key}
                     toolCall={item.toolCall}
                     conversationId={conversationId}
-                    messageId={messageId}
+                    messageId={
+                      toolCallMessageIds?.get(item.toolCall.interactionId) ??
+                      messageId
+                    }
                     updateSessionMessages={updateSessionMessages}
                     hookExecutions={hooksByInteractionId.get(
                       item.toolCall.interactionId,

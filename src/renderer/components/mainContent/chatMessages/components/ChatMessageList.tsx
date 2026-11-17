@@ -11,10 +11,8 @@ import { GitFork, Zap } from "lucide-react";
 import { useI18n } from "../../../../i18n";
 import { ChatStreamIndicator } from "./ChatStreamIndicator";
 import { VirtualizedMessage } from "./VirtualizedMessage";
-import { TurnWorkBlock } from "./TurnWorkBlock";
 import type { ChatConversationMessage } from "../utils/conversationTypes";
-import type { ChatRunStats } from "../utils/types";
-import { parseMessageTime } from "../utils/toolActivitySummary";
+import type { ChatRunStats, ToolCallRun } from "../utils/types";
 import { useToolCardStyle } from "../../../../utils/toolCardStyle";
 import { useViewportVirtualization } from "../hooks/useViewportVirtualization";
 import { useChatConversationContext } from "./ChatConversationContext";
@@ -46,28 +44,35 @@ type ChatMessageListProps = {
 const INITIAL_VIRTUAL_HEAD_COUNT = 3;
 const INITIAL_VIRTUAL_WINDOW_SIZE = 24;
 
-type TurnWorkItem = {
-  message: ChatConversationMessage;
-  index: number;
+type MinimalLayout = {
+  /** renderKey(锚点消息) -> 该正文之后的工具集合。 */
+  runs: Map<string, ToolCallRun>;
+  /** 整条隐藏的响应 renderKey（没有正文，内容已并入其他集合）。 */
+  hidden: Set<string>;
 };
 
-type TurnWork = {
-  /** 本轮仍在生成：标题显示进行中，内容保持展开。 */
-  live: boolean;
-  durationMs: number | null;
-  toolCount: number;
-  hasError: boolean;
-  /** 本轮的中间响应（不含最终回答）。 */
-  items: TurnWorkItem[];
-  /** 中间响应里有待授权工具：强制展开，避免授权卡片被折叠。 */
-  forceOpen: boolean;
+type RunCacheEntry = {
+  sources: ChatConversationMessage[];
+  run: ToolCallRun;
 };
 
-type TurnFolding = {
-  /** 中间响应的 renderKey -> 所属轮次 key（轮次 key 即首条中间响应的 renderKey） */
-  workKeys: Map<string, string>;
-  /** 轮次 key -> 折叠块数据 */
-  blocks: Map<string, TurnWork>;
+/** 有独立可见状态的响应必须单独成行，不能被并入工具集合。 */
+const needsOwnRow = (
+  message: ChatConversationMessage,
+  conversationId: string | undefined,
+): boolean => {
+  if (message.status === "error" || message.failureReason) return true;
+  if (message.isRetrying) return true;
+  if (
+    message.incompleteVariant ||
+    message.interruptionReason ||
+    message.recoveryOutcome
+  ) {
+    return true;
+  }
+  return (message.toolCalls ?? []).some(
+    (toolCall) => toolCall.authorizationConversationId === conversationId,
+  );
 };
 
 export const ChatMessageList = ({
@@ -297,117 +302,113 @@ export const ChatMessageList = ({
     return pinned;
   }, [activeConversationId, lastAssistantMessageId, messages, renderKeyOf]);
 
-  // 极简模式：每轮除最终回答外的中间响应收进一个折叠块，
-  // 标题行常驻（生成中显示进行中），结束后只把内容以高度过渡收起。
+  // 极简模式：按「消息 -> AI 正文 -> 工具集合 -> AI 正文 -> 工具集合」排列。
+  // 一条正文之后、下一条正文出现之前的所有工具（可能跨多条无正文的响应）
+  // 合并成一个集合，挂在正文所在消息上；无正文的响应整条隐藏。
   const isMinimalTranscript = useToolCardStyle() === "minimal";
-  const [turnOpenOverrides, setTurnOpenOverrides] = useState<
-    ReadonlyMap<string, boolean>
-  >(() => new Map<string, boolean>());
-  const toggleTurn = useCallback((turnKey: string, next: boolean): void => {
-    setTurnOpenOverrides((prev) => {
-      const map = new Map(prev);
-      map.set(turnKey, next);
-      return map;
-    });
-  }, []);
+  // 历史轮的集合缓存：来源消息引用不变时复用同一个集合对象，避免流式期间
+  // 击穿历史消息的 memo。
+  const runCacheRef = useRef(new Map<string, RunCacheEntry>());
+  useEffect(() => {
+    runCacheRef.current = new Map();
+  }, [activeConversationId]);
 
-  const turnFolding = useMemo<TurnFolding | null>(() => {
+  const minimalLayout = useMemo<MinimalLayout | null>(() => {
     if (!isMinimalTranscript) {
       return null;
     }
-    const runActive = isStreaming || isRunActive || isAborting;
-    const workKeys = new Map<string, string>();
-    const blocks = new Map<string, TurnWork>();
-    const collect = (
-      start: number,
-      end: number,
-      userTime: number | null,
-      isLastTurn: boolean,
+    const runs = new Map<string, ToolCallRun>();
+    const hidden = new Set<string>();
+    const cache = runCacheRef.current;
+    const nextCache = new Map<string, RunCacheEntry>();
+
+    let anchorKey: string | null = null;
+    let sources: ChatConversationMessage[] = [];
+    let current: ToolCallRun | null = null;
+
+    const collectTools = (
+      message: ChatConversationMessage,
+      run: ToolCallRun,
     ): void => {
-      const assistants: TurnWorkItem[] = [];
-      for (let i = start; i < end; i++) {
-        if (messages[i].role === "assistant") {
-          assistants.push({ message: messages[i], index: i });
-        }
+      for (const toolCall of message.toolCalls ?? []) {
+        run.toolCalls.push(toolCall);
+        run.messageIds.set(toolCall.interactionId, message.id);
       }
-      if (assistants.length < 2) {
-        return;
+      if (message.hookExecutions?.length) {
+        run.hookExecutions = [
+          ...(run.hookExecutions ?? []),
+          ...message.hookExecutions,
+        ];
       }
-      const turnKey = renderKeyOf(assistants[0].message.id);
-      const live = isLastTurn && runActive;
-
-      // 待授权工具必须露出来，不能被折叠挡住。
-      let forceOpen = false;
-      for (const { message } of assistants) {
-        for (const toolCall of message.toolCalls ?? []) {
-          if (toolCall.authorizationConversationId === activeConversationId) {
-            forceOpen = true;
-          }
-        }
-      }
-
-      // 生成中被用户手动收起：后续追加的输出也一并收进折叠块（含正在流式的
-      // 这条），否则收起后新的步骤仍会冒在块外面。
-      const collapsedLive =
-        live && !forceOpen && turnOpenOverrides.get(turnKey) === false;
-      const work = collapsedLive ? assistants : assistants.slice(0, -1);
-      for (const item of work) {
-        workKeys.set(renderKeyOf(item.message.id), turnKey);
-      }
-
-      let toolCount = 0;
-      let hasError = false;
-      for (const { message } of work) {
-        if (message.status === "error") {
-          hasError = true;
-        }
-        for (const toolCall of message.toolCalls ?? []) {
-          toolCount++;
-          if (toolCall.status === "error") {
-            hasError = true;
-          }
-        }
-      }
-      const endTime = parseMessageTime(
-        assistants[assistants.length - 1].message.timestamp,
-      );
-      blocks.set(turnKey, {
-        live,
-        durationMs:
-          live || userTime === null || endTime === null || endTime <= userTime
-            ? null
-            : endTime - userTime,
-        toolCount,
-        hasError,
-        items: work,
-        forceOpen,
-      });
     };
-    let start = 0;
-    let userTime: number | null = null;
-    for (let i = 0; i < messages.length; i++) {
-      if (messages[i].role !== "user") {
+
+    // 结算当前集合；来源消息引用未变时复用缓存里的集合对象。
+    const flush = (): void => {
+      if (anchorKey && current) {
+        const cached = cache.get(anchorKey);
+        const reused =
+          cached &&
+          cached.sources.length === sources.length &&
+          cached.sources.every((source, index) => source === sources[index])
+            ? cached.run
+            : current;
+        runs.set(anchorKey, reused);
+        nextCache.set(anchorKey, { sources, run: reused });
+      }
+      anchorKey = null;
+      sources = [];
+      current = null;
+    };
+
+    // 开一个新集合，并把本条响应的工具挂上去。
+    const openRun = (message: ChatConversationMessage): void => {
+      flush();
+      anchorKey = renderKeyOf(message.id);
+      sources = [message];
+      current = { toolCalls: [], messageIds: new Map<string, string>() };
+      collectTools(message, current);
+    };
+
+    // 无正文的响应：整条隐藏，工具并入当前集合。
+    const mergeIntoRun = (message: ChatConversationMessage): void => {
+      hidden.add(renderKeyOf(message.id));
+      if (!current) return;
+      if (sources[sources.length - 1] !== message) {
+        sources.push(message);
+      }
+      collectTools(message, current);
+    };
+
+    for (const message of messages) {
+      if (message.role === "user") {
+        flush();
         continue;
       }
-      // 首条用户消息之前的前缀是翻页裁切出的半轮，保持展开不折叠
-      if (i > 0) {
-        collect(start, i, userTime, false);
+      if (message.role !== "assistant") {
+        continue;
       }
-      start = i + 1;
-      userTime = parseMessageTime(messages[i].timestamp);
+      const hasBody = message.content.trim().length > 0;
+      const hasTools = (message.toolCalls?.length ?? 0) > 0;
+      if (hasBody || needsOwnRow(message, activeConversationId)) {
+        openRun(message);
+        continue;
+      }
+      if (!hasTools) {
+        // 没有正文也没有工具：极简模式下没有任何可见内容。
+        hidden.add(renderKeyOf(message.id));
+        continue;
+      }
+      if (current) {
+        mergeIntoRun(message);
+      } else {
+        openRun(message);
+      }
     }
-    collect(start, messages.length, userTime, true);
-    return { workKeys, blocks };
-  }, [
-    isMinimalTranscript,
-    isStreaming,
-    isRunActive,
-    isAborting,
-    messages,
-    renderKeyOf,
-    activeConversationId,
-    turnOpenOverrides,
-  ]);
+    flush();
+
+    runCacheRef.current = nextCache;
+    return { runs, hidden };
+  }, [isMinimalTranscript, messages, activeConversationId, renderKeyOf]);
 
   // 挂载时的初始可见窗口(仅当列表大到窗口无法覆盖全部时才起作用):
   // 切换会话后 chat-area 整体重建,新 ChatMessageList 挂载时若以
@@ -563,10 +564,11 @@ export const ChatMessageList = ({
     );
   };
 
-  // 单条消息的渲染（虚拟化包裹 + 消息内容）；极简模式的轮次折叠块复用同一份。
+  // 单条消息的渲染（虚拟化包裹 + 消息内容）。
   const renderMessageNode = (
     message: ChatConversationMessage,
     index: number,
+    toolRun?: ToolCallRun,
   ): React.JSX.Element | null => {
     // Tool messages return null; render an empty placeholder so React keeps
     // stable keys across renders.
@@ -609,14 +611,21 @@ export const ChatMessageList = ({
           : chatStyle.aiAvatarPath
         : undefined;
 
+    const renderKey = renderKeyOf(message.id);
     return (
       <VirtualizedMessage
-        id={renderKeyOf(message.id)}
+        id={renderKey}
         itemIndex={index}
         itemClassName={className}
-        virtualization={virtualization}
+        visible={
+          virtualization.visibleIds === null ||
+          virtualization.visibleIds.has(renderKey)
+        }
+        heights={virtualization.heights}
+        register={virtualization.register}
         imAvatarPath={imAvatarPath}
         message={message}
+        toolRun={toolRun}
         artifactWorkspace={artifactWorkspace}
         runStats={runStats}
         isStreaming={isStreaming}
@@ -642,44 +651,14 @@ export const ChatMessageList = ({
     index: number,
   ): React.JSX.Element | null => {
     const renderKey = renderKeyOf(message.id);
-    const turnKey = turnFolding?.workKeys.get(renderKey);
-    const block = turnKey ? turnFolding?.blocks.get(turnKey) : undefined;
-
-    // 轮次折叠块：首条中间响应位置渲染整块（标题行 + 中间过程），
-    // 其余中间响应不再单独占位。
-    if (block && turnKey) {
-      if (turnKey !== renderKey) {
-        return null;
-      }
-      // 手动开合优先；未手动时进行中的轮次展开，其余收起。
-      const override = turnOpenOverrides.get(turnKey);
-      const expanded = block.forceOpen || (override ?? block.live);
-      return (
-        <TurnWorkBlock
-          key={renderKey}
-          live={block.live}
-          durationMs={block.durationMs}
-          stepCount={block.items.length}
-          toolCount={block.toolCount}
-          hasError={block.hasError}
-          expanded={expanded}
-          onToggle={() => toggleTurn(turnKey, !expanded)}
-        >
-          {block.items.map((item) => (
-            <Fragment key={renderKeyOf(item.message.id)}>
-              {renderMessageNode(item.message, item.index)}
-            </Fragment>
-          ))}
-        </TurnWorkBlock>
-      );
-    }
-
-    if (turnKey) {
+    // 极简模式：无正文的响应已并入相邻的工具集合，不再单独占位。
+    if (minimalLayout?.hidden.has(renderKey)) {
       return null;
     }
-
     return (
-      <Fragment key={renderKey}>{renderMessageNode(message, index)}</Fragment>
+      <Fragment key={renderKey}>
+        {renderMessageNode(message, index, minimalLayout?.runs.get(renderKey))}
+      </Fragment>
     );
   };
 

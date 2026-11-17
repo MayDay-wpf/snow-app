@@ -1,5 +1,4 @@
 import { memo, useCallback, useEffect, useRef } from "react";
-import type { ViewportVirtualization } from "../hooks/useViewportVirtualization";
 import { VIRTUAL_PLACEHOLDER_DEFAULT_HEIGHT } from "../hooks/useViewportVirtualization";
 import { MessageContent, type MessageContentProps } from "./MessageContent";
 import { ChatImAvatar } from "./ChatImAvatar";
@@ -35,8 +34,12 @@ type VirtualizedMessageProps = MessageContentProps & {
   itemIndex: number;
   /** 内容包装节点的 class（含消息状态）。 */
   itemClassName: string;
-  /** Virtualization API from useViewportVirtualization. */
-  virtualization: ViewportVirtualization;
+  /** 是否渲染真实内容（由列表按可见集算好传入，未变化的消息可被 memo 跳过）。 */
+  visible: boolean;
+  /** 高度缓存（稳定引用），占位符据此保留高度。 */
+  heights: ReadonlyMap<string, number>;
+  /** 注册/注销观察节点。 */
+  register: (id: string, node: HTMLElement | null) => void;
   /** IM 风格头像路径（undefined 表示未开启 IM 风格，空串为默认头像） */
   imAvatarPath?: string;
 };
@@ -46,16 +49,13 @@ export const VirtualizedMessage = memo(
     id,
     itemIndex,
     itemClassName,
-    virtualization,
+    visible,
+    heights,
+    register,
     imAvatarPath,
     ...contentProps
   }: VirtualizedMessageProps): React.JSX.Element => {
-    const { visibleIds, heights, register } = virtualization;
-    // visibleIds === null means the IntersectionObserver has not reported yet.
-    // Render real content for everyone so the first paint is not a wall of
-    // empty placeholders. This is also the correct behaviour when JS disables
-    // virtualization (e.g. older browsers without IntersectionObserver).
-    const isVisible = visibleIds === null || visibleIds.has(id);
+    const isVisible = visible;
     const cachedHeight = heights.get(id);
     const messageId = contentProps.message.id;
     const messageRole = contentProps.message.role;
@@ -64,7 +64,9 @@ export const VirtualizedMessage = memo(
     // 回显（占位符 → 真实内容的重新挂载）不重播入场动画（见 wrapper 上的
     // .is-replay 类与 styles.css 的覆盖规则），避免滚回视口 / 可见集恢复时
     // 整片消息区看起来在"重刷闪烁"；首次出现仍保留柔和浮现动画。
-    const hasRenderedContentRef = useRef(false);
+    // 首次挂载即为占位符的历史消息，揭开时同样按回显处理：入场的 transform
+    // 动画会抑制浏览器滚动锚定，向上翻阅时表现为视口跳动。
+    const hasRenderedContentRef = useRef(!isVisible);
     const isReplay = isVisible && hasRenderedContentRef.current;
 
     useEffect(() => {
