@@ -166,6 +166,36 @@ export type ApiConfigImportApplyResult = {
   configs: ApiConfigRecord[];
 };
 
+/** 支持批量迁移的非 LLM 配置类别。 */
+export type ModelConfigTransferKind =
+  "imagegen" | "decision" | "embedding" | "reranking";
+
+export type ModelConfigTransferItem = {
+  id: string;
+  name: string;
+  model: string;
+  conflict: boolean;
+};
+
+export type ModelConfigImportPreview = {
+  items: ModelConfigTransferItem[];
+  conflictNames: string[];
+  skippedCount: number;
+};
+
+export type ModelConfigImportOutcome = {
+  importedCount: number;
+  overwrittenCount: number;
+  renamedCount: number;
+  skippedCount: number;
+};
+
+export type ModelConfigImportPickResult = {
+  canceled: boolean;
+  filePath: string;
+  preview: ModelConfigImportPreview | null;
+};
+
 export type Model = {
   id: string;
   object: string;

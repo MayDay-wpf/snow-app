@@ -2670,6 +2670,17 @@ export const zhCN = {
   "settings.apiSelectProfile": "选择 {name}",
   "settings.apiEditProfile": "编辑 {name}",
   "settings.clearSelection": "清空选择",
+  "settings.modelTransferExportSuccess": "已导出 {count} 项配置到 {path}。",
+  "settings.modelTransferExportError": "导出配置失败",
+  "settings.modelTransferImportSuccess": "已导入 {count} 项配置。",
+  "settings.modelTransferImportError": "导入配置失败",
+  "settings.modelTransferImportTitle": "导入配置",
+  "settings.modelTransferImportInfo":
+    "文件中共 {count} 项，其中 {conflict} 项与现有配置同名。",
+  "settings.modelTransferDeleteSelectedTitle": "删除所选配置",
+  "settings.modelTransferDeleteSelectedConfirm":
+    "确定删除选中的 {count} 项配置？此操作无法撤销。",
+  "settings.modelTransferDeleteSelectedSuccess": "已删除 {count} 项配置。",
   "settings.apiDeleteTitle": "删除 API 配置",
   "settings.apiDeleteConfirm":
     "确定删除 API 配置「{{name}}」吗？此操作无法撤销。",

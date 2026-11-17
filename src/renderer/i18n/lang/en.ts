@@ -2822,6 +2822,17 @@ export const en = {
   "settings.apiSelectProfile": "Select {name}",
   "settings.apiEditProfile": "Edit {name}",
   "settings.clearSelection": "Clear selection",
+  "settings.modelTransferExportSuccess": "Exported {count} item(s) to {path}.",
+  "settings.modelTransferExportError": "Failed to export configs",
+  "settings.modelTransferImportSuccess": "Imported {count} item(s).",
+  "settings.modelTransferImportError": "Failed to import configs",
+  "settings.modelTransferImportTitle": "Import configs",
+  "settings.modelTransferImportInfo":
+    "{count} item(s) in the file, {conflict} share a name with an existing item.",
+  "settings.modelTransferDeleteSelectedTitle": "Delete selected items",
+  "settings.modelTransferDeleteSelectedConfirm":
+    "Delete {count} selected item(s)? This cannot be undone.",
+  "settings.modelTransferDeleteSelectedSuccess": "Deleted {count} item(s).",
   "settings.apiDeleteTitle": "Delete API profile",
   "settings.apiDeleteConfirm":
     'Delete API profile "{{name}}"? This cannot be undone.',

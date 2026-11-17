@@ -2,6 +2,7 @@ import { BrowserWindow, dialog, ipcMain } from "electron";
 import { readFile, writeFile } from "node:fs/promises";
 import type {
   ApiModelsConfig,
+  ModelConfigTransferKind,
   NativeBridge,
   ResponsesApiStreamChunk,
 } from "../../native/types";
@@ -73,6 +74,42 @@ const readImportFileContent = async (filePath: string): Promise<string> => {
     );
   }
 };
+
+/** 非 LLM 配置迁移类别（图像渠道 / 决策 / 嵌入 / 重排）。 */
+const MODEL_TRANSFER_KINDS: readonly ModelConfigTransferKind[] = [
+  "imagegen",
+  "decision",
+  "embedding",
+  "reranking",
+];
+
+const readModelTransferKind = (value: unknown): ModelConfigTransferKind => {
+  if (
+    typeof value === "string" &&
+    MODEL_TRANSFER_KINDS.includes(value as ModelConfigTransferKind)
+  ) {
+    return value as ModelConfigTransferKind;
+  }
+  throw new Error(`Unsupported config transfer kind: ${String(value)}`);
+};
+
+const normalizeExportIds = (value: unknown): string[] => {
+  if (!Array.isArray(value)) {
+    throw new Error("Item ids must be an array");
+  }
+  const ids = value
+    .filter((item): item is string => typeof item === "string")
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
+  if (ids.length === 0) {
+    throw new Error("At least one item must be selected to export");
+  }
+  return Array.from(new Set(ids));
+};
+
+const pickWindowFor = (
+  event: Electron.IpcMainInvokeEvent,
+): BrowserWindow | null => BrowserWindow.fromWebContents(event.sender);
 
 export const registerApiConfigHandlers = (native: NativeBridge): void => {
   ipcMain.handle("api-configs:list", () => native.listApiConfigs());
@@ -282,6 +319,87 @@ export const registerApiConfigHandlers = (native: NativeBridge): void => {
       );
 
       return { outcome, configs: await native.listApiConfigs() };
+    },
+  );
+
+  // 图像渠道 / 决策 / 嵌入 / 重排配置迁移：文档构造、冲突判定与落库都在 Rust。
+  ipcMain.handle(
+    "model-configs:export-file",
+    async (event, kind: unknown, ids: unknown) => {
+      const transferKind = readModelTransferKind(kind);
+      const { content, exportedCount } = await native.exportModelConfigs(
+        transferKind,
+        normalizeExportIds(ids),
+      );
+
+      const options: Electron.SaveDialogOptions = {
+        title: "Export configs",
+        defaultPath: `snow-${transferKind}-configs-${new Date()
+          .toISOString()
+          .slice(0, 10)}.json`,
+        filters: [{ name: "JSON", extensions: ["json"] }],
+      };
+      const browserWindow = pickWindowFor(event);
+      const result = browserWindow
+        ? await dialog.showSaveDialog(browserWindow, options)
+        : await dialog.showSaveDialog(options);
+      if (result.canceled || !result.filePath) {
+        return { canceled: true, filePath: "", exportedCount: 0 };
+      }
+
+      await writeFile(result.filePath, content, "utf-8");
+      return { canceled: false, filePath: result.filePath, exportedCount };
+    },
+  );
+
+  ipcMain.handle(
+    "model-configs:pick-import-file",
+    async (event, kind: unknown) => {
+      const transferKind = readModelTransferKind(kind);
+      const options: Electron.OpenDialogOptions = {
+        title: "Import configs",
+        properties: ["openFile"],
+        filters: [{ name: "JSON", extensions: ["json"] }],
+      };
+      const browserWindow = pickWindowFor(event);
+      const result = browserWindow
+        ? await dialog.showOpenDialog(browserWindow, options)
+        : await dialog.showOpenDialog(options);
+      if (result.canceled || result.filePaths.length === 0) {
+        return { canceled: true, filePath: "", preview: null };
+      }
+
+      const filePath = result.filePaths[0];
+      const preview = await native.inspectModelConfigImport(
+        transferKind,
+        await readImportFileContent(filePath),
+      );
+      return { canceled: false, filePath, preview };
+    },
+  );
+
+  ipcMain.handle(
+    "model-configs:import-file",
+    async (
+      _event,
+      kind: unknown,
+      filePath: unknown,
+      conflictStrategy: unknown,
+    ) => {
+      const transferKind = readModelTransferKind(kind);
+      if (typeof filePath !== "string" || !filePath.trim()) {
+        throw new Error("Import file path is required");
+      }
+      if (!isImportConflictStrategy(conflictStrategy)) {
+        throw new Error(
+          `Unsupported import strategy: ${String(conflictStrategy)}`,
+        );
+      }
+      return native.importModelConfigs(
+        transferKind,
+        await readImportFileContent(filePath.trim()),
+        conflictStrategy,
+      );
     },
   );
 

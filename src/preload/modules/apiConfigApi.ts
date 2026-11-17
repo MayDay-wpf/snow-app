@@ -16,6 +16,9 @@ import type {
   ImportSnowCliApiConfigsResult,
   KeyboardShortcutsSettings,
   Model,
+  ModelConfigImportOutcome,
+  ModelConfigImportPickResult,
+  ModelConfigTransferKind,
   ModelUsageBreakdown,
   OAuthLoginStart,
   OAuthLoginStatus,
@@ -410,6 +413,28 @@ export const apiConfigApi = {
     conflictStrategy: "overwrite" | "duplicate",
   ): Promise<ApiConfigImportApplyResult> =>
     ipcRenderer.invoke("api-configs:import-file", filePath, conflictStrategy),
+  /** 图像渠道 / 决策 / 嵌入 / 重排：导出选中项为迁移文件。 */
+  exportModelConfigsFile: (
+    kind: ModelConfigTransferKind,
+    ids: string[],
+  ): Promise<ApiConfigExportFileResult> =>
+    ipcRenderer.invoke("model-configs:export-file", kind, ids),
+  /** 选择导入文件并返回冲突预览（不写库）。 */
+  pickModelConfigImportFile: (
+    kind: ModelConfigTransferKind,
+  ): Promise<ModelConfigImportPickResult> =>
+    ipcRenderer.invoke("model-configs:pick-import-file", kind),
+  importModelConfigsFile: (
+    kind: ModelConfigTransferKind,
+    filePath: string,
+    conflictStrategy: "overwrite" | "duplicate",
+  ): Promise<ModelConfigImportOutcome> =>
+    ipcRenderer.invoke(
+      "model-configs:import-file",
+      kind,
+      filePath,
+      conflictStrategy,
+    ),
   importSnowCliProxyConfig: (): Promise<ProxyBrowserSettings> =>
     ipcRenderer.invoke("proxy-browser-settings:import-snow-cli"),
   applyProxySettings: (): Promise<void> =>

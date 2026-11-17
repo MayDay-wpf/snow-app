@@ -8,14 +8,13 @@ import {
   Pencil,
   Search,
   Trash2,
-  Upload,
-  X,
 } from "lucide-react";
 import { useI18n } from "../../../i18n";
 import { ConfirmDialog } from "../../common/ConfirmDialog";
 import { ModelNameCell } from "../../common/ModelNameCell";
 import { ModelTestButton } from "../modelHealth/ModelConnectionStatus";
 import { ApiModelTestModal } from "./ApiModelTestModal";
+import { ApiSettingsSelectionBar } from "./ApiSettingsSelectionBar";
 import {
   DISABLED_STATUS_LABEL,
   ENABLED_STATUS_LABEL,
@@ -153,62 +152,17 @@ export function ApiSettingsTable({
         </label>
       </div>
 
-      {selectedCount > 0 && (
-        <div className="api-settings-selection-bar">
-          <span>
-            {t("settings.apiSelectedCount", {
-              defaultValue: "{count} selected",
-            }).replace("{count}", String(selectedCount))}
-          </span>
-          <div className="api-settings-selection-bar-actions">
-            <button
-              className="api-settings-action-btn primary"
-              onClick={() => onExportSelected(selectedNames)}
-              type="button"
-              disabled={isBusy}
-            >
-              <Upload size={14} strokeWidth={1.8} />
-              <span>
-                {t("settings.apiExportSelected", {
-                  defaultValue: "Export selected",
-                })}
-              </span>
-            </button>
-            <button
-              className="api-settings-action-btn danger"
-              onClick={() =>
-                setPendingDeletion(
-                  configs.filter((config) =>
-                    selectedNameSet.has(config.profileName),
-                  ),
-                )
-              }
-              type="button"
-              disabled={isBusy}
-            >
-              <Trash2 size={14} strokeWidth={1.8} />
-              <span>
-                {t("settings.apiDeleteSelected", {
-                  defaultValue: "Delete selected",
-                })}
-              </span>
-            </button>
-            <button
-              className="icon-btn ghost"
-              onClick={() => setSelectedNames([])}
-              type="button"
-              title={t("settings.clearSelection", {
-                defaultValue: "Clear selection",
-              })}
-              aria-label={t("settings.clearSelection", {
-                defaultValue: "Clear selection",
-              })}
-            >
-              <X size={13} strokeWidth={1.8} />
-            </button>
-          </div>
-        </div>
-      )}
+      <ApiSettingsSelectionBar
+        count={selectedCount}
+        isBusy={isBusy}
+        onExport={() => onExportSelected(selectedNames)}
+        onDelete={() =>
+          setPendingDeletion(
+            configs.filter((config) => selectedNameSet.has(config.profileName)),
+          )
+        }
+        onClear={() => setSelectedNames([])}
+      />
 
       <div className="api-settings-table-wrap">
         {isLoading && configs.length === 0 ? (

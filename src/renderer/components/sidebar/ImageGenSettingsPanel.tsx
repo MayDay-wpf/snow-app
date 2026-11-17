@@ -5,6 +5,7 @@ import {
   CircleCheck,
   Clock,
   Copy,
+  Download,
   Eye,
   EyeOff,
   Gauge,
@@ -38,6 +39,9 @@ import { useI18n } from "../../i18n";
 import { ModelBrandIcon } from "../common/ModelBrandIcon";
 import { ApiModelCombobox } from "./apiSettings/ApiModelCombobox";
 import { ApiSettingsFormActions } from "./apiSettings/ApiSettingsFormPanel";
+import { ApiSettingsSelectionBar } from "./apiSettings/ApiSettingsSelectionBar";
+import { ImportConflictModal } from "./apiSettings/ImportConflictModal";
+import { useModelConfigTransfer } from "./apiSettings/useModelConfigTransfer";
 import { buildDuplicateName } from "./duplicateName";
 import {
   applyCapability,
@@ -1214,7 +1218,13 @@ export function ImageGenSettingsPanel(): React.JSX.Element {
   }, [channels, searchQuery]);
 
   const enabledCount = channels.filter((channel) => channel.enabled).length;
-  const isBusy = isLoading || isSaving;
+  const transfer = useModelConfigTransfer({
+    kind: "imagegen",
+    onImported: load,
+    setStatus,
+    setError,
+  });
+  const isBusy = isLoading || isSaving || transfer.isTransferring;
 
   const selectedChannelIdSet = useMemo(
     () => new Set(selectedChannelIds),
@@ -2645,6 +2655,21 @@ export function ImageGenSettingsPanel(): React.JSX.Element {
             })}
           </span>
         </button>
+        <button
+          type="button"
+          className="api-settings-action-btn secondary"
+          onClick={() => void transfer.pickImport()}
+          disabled={isBusy}
+        >
+          {transfer.isTransferring ? (
+            <Loader2 size={15} className="spin" />
+          ) : (
+            <Download size={15} strokeWidth={1.8} />
+          )}
+          <span>
+            {t("settings.apiImportFile", { defaultValue: "Import config" })}
+          </span>
+        </button>
       </div>
 
       {/* 渠道表格：复用 API 设置表格样式 */}
@@ -2666,43 +2691,14 @@ export function ImageGenSettingsPanel(): React.JSX.Element {
           </label>
         </div>
 
-        {selectedChannelCount > 0 && (
-          <div className="api-settings-selection-bar">
-            <span>
-              {t("settings.apiSelectedCount", {
-                defaultValue: "{count} selected",
-              }).replace("{count}", String(selectedChannelCount))}
-            </span>
-            <div className="api-settings-selection-bar-actions">
-              <button
-                className="api-settings-action-btn danger"
-                onClick={() => setBulkDeletePending(true)}
-                type="button"
-                disabled={isBusy}
-              >
-                <Trash2 size={14} strokeWidth={1.8} />
-                <span>
-                  {t("settings.apiDeleteSelected", {
-                    defaultValue: "Delete selected",
-                  })}
-                </span>
-              </button>
-              <button
-                className="icon-btn ghost"
-                onClick={() => setSelectedChannelIds([])}
-                type="button"
-                title={t("settings.clearSelection", {
-                  defaultValue: "Clear selection",
-                })}
-                aria-label={t("settings.clearSelection", {
-                  defaultValue: "Clear selection",
-                })}
-              >
-                <X size={13} strokeWidth={1.8} />
-              </button>
-            </div>
-          </div>
-        )}
+        {/* 多选操作：导出 / 删除（与 LLM 模型表格一致） */}
+        <ApiSettingsSelectionBar
+          count={selectedChannelCount}
+          isBusy={isBusy}
+          onExport={() => void transfer.exportSelected(selectedChannelIds)}
+          onDelete={() => setBulkDeletePending(true)}
+          onClear={() => setSelectedChannelIds([])}
+        />
 
         <div className="api-settings-table-wrap">
           {isLoading ? (
@@ -3072,6 +3068,17 @@ export function ImageGenSettingsPanel(): React.JSX.Element {
         onConfirm={() => void confirmRemoveChannel()}
         onCancel={() => setChannelPendingDeletion(null)}
         variant="danger"
+      />
+
+      {/* 导入文件存在同名渠道时的处理方式 */}
+      <ImportConflictModal
+        open={transfer.pendingImport !== null}
+        totalCount={transfer.pendingImport?.totalCount ?? 0}
+        conflictNames={transfer.pendingImport?.conflictNames ?? []}
+        isBusy={transfer.isTransferring}
+        onCancel={transfer.cancelImport}
+        onOverwrite={() => void transfer.resolveImport("overwrite")}
+        onDuplicate={() => void transfer.resolveImport("duplicate")}
       />
 
       {/* 批量删除已选渠道（与 LLM 模型表格一致） */}

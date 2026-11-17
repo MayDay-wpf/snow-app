@@ -1,20 +1,18 @@
 import { useCallback, useEffect, useState } from "react";
 import {
-  AlertTriangle,
   Bot,
   BrainCircuit,
-  Copy,
   Image as ImageIcon,
   ListOrdered,
   Network,
   RotateCcw,
-  X,
 } from "lucide-react";
 import { AutoDismissNotice } from "../AutoDismissNotice";
 import { Modal } from "../common/Modal";
 import { useI18n } from "../../i18n";
 import type { ApiConfigImportOutcome, ApiConfigRecord } from "../../../preload";
 import { ApiSettingsActions } from "./apiSettings/ApiSettingsActions";
+import { ImportConflictModal } from "./apiSettings/ImportConflictModal";
 import { OAuthLoginDialog } from "./apiSettings/OAuthLoginDialog";
 import {
   ApiSettingsFormActions,
@@ -54,9 +52,6 @@ type PendingApiConfigImport = {
   /** 文件中与现有配置同名的配置名。 */
   conflictNames: string[];
 };
-
-/** 冲突确认弹窗中最多直接列出的同名配置数量。 */
-const MAX_LISTED_CONFLICTS = 8;
 
 export function ApiSettingsTreePanel({
   initialTab = "llm",
@@ -754,7 +749,7 @@ export function ApiSettingsTreePanel({
         />
       </Modal>
 
-      <Modal
+      <ImportConflictModal
         open={pendingImport !== null}
         title={t("settings.apiImportPreviewTitle", {
           defaultValue: "Import API profiles",
@@ -762,82 +757,18 @@ export function ApiSettingsTreePanel({
         description={t("settings.apiImportPreviewInfo", {
           defaultValue:
             "{count} profile(s) in the file, {conflict} share a name with an existing profile.",
-        })
-          .replace("{count}", String(pendingImport?.totalCount ?? 0))
-          .replace(
-            "{conflict}",
-            String((pendingImport?.conflictNames ?? []).length),
-          )}
-        closeLabel={t("settings.cancel", { defaultValue: "Cancel" })}
-        onClose={() => setPendingImport(null)}
-        closeDisabled={isSaving}
-        footer={
-          <>
-            <button
-              className="api-settings-form-btn secondary"
-              onClick={() => setPendingImport(null)}
-              type="button"
-              disabled={isSaving}
-            >
-              <X size={15} strokeWidth={1.9} />
-              <span>{t("settings.cancel", { defaultValue: "Cancel" })}</span>
-            </button>
-            <button
-              className="api-settings-form-btn secondary"
-              onClick={() =>
-                pendingImport &&
-                void applyImport(pendingImport.filePath, "duplicate")
-              }
-              type="button"
-              disabled={isSaving}
-            >
-              <Copy size={15} strokeWidth={1.9} />
-              <span>
-                {t("settings.apiImportDuplicate", {
-                  defaultValue: "Keep both as copies",
-                })}
-              </span>
-            </button>
-            <button
-              className="api-settings-form-btn primary"
-              onClick={() =>
-                pendingImport &&
-                void applyImport(pendingImport.filePath, "overwrite")
-              }
-              type="button"
-              disabled={isSaving}
-            >
-              <AlertTriangle size={15} strokeWidth={1.9} />
-              <span>
-                {t("settings.apiImportOverwrite", {
-                  defaultValue: "Overwrite existing",
-                })}
-              </span>
-            </button>
-          </>
+        })}
+        totalCount={pendingImport?.totalCount ?? 0}
+        conflictNames={pendingImport?.conflictNames ?? []}
+        isBusy={isSaving}
+        onCancel={() => setPendingImport(null)}
+        onDuplicate={() =>
+          pendingImport && void applyImport(pendingImport.filePath, "duplicate")
         }
-      >
-        <div className="api-settings-import-conflict">
-          <span>
-            {t("settings.apiImportConflictHint", {
-              defaultValue: "Choose how to handle the duplicated names:",
-            })}
-          </span>
-          <ul>
-            {pendingImport?.conflictNames
-              .slice(0, MAX_LISTED_CONFLICTS)
-              .map((profileName) => (
-                <li key={profileName}>{profileName}</li>
-              ))}
-            {pendingImport &&
-              pendingImport.conflictNames.length > MAX_LISTED_CONFLICTS && (
-                <li>
-                  +{pendingImport.conflictNames.length - MAX_LISTED_CONFLICTS}
-                </li>
-              )}
-          </ul>
-        </div>
-      </Modal>
+        onOverwrite={() =>
+          pendingImport && void applyImport(pendingImport.filePath, "overwrite")
+        }
+      />
 
       <OAuthLoginDialog
         open={showOAuthLogin}

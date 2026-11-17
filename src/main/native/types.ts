@@ -193,6 +193,31 @@ export type ApiConfigExportResult = {
   exportedCount: number;
 };
 
+/** 支持批量迁移的非 LLM 配置类别。 */
+export type ModelConfigTransferKind =
+  "imagegen" | "decision" | "embedding" | "reranking";
+
+export type ModelConfigTransferItem = {
+  id: string;
+  name: string;
+  model: string;
+  /** 与现有配置同 id 或同名。 */
+  conflict: boolean;
+};
+
+export type ModelConfigImportPreview = {
+  items: ModelConfigTransferItem[];
+  conflictNames: string[];
+  skippedCount: number;
+};
+
+export type ModelConfigImportOutcome = {
+  importedCount: number;
+  overwrittenCount: number;
+  renamedCount: number;
+  skippedCount: number;
+};
+
 export type CodebaseSettingsInput = {
   profileName: string;
   /** 选中的嵌入 / 重排模型 id（空 = 未选择）；模型配置存于 embedding_models / reranking_models。 */
@@ -3150,6 +3175,19 @@ export type NativeBridge = ImageGenerationNativeApi & {
     modelId: string,
     enabled: boolean,
   ) => Promise<void>;
+  exportModelConfigs: (
+    kind: ModelConfigTransferKind,
+    ids: string[],
+  ) => Promise<ApiConfigExportResult>;
+  inspectModelConfigImport: (
+    kind: ModelConfigTransferKind,
+    payloadJson: string,
+  ) => Promise<ModelConfigImportPreview>;
+  importModelConfigs: (
+    kind: ModelConfigTransferKind,
+    payloadJson: string,
+    conflictStrategy: string,
+  ) => Promise<ModelConfigImportOutcome>;
   listChatConversations: (
     directoryId: string,
   ) => Promise<ChatConversationRecord[]>;

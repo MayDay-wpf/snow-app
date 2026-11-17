@@ -1,4 +1,5 @@
 import {
+  Download,
   Eye,
   EyeOff,
   Loader2,
@@ -32,6 +33,10 @@ import {
 } from "../modelHealth/ModelConnectionStatus";
 import type { ModelConnectionTestResult } from "../../../../preload";
 import { EmbeddingTypeIcon, renderSchemeOption } from "./RequestMethodIcon";
+import { ApiSettingsSelectionBar } from "./ApiSettingsSelectionBar";
+import { ImportConflictModal } from "./ImportConflictModal";
+import { useModelConfigTransfer } from "./useModelConfigTransfer";
+import { useRowSelection } from "./useRowSelection";
 
 const renderEmbeddingTypeOption = renderSchemeOption(EmbeddingTypeIcon);
 
@@ -270,6 +275,16 @@ export function CodebaseModelsPanel({
   useEffect(() => {
     void load();
   }, [load]);
+
+  const selection = useRowSelection(models.map((model) => model.id));
+  const [bulkDeletePending, setBulkDeletePending] = useState(false);
+  const transfer = useModelConfigTransfer({
+    kind,
+    onImported: load,
+    setStatus,
+    setError,
+  });
+  const isBusy = isSaving || transfer.isTransferring;
 
   /** 执行一次写操作（新增 / 编辑 / 启停 / 删除共用），返回是否成功。 */
   const runMutation = useCallback(
@@ -515,6 +530,31 @@ export function CodebaseModelsPanel({
     );
   };
 
+  /** 批量删除已选模型；Rust 同步清空代码库对它们的选择。 */
+  const confirmDeleteSelected = async (): Promise<void> => {
+    setBulkDeletePending(false);
+    const ids = selection.selectedIds;
+    await runMutation(
+      async () => {
+        for (const id of ids) {
+          const result = await window.snow.deleteRegisteredModel(kind, id);
+          if (
+            result.clearedReferences.includes(`codebase.${spec.selectionKey}`)
+          ) {
+            setSelectedId("");
+          }
+        }
+        setModels((previous) =>
+          previous.filter((item) => !ids.includes(item.id)),
+        );
+        selection.clear();
+      },
+      t("settings.modelTransferDeleteSelectedSuccess", {
+        defaultValue: "Deleted {count} item(s).",
+      }).replace("{count}", String(ids.length)),
+    );
+  };
+
   const embeddingWarning = (model: {
     embeddingType: string;
     apiKey: string;
@@ -532,16 +572,41 @@ export function CodebaseModelsPanel({
 
       <div className="api-settings-table-panel">
         <div className="api-settings-table-toolbar">
-          <button
-            type="button"
-            className="api-settings-action-btn primary"
-            onClick={openNewDraft}
-            disabled={isSaving}
-          >
-            <Plus size={15} />
-            <span>{texts.add}</span>
-          </button>
+          <div className="api-settings-table-toolbar-actions">
+            <button
+              type="button"
+              className="api-settings-action-btn secondary"
+              onClick={() => void transfer.pickImport()}
+              disabled={isBusy}
+            >
+              {transfer.isTransferring ? (
+                <Loader2 size={15} className="spin" />
+              ) : (
+                <Download size={15} />
+              )}
+              <span>
+                {t("settings.apiImportFile", { defaultValue: "Import config" })}
+              </span>
+            </button>
+            <button
+              type="button"
+              className="api-settings-action-btn primary"
+              onClick={openNewDraft}
+              disabled={isBusy}
+            >
+              <Plus size={15} />
+              <span>{texts.add}</span>
+            </button>
+          </div>
         </div>
+
+        <ApiSettingsSelectionBar
+          count={selection.selectedIds.length}
+          isBusy={isBusy}
+          onExport={() => void transfer.exportSelected(selection.selectedIds)}
+          onDelete={() => setBulkDeletePending(true)}
+          onClear={selection.clear}
+        />
 
         <div className="api-settings-table-wrap">
           {isLoading && models.length === 0 ? (
@@ -557,6 +622,24 @@ export function CodebaseModelsPanel({
             <table className="api-settings-table">
               <thead>
                 <tr>
+                  <th className="api-settings-table-select">
+                    <input
+                      type="checkbox"
+                      checked={selection.isAllSelected}
+                      ref={(element) => {
+                        if (element) {
+                          element.indeterminate = selection.isPartiallySelected;
+                        }
+                      }}
+                      onChange={selection.toggleAll}
+                      title={t("settings.apiSelectAll", {
+                        defaultValue: "Select all",
+                      })}
+                      aria-label={t("settings.apiSelectAll", {
+                        defaultValue: "Select all",
+                      })}
+                    />
+                  </th>
                   <th>{t("settings.tableName", { defaultValue: "Name" })}</th>
                   <th>{t("settings.tableModel", { defaultValue: "Model" })}</th>
                   {isEmbedding ? (
@@ -580,7 +663,24 @@ export function CodebaseModelsPanel({
               </thead>
               <tbody>
                 {models.map((model) => (
-                  <tr key={model.id}>
+                  <tr
+                    key={model.id}
+                    className={
+                      selection.selectedSet.has(model.id)
+                        ? "is-selected"
+                        : undefined
+                    }
+                  >
+                    <td className="api-settings-table-select">
+                      <input
+                        type="checkbox"
+                        checked={selection.selectedSet.has(model.id)}
+                        onChange={() => selection.toggle(model.id)}
+                        aria-label={t("settings.apiSelectProfile", {
+                          defaultValue: "Select {name}",
+                        }).replace("{name}", model.name)}
+                      />
+                    </td>
                     <td className="cell-name">
                       <strong>{model.name}</strong>
                       {model.id === selectedId ? (
@@ -877,6 +977,33 @@ export function CodebaseModelsPanel({
         isConfirming={isSaving}
         onConfirm={() => void confirmDelete()}
         onCancel={() => setPendingDelete(null)}
+      />
+
+      <ConfirmDialog
+        open={bulkDeletePending}
+        variant="danger"
+        title={t("settings.modelTransferDeleteSelectedTitle", {
+          defaultValue: "Delete selected items",
+        })}
+        message={t("settings.modelTransferDeleteSelectedConfirm", {
+          defaultValue:
+            "Delete {count} selected item(s)? This cannot be undone.",
+        }).replace("{count}", String(selection.selectedIds.length))}
+        confirmLabel={t("settings.delete", { defaultValue: "Delete" })}
+        cancelLabel={t("settings.cancel", { defaultValue: "Cancel" })}
+        isConfirming={isSaving}
+        onConfirm={() => void confirmDeleteSelected()}
+        onCancel={() => setBulkDeletePending(false)}
+      />
+
+      <ImportConflictModal
+        open={transfer.pendingImport !== null}
+        totalCount={transfer.pendingImport?.totalCount ?? 0}
+        conflictNames={transfer.pendingImport?.conflictNames ?? []}
+        isBusy={transfer.isTransferring}
+        onCancel={transfer.cancelImport}
+        onOverwrite={() => void transfer.resolveImport("overwrite")}
+        onDuplicate={() => void transfer.resolveImport("duplicate")}
       />
     </>
   );

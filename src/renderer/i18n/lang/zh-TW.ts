@@ -2670,6 +2670,17 @@ export const zhTW = {
   "settings.apiSelectProfile": "選擇 {name}",
   "settings.apiEditProfile": "編輯 {name}",
   "settings.clearSelection": "清空選取",
+  "settings.modelTransferExportSuccess": "已匯出 {count} 項配置到 {path}。",
+  "settings.modelTransferExportError": "匯出配置失敗",
+  "settings.modelTransferImportSuccess": "已匯入 {count} 項配置。",
+  "settings.modelTransferImportError": "匯入配置失敗",
+  "settings.modelTransferImportTitle": "匯入配置",
+  "settings.modelTransferImportInfo":
+    "檔案中共 {count} 項，其中 {conflict} 項與現有配置同名。",
+  "settings.modelTransferDeleteSelectedTitle": "刪除所選配置",
+  "settings.modelTransferDeleteSelectedConfirm":
+    "確定刪除選取的 {count} 項配置？此操作無法復原。",
+  "settings.modelTransferDeleteSelectedSuccess": "已刪除 {count} 項配置。",
   "settings.apiDeleteTitle": "刪除 API 配置",
   "settings.apiDeleteConfirm":
     "確定刪除 API 配置「{{name}}」嗎？此操作無法復原。",

@@ -8030,6 +8030,14 @@ body.is-panel-resizing * {
   gap: 12px;
 }
 
+/* 表格工具栏右侧按钮组：导入 + 新增 */
+.api-settings-table-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
 .decision-model-tool-default {
   display: flex;
   align-items: center;
@@ -8230,14 +8238,21 @@ body.is-panel-resizing * {
   contain: paint;
 }
 
-.api-settings-tree-page .api-settings-summary-grid,
-.api-settings-tree-page .api-settings-actions {
+/* API 设置页各 Tab 统一高度：表格按内容高度展示，超出可视区时只在表格内部滚动 */
+.api-settings-tree-page > *,
+.api-settings-tree-page .imagegen-tab-page > * {
   flex-shrink: 0;
 }
 
+/* 图像生成 Tab 嵌套页需可收缩，才能把剩余高度传给表格 */
+.api-settings-tree-page > .api-settings-page.imagegen-tab-page {
+  min-height: 0;
+  flex: 0 1 auto;
+}
+
 .api-settings-tree-page .api-settings-table-panel {
-  min-height: 240px;
-  flex: 1 1 auto;
+  min-height: 0;
+  flex: 0 1 auto;
 }
 
 .api-settings-tree-page .api-settings-table-panel > .api-settings-table-toolbar,
@@ -8248,7 +8263,7 @@ body.is-panel-resizing * {
 
 .api-settings-tree-page .api-settings-table-wrap {
   min-height: 0;
-  flex: 1 1 auto;
+  flex: 0 1 auto;
 }
 
 .api-settings-table {

@@ -34,6 +34,7 @@ pub mod project_lsp_server_configs;
 pub mod lsp_diagnostic_cache;
 pub mod memos;
 pub use snow_storage_core::model_registry;
+pub mod model_config_transfer;
 pub mod orphan_projects;
 pub mod pets;
 pub mod privacy_settings;

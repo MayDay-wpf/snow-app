@@ -9,6 +9,9 @@ use crate::storage::services::model_registry::{
     self, DecisionModelEntry, EmbeddingModelEntry, ModelDeleteResult, RegisteredModelKind,
     RerankingModelEntry,
 };
+use crate::storage::services::model_config_transfer::{
+    self, ModelConfigExportResult, ModelConfigImportOutcome, ModelConfigImportPreview,
+};
 
 async fn run_blocking<T, F>(task: F) -> Result<T>
 where
@@ -67,6 +70,40 @@ pub async fn upsert_decision_model(model: DecisionModelEntry) -> Result<Decision
 pub async fn delete_registered_model(kind: String, model_id: String) -> Result<ModelDeleteResult> {
     let kind = parse_kind(&kind)?;
     run_blocking(move |path| model_registry::delete_model(path, kind, &model_id)).await
+}
+
+/// 导出选中配置为迁移文档（kind = imagegen | decision | embedding | reranking），文件写入由主进程完成。
+#[napi]
+pub async fn export_model_configs(
+    kind: String,
+    ids: Vec<String>,
+) -> Result<ModelConfigExportResult> {
+    run_blocking(move |path| model_config_transfer::export_model_configs(path, &kind, &ids)).await
+}
+
+/// 解析导入文件并标出冲突项（不写库）。
+#[napi]
+pub async fn inspect_model_config_import(
+    kind: String,
+    payload_json: String,
+) -> Result<ModelConfigImportPreview> {
+    run_blocking(move |path| {
+        model_config_transfer::inspect_model_config_import(path, &kind, &payload_json)
+    })
+    .await
+}
+
+/// 执行导入；conflict_strategy 为 "overwrite" 或 "duplicate"。
+#[napi]
+pub async fn import_model_configs(
+    kind: String,
+    payload_json: String,
+    conflict_strategy: String,
+) -> Result<ModelConfigImportOutcome> {
+    run_blocking(move |path| {
+        model_config_transfer::import_model_configs(path, &kind, &payload_json, &conflict_strategy)
+    })
+    .await
 }
 
 #[napi]
