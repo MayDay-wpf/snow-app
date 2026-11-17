@@ -1077,7 +1077,8 @@ pub async fn prepare(
                 || query.contains("this")
                 || query.contains("above"))
         {
-            let reference = crate::mcp::privacy_mask::mask_local(&history.to_string());
+            // 历史含 AI 生成内容，不走脱敏
+            let reference = history.to_string();
             search.push(' ');
             search.push_str(
                 &reference
@@ -1110,7 +1111,7 @@ pub async fn prepare(
                 cancel,
             );
             match bounded(cancel, timeout, planner).await {
-                Ok(q) => search = crate::mcp::privacy_mask::mask_local(&q),
+                Ok(q) => search = q,
                 Err(_) => warnings.push("planner_unavailable".into()),
             }
         }
@@ -1166,9 +1167,7 @@ pub async fn prepare(
                 timeout,
                 crate::api::embedding::embed_batch(
                     &s.embedding,
-                    &[crate::mcp::privacy_mask::mask_local(
-                        &search.chars().take(2000).collect::<String>(),
-                    )],
+                    &[search.chars().take(2000).collect::<String>()],
                 ),
             )
             .await
@@ -1291,7 +1290,7 @@ pub async fn prepare(
                 timeout,
                 crate::api::reranking::rerank(
                     &s.reranking,
-                    &crate::mcp::privacy_mask::mask_local(&search),
+                    &search,
                     &documents,
                 ),
             )

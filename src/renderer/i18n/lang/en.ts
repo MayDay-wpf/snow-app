@@ -5534,6 +5534,22 @@ export const en = {
   "browser.setHomepage": "Set homepage",
   "browser.homepagePlaceholder": "Enter URL, leave empty for blank",
   "browser.homepageEmpty": "Blank",
+  "browser.newTabSearchPlaceholder": "Search or enter a URL",
+  "browser.newTabGreetingMorning": "Good morning",
+  "browser.newTabGreetingNoon": "Good day",
+  "browser.newTabGreetingAfternoon": "Good afternoon",
+  "browser.newTabGreetingEvening": "Good evening",
+  "browser.newTabGreetingNight": "It's late",
+  "browser.newTabTopSites": "Top sites",
+  "browser.newTabTopSitesEmpty":
+    "No history yet. Sites you visit will show up here, ranked by visits",
+  "browser.newTabBookmarks": "Bookmarks",
+  "browser.newTabBookmarksUngrouped": "Ungrouped",
+  "browser.newTabBookmarksEmpty":
+    "No bookmarks yet. Click the star at the left of the bookmarks bar to save the current page",
+  "browser.newTabEmptyTitle": "Start browsing",
+  "browser.newTabEmptyHint":
+    "Search or enter a URL above. Visited sites appear under Top sites, and the star at the left of the bookmarks bar saves a page.",
   "browser.back": "Back",
   "browser.forward": "Forward",
   "browser.reload": "Reload",
@@ -5683,6 +5699,7 @@ export const en = {
   "settings.browserHomepagePlaceholder":
     "Enter URL, leave empty for blank page",
   "settings.browserHomepageHint": "Empty means a blank page",
+  "settings.browserHomepageSaved": "Homepage saved",
   "settings.browserPasswords": "Passwords",
   "settings.browserPasswordsHint":
     "Passwords are stored AES-256-GCM encrypted, key protected by the OS keychain",

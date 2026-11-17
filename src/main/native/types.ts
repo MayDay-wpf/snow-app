@@ -4215,6 +4215,8 @@ export type NativeBridge = ImageGenerationNativeApi & {
   browserHistoryDelete: (id: string) => Promise<boolean>;
   /** 清空全部历史记录，返回删除数量 */
   browserHistoryClear: () => Promise<number>;
+  /** 新标签页常用网站：按主机聚合访问次数排序 */
+  browserHistoryTopSites: (limit: number) => Promise<BrowserTopSite[]>;
   // ── Codex 宠物系统 ────────────────────────────────────────────────
   /** 安装 Codex 宠物包（zip），返回安装后的宠物清单 */
   installPetFromZip: (
@@ -4379,6 +4381,15 @@ export type BrowserHistoryEntry = {
 export type BrowserHistoryPage = {
   items: BrowserHistoryEntry[];
   total: number;
+};
+
+/** 新标签页常用网站（按主机聚合，visitCount 为站点总访问次数）。 */
+export type BrowserTopSite = {
+  url: string;
+  host: string;
+  title: string;
+  visitCount: number;
+  lastVisitAt: number;
 };
 
 /** Codex 宠物清单（pet.json 解析结果 + 安装位置信息）。 */

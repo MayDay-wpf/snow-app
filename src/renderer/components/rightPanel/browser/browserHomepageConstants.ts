@@ -1,7 +1,11 @@
 export const BROWSER_HOMEPAGE_SETTING_NAME = "Browser homepage";
 export const BROWSER_HOMEPAGE_SETTING_CODE = "browser_homepage";
 
-export const DEFAULT_BROWSER_HOMEPAGE = "https://www.google.com";
+/** 未设置时默认空白页 */
+export const DEFAULT_BROWSER_HOMEPAGE = "";
+
+/** 起始页留空时打开的空白页 */
+export const BLANK_PAGE_URL = "about:blank";
 
 /**
  * Normalize raw storage value into a valid homepage URL string.

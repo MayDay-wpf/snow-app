@@ -5179,6 +5179,22 @@ export const zhCN = {
   "browser.setHomepage": "设置默认起始页",
   "browser.homepagePlaceholder": "输入网址，留空为空白页",
   "browser.homepageEmpty": "空白页",
+  "browser.newTabSearchPlaceholder": "搜索或输入网址",
+  "browser.newTabGreetingMorning": "早上好",
+  "browser.newTabGreetingNoon": "中午好",
+  "browser.newTabGreetingAfternoon": "下午好",
+  "browser.newTabGreetingEvening": "晚上好",
+  "browser.newTabGreetingNight": "夜深了",
+  "browser.newTabTopSites": "常用网站",
+  "browser.newTabTopSitesEmpty":
+    "还没有访问记录，浏览过的网站会按访问次数显示在这里",
+  "browser.newTabBookmarks": "书签",
+  "browser.newTabBookmarksUngrouped": "未分组",
+  "browser.newTabBookmarksEmpty":
+    "还没有书签，点击书签栏左侧的星标即可收藏当前页",
+  "browser.newTabEmptyTitle": "开始浏览吧",
+  "browser.newTabEmptyHint":
+    "在上方搜索或输入网址。访问过的网站会出现在「常用网站」，点击书签栏左侧的星标可收藏网页。",
   "browser.back": "后退",
   "browser.forward": "前进",
   "browser.reload": "刷新",
@@ -5318,6 +5334,7 @@ export const zhCN = {
   "settings.browserHomepage": "起始页",
   "settings.browserHomepagePlaceholder": "输入网址，留空为空白页",
   "settings.browserHomepageHint": "留空表示空白页",
+  "settings.browserHomepageSaved": "起始页已保存",
   "settings.browserPasswords": "密码",
   "settings.browserPasswordsHint":
     "密码以 AES-256-GCM 加密存储，密钥由系统钥匙串保护",

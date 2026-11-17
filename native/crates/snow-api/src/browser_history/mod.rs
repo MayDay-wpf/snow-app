@@ -58,6 +58,19 @@ pub struct BrowserHistoryPage {
     pub total: u32,
 }
 
+/// 新标签页常用网站：按主机聚合的访问统计。
+#[napi(object)]
+#[allow(non_snake_case)]
+pub struct BrowserTopSite {
+    /// 该站点访问最多的页面地址（点击直达）。
+    pub url: String,
+    pub host: String,
+    pub title: String,
+    /// 站点内所有页面访问次数之和。
+    pub visitCount: u32,
+    pub lastVisitAt: f64,
+}
+
 static CACHE: Mutex<Option<Vec<StoredEntry>>> = Mutex::new(None);
 
 fn history_file_path() -> Result<PathBuf> {
@@ -363,6 +376,59 @@ pub async fn browser_history_list(
         Error::new(
             Status::GenericFailure,
             format!("Failed to execute browser_history_list: {error}"),
+        )
+    })?
+}
+
+/// 新标签页常用网站：按主机聚合访问次数，取次数最多的前 limit 个站点。
+/// 代表页面取站点内访问最多的条目（同次数取最近访问）。
+#[napi]
+pub async fn browser_history_top_sites(limit: u32) -> Result<Vec<BrowserTopSite>> {
+    tokio::task::spawn_blocking(move || -> Result<Vec<BrowserTopSite>> {
+        let limit = limit.clamp(1, 50) as usize;
+        with_cache(|entries| {
+            let mut sites: std::collections::HashMap<String, (u32, i64, &StoredEntry)> =
+                std::collections::HashMap::new();
+            for entry in entries.iter() {
+                let host = host_of(&entry.url);
+                if host.is_empty() {
+                    continue;
+                }
+                sites
+                    .entry(host)
+                    .and_modify(|(count, last, best)| {
+                        *count = count.saturating_add(entry.visit_count);
+                        *last = (*last).max(entry.last_visit_at);
+                        if (entry.visit_count, entry.last_visit_at)
+                            > (best.visit_count, best.last_visit_at)
+                        {
+                            *best = entry;
+                        }
+                    })
+                    .or_insert((entry.visit_count, entry.last_visit_at, entry));
+            }
+            let mut ranked: Vec<(String, (u32, i64, &StoredEntry))> = sites.into_iter().collect();
+            ranked.sort_by(|(_, left), (_, right)| {
+                right.0.cmp(&left.0).then(right.1.cmp(&left.1))
+            });
+            ranked.truncate(limit);
+            Ok(ranked
+                .into_iter()
+                .map(|(host, (count, last, best))| BrowserTopSite {
+                    url: best.url.clone(),
+                    title: best.title.clone(),
+                    host,
+                    visitCount: count,
+                    lastVisitAt: last as f64,
+                })
+                .collect::<Vec<_>>())
+        })
+    })
+    .await
+    .map_err(|error| {
+        Error::new(
+            Status::GenericFailure,
+            format!("Failed to execute browser_history_top_sites: {error}"),
         )
     })?
 }

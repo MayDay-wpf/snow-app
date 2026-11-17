@@ -7,7 +7,6 @@ import { useSharedPluginToolOwner } from "../../../../plugins/pluginToolIndex";
 import type { ToolCallInfo } from "../utils/conversationTypes";
 import { describeToolRunHeader } from "../utils/toolActivitySummary";
 import { useToolCardStyle } from "../../../../utils/toolCardStyle";
-import { FadingLabel } from "./FadingLabel";
 import { MessageTimestamp } from "./MessageTimestamp";
 
 type ToolCallGroupProps = {
@@ -94,7 +93,7 @@ export const ToolCallGroup = ({
           values: { count },
         });
 
-  // 标题文案变化时交叉淡入淡出（见 FadingLabel），不会整行消失。
+  // 标题文案就地更新（摘要常驻），不做淡入淡出，避免更新时整行像消失一下。
   return (
     <div className={`tcg${hasError ? " tcg--has-error" : ""}`}>
       <button
@@ -103,7 +102,9 @@ export const ToolCallGroup = ({
         onClick={() => setUserOpen(!isOpen)}
         aria-expanded={isOpen}
       >
-        <FadingLabel className="tcg-label" text={label} />
+        <span className="tcg-label" title={label}>
+          {label}
+        </span>
         {involvedPlugins.length > 0 && (
           <span className="tcg-plugins" aria-label="Plugins">
             {involvedPlugins.map((plugin) => (

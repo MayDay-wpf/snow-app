@@ -48,16 +48,9 @@ pub(super) async fn mask_result(
     mut result: Value,
     settings: Option<&ImageGenSettings>,
 ) -> napi::Result<Value> {
-    // Only model-visible natural language goes through the free-text privacy API.
+    // 只遮罩非 AI 生成的文本（预览/错误）；prompt、revisedPrompt、模型文本块是 AI 生成内容，原样保留。
     // JSON, UUIDs, paths, URLs, base64 and MIME types stay independently parseable.
-    for field in [
-        "prompt",
-        "contentPreview",
-        "error",
-        "message",
-        "revisedPrompt",
-        "revised_prompt",
-    ] {
+    for field in ["contentPreview", "error", "message"] {
         if let Some(text) = result.get(field).and_then(Value::as_str) {
             let redacted = redact_text(text, settings);
             let masked = crate::mcp::privacy_mask::mask_tool_result_if_needed(
@@ -66,21 +59,6 @@ pub(super) async fn mask_result(
             )
             .await?;
             result[field] = json!(redact_text(&masked, settings));
-        }
-    }
-    if let Some(content) = result.get_mut("content").and_then(Value::as_array_mut) {
-        for block in content {
-            for field in ["text", "revisedPrompt", "revised_prompt"] {
-                if let Some(text) = block.get(field).and_then(Value::as_str) {
-                    let redacted = redact_text(text, settings);
-                    let masked = crate::mcp::privacy_mask::mask_tool_result_if_needed(
-                        "imagegen-generate",
-                        &redacted,
-                    )
-                    .await?;
-                    block[field] = json!(redact_text(&masked, settings));
-                }
-            }
         }
     }
     Ok(result)

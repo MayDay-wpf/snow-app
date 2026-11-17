@@ -5121,6 +5121,22 @@ export const zhTW = {
   "browser.setHomepage": "設定預設起始頁",
   "browser.homepagePlaceholder": "輸入網址，留空為空白頁",
   "browser.homepageEmpty": "空白頁",
+  "browser.newTabSearchPlaceholder": "搜尋或輸入網址",
+  "browser.newTabGreetingMorning": "早安",
+  "browser.newTabGreetingNoon": "午安",
+  "browser.newTabGreetingAfternoon": "午安",
+  "browser.newTabGreetingEvening": "晚安",
+  "browser.newTabGreetingNight": "夜深了",
+  "browser.newTabTopSites": "常用網站",
+  "browser.newTabTopSitesEmpty":
+    "尚無瀏覽記錄，瀏覽過的網站會依造訪次數顯示在這裡",
+  "browser.newTabBookmarks": "書籤",
+  "browser.newTabBookmarksUngrouped": "未分組",
+  "browser.newTabBookmarksEmpty":
+    "尚無書籤，點擊書籤列左側的星號即可收藏目前頁面",
+  "browser.newTabEmptyTitle": "開始瀏覽吧",
+  "browser.newTabEmptyHint":
+    "在上方搜尋或輸入網址。造訪過的網站會出現在「常用網站」，點擊書籤列左側的星號可收藏網頁。",
   "browser.back": "上一頁",
   "browser.forward": "下一頁",
   "browser.reload": "重新整理",
@@ -5260,6 +5276,7 @@ export const zhTW = {
   "settings.browserHomepage": "起始頁",
   "settings.browserHomepagePlaceholder": "輸入網址，留空為空白頁",
   "settings.browserHomepageHint": "留空表示空白頁",
+  "settings.browserHomepageSaved": "起始頁已儲存",
   "settings.browserPasswords": "密碼",
   "settings.browserPasswordsHint":
     "密碼以 AES-256-GCM 加密儲存，金鑰由系統鑰匙圈保護",

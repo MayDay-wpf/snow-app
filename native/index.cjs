@@ -137,6 +137,7 @@ const requiredExports = [
   "browserHistoryList",
   "browserHistoryDelete",
   "browserHistoryClear",
+  "browserHistoryTopSites",
   // 系统日志自动清理（保留期设置与按保留期清理）
   "getAppLogsRetentionDays",
   "setAppLogsRetentionDays",

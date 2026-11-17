@@ -169,7 +169,8 @@ fn prepare(conversation_id: &str, profile: Option<&str>) -> Result<Option<Prepar
     Ok(Some(Prepared {
         context,
         model,
-        payload: crate::mcp::privacy_mask::mask_local(&payload),
+        // 历史含 AI 生成内容，不走脱敏，否则预测会带出 ****
+        payload,
         usage,
     }))
 }

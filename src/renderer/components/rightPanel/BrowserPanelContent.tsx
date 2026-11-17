@@ -13,7 +13,8 @@ import {
   type PickedElement,
 } from "./browser";
 import type { BrowserDownloadItemEvent } from "../../../preload/modules/systemApi";
-import { DEFAULT_BROWSER_HOMEPAGE } from "./browser/browserHomepageConstants";
+import { BLANK_PAGE_URL } from "./browser/browserHomepageConstants";
+import { BrowserNewTabPage } from "./browser/BrowserNewTabPage";
 import {
   DEFAULT_BROWSER_DEVICE_SIZE_ID,
   resolveDeviceUserAgent,
@@ -101,13 +102,17 @@ export type BrowserPanelContentProps = {
   agentAccess?: BrowserAgentAccess;
 };
 
+/** 空白页在地址栏显示为空 */
+const toAddressText = (url: string): string =>
+  url === BLANK_PAGE_URL ? "" : url;
+
 const normalizeUrl = (input: string, homepage: string): string => {
   const trimmed = input.trim();
   if (!trimmed) {
-    return homepage || DEFAULT_BROWSER_HOMEPAGE;
+    return homepage || BLANK_PAGE_URL;
   }
-  // Already has a protocol (http, https, or file)
-  if (/^(https?|file):\/\//i.test(trimmed)) {
+  // Already has a protocol (http, https, file) or about: page
+  if (/^((https?|file):\/\/|about:)/i.test(trimmed)) {
     return trimmed;
   }
   // Looks like a domain (contains a dot, no spaces)
@@ -332,11 +337,17 @@ export const BrowserPanelContent = ({
     if (initialUrl) {
       return normalizeUrl(initialUrl, homepage);
     }
-    return loaded && homepage ? homepage : "";
+    return loaded ? homepage || BLANK_PAGE_URL : "";
   }, [initialUrl, homepage, loaded]);
 
   const [src, setSrc] = useState<string>(computeStartUrl);
-  const [addressInput, setAddressInput] = useState<string>(computeStartUrl);
+  const [addressInput, setAddressInput] = useState<string>(() =>
+    toAddressText(computeStartUrl()),
+  );
+  // 当前页面地址：空白页时覆盖显示新标签页
+  const [pageUrl, setPageUrl] = useState<string>(computeStartUrl);
+  const blankTitleRef = useRef(t("rightPanel.browserTab"));
+  blankTitleRef.current = t("rightPanel.browserTab");
   const [title, setTitle] = useState("");
   const [canGoBack, setCanGoBack] = useState(false);
   const [canGoForward, setCanGoForward] = useState(false);
@@ -570,7 +581,12 @@ export const BrowserPanelContent = ({
         recordMainFrameNavigationSuccess(instanceId, e.url);
         // 授权门禁的域名过滤按当前页面地址判定，导航后同步到注册表。
         updateBrowserAgentAccessUrl(instanceId, e.url);
-        setAddressInput(e.url);
+        setAddressInput(toAddressText(e.url));
+        setPageUrl(e.url);
+        if (e.url === BLANK_PAGE_URL) {
+          setTitle("");
+          onTitleChangeRef.current?.(blankTitleRef.current);
+        }
         // 访问历史：导航提交即记录（标题由页面标题更新事件回填）。
         recordVisit(e.url);
         handleNavigationStateUpdate();
@@ -623,6 +639,9 @@ export const BrowserPanelContent = ({
       const handlePageTitleUpdated = (
         e: Electron.PageTitleUpdatedEvent,
       ): void => {
+        if (e.title === BLANK_PAGE_URL) {
+          return;
+        }
         setTitle(e.title);
         if (e.title) {
           onTitleChangeRef.current?.(e.title);
@@ -734,13 +753,15 @@ export const BrowserPanelContent = ({
   // homepage 加载完成后（且没有显式 initialUrl），让页面导航到真实首页。
   // useState 只评估一次初始值，迟到的 homepage 必须在此补上。
   useEffect(() => {
-    if (!loaded || initialUrl) {
+    if (!loaded || initialUrl || src) {
       return;
     }
-    const url = normalizeUrl(homepage || DEFAULT_BROWSER_HOMEPAGE, homepage);
-    setSrc((prev) => (prev ? prev : url));
-    setAddressInput((prev) => (prev ? prev : url));
-  }, [loaded, initialUrl, homepage]);
+    // 起始页留空即空白页，不回退默认站点
+    const url = normalizeUrl(homepage, homepage);
+    setSrc(url);
+    setAddressInput((prev) => (prev ? prev : toAddressText(url)));
+    setPageUrl(url);
+  }, [loaded, initialUrl, homepage, src]);
 
   // src 置位时进入加载态（homepage 迟到补导航时 did-start-loading 尚未
   // 触发），did-stop-loading 负责清除。
@@ -1059,11 +1080,13 @@ export const BrowserPanelContent = ({
     }
     const url = normalizeUrl(input, homepageRef.current);
     // 地址栏即时回显输入值（即使未命中导航也保持所见即所得）。
-    setAddressInput(url);
+    setAddressInput(toAddressText(url));
     const webview = webviewRef.current;
     if (!webview) {
       return;
     }
+    // 离开空白页时立即收起新标签页，不等导航提交
+    setPageUrl(url);
     if (url === src) {
       // Same URL — src won't change, so explicitly reload.
       webview.reload();
@@ -1090,7 +1113,7 @@ export const BrowserPanelContent = ({
     } catch {
       currentUrl = "";
     }
-    setAddressInput(currentUrl || src);
+    setAddressInput(toAddressText(currentUrl || src));
     focusPageContent();
   }, [src, focusPageContent]);
 
@@ -1443,7 +1466,7 @@ export const BrowserPanelContent = ({
         </div>
       )}
       <BrowserBookmarksBar
-        activeUrl={addressInput || src}
+        activeUrl={toAddressText(addressInput || src)}
         activeTitle={title}
         onNavigate={(url) => handleNavigate(url)}
       />
@@ -1469,6 +1492,12 @@ export const BrowserPanelContent = ({
           preload={window.snow.browserWebviewPreloadPath}
           webpreferences="sandbox=no,contextIsolation=yes,nodeIntegration=no"
         />
+        {pageUrl === BLANK_PAGE_URL && (
+          <BrowserNewTabPage
+            active={isActive}
+            onNavigate={(input) => handleNavigate(input)}
+          />
+        )}
         {pickerAnchor && picked && (
           <BrowserElementPicker
             anchorLeft={pickerAnchor.left}

@@ -71,4 +71,9 @@ export const registerBrowserHistoryHandlers = (native: NativeBridge): void => {
   });
 
   ipcMain.handle("browser-history:clear", () => native.browserHistoryClear());
+
+  // 新标签页常用网站（按站点聚合）。
+  ipcMain.handle("browser-history:top-sites", (_event, limit: unknown) =>
+    native.browserHistoryTopSites(clampNumber(limit, 8, 50)),
+  );
 };

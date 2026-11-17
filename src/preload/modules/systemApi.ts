@@ -247,6 +247,15 @@ export type BrowserHistoryPage = {
   total: number;
 };
 
+/** 新标签页常用网站（按主机聚合，visitCount 为站点总访问次数）。 */
+export type BrowserTopSite = {
+  url: string;
+  host: string;
+  title: string;
+  visitCount: number;
+  lastVisitAt: number;
+};
+
 type BrowserBookmarksChangedSubscriber = () => void;
 
 const browserBookmarksSubscribers =
@@ -2107,6 +2116,9 @@ export const windowApi = {
   /** 清空全部历史记录，返回删除数量。 */
   browserHistoryClear: (): Promise<number> =>
     ipcRenderer.invoke("browser-history:clear"),
+  /** 新标签页常用网站（按站点聚合访问次数）。 */
+  browserHistoryTopSites: (limit = 8): Promise<BrowserTopSite[]> =>
+    ipcRenderer.invoke("browser-history:top-sites", limit),
   /** Frame operations execute in the main process; frame IDs never select another guest. */
   browserFrameOperation: (
     webContentsId: number,

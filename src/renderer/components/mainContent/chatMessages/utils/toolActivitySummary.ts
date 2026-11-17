@@ -212,17 +212,6 @@ const LATEST_DEFAULTS: Record<string, string> = {
   error: "{{name}} 失败",
 };
 
-/** 仍未结束的工具数（排队 + 运行中）。 */
-const countActive = (toolCalls: readonly ToolCallInfo[]): number => {
-  let active = 0;
-  for (const toolCall of toolCalls) {
-    if (toolCall.status === "running" || toolCall.status === "pending") {
-      active += 1;
-    }
-  }
-  return active;
-};
-
 /**
  * 最近一条已结束工具的结果描述：只展示结果，不展示等待/执行中状态。
  * 读取类工具瞬间就完成，先显示「正在读取」再改「已读取」只会让标题连闪。
@@ -249,18 +238,16 @@ const describeSettledActivity = (
 };
 
 /**
- * 工具集合标题行：执行中只显示最近一条工具的结果，整组结束后显示
- * 「活动摘要 · 结果」。摘要计数会随每个工具启动/完成改写，放在执行中
- * 会导致标题行持续变字，所以只在结束后出现。
+ * 工具集合标题行：「活动摘要 · 最近结果」。
+ * 摘要是常驻数据，随每个工具的启动/结束更新数字；末尾只跟已结束工具的结果，
+ * 不显示等待/执行中状态。文案就地替换，不做交叉淡入淡出。
  */
 export const describeToolRunHeader = (
   toolCalls: readonly ToolCallInfo[],
   t: Translate,
 ): string => {
   if (toolCalls.length === 0) return "";
-  const settled = describeSettledActivity(toolCalls, t);
   const summary = summarizeActivities(toolCalls, t);
-  // 还没有结果时先给聚合计数，避免标题行空白。
-  if (countActive(toolCalls) > 0) return settled || summary;
-  return summary ? `${summary} · ${settled}` : settled;
+  const settled = describeSettledActivity(toolCalls, t);
+  return settled ? `${summary} · ${settled}` : summary;
 };

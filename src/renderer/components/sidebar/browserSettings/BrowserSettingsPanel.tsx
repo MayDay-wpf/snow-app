@@ -119,12 +119,19 @@ export function BrowserSettingsPanel({
 
   const handleSaveHomepage = useCallback(async (): Promise<void> => {
     const value = homepageDraft.trim();
+    // 未改动不重复保存，也不弹提示
+    if (value === homepage) {
+      return;
+    }
     try {
       await setHomepage(value);
-    } catch {
-      // 保存失败时静默，输入框仍可继续编辑
+      setStatus(
+        t("settings.browserHomepageSaved", { defaultValue: "Homepage saved" }),
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
     }
-  }, [homepageDraft, setHomepage]);
+  }, [homepage, homepageDraft, setHomepage, t]);
 
   // ---- 密码管理 ----
   const [records, setRecords] = useState<PasswordRecord[]>([]);
