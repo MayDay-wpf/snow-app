@@ -1,5 +1,25 @@
 # Release Notes
 
+## v0.5.19
+
+### New Features
+
+- **Browser New Tab Page**: the default homepage changes from Google to a blank start page, overlaid by a built-in new tab page with search, top sites (aggregated by host in Rust) and grouped bookmarks.
+- **Model Config Import / Export**: image generation channels and decision, embedding and reranking models can be exported and imported in batches, with conflict handling (overwrite or duplicate) and a preview step. Exported files contain plaintext API keys.
+- **Transcript Style Setting**: theme settings gain a selector for `classic`, `chips` and `minimal` transcript styles.
+- **Background Task Multi-Select**: finished background tasks can be removed in batches; running tasks are skipped.
+
+### Improvements
+
+- **Minimal Transcript Redesign**: the per-turn "Worked for ..." block is replaced by tool run collections anchored to assistant messages; thinking blocks are hidden in minimal mode, and collections expand automatically while a confirmation awaits the user.
+- Scrolling through history is smoother: older pages are prefetched and height measurement no longer re-renders the whole message list.
+- Model panels support bulk selection and deletion consistently across tabs.
+
+### Bug Fixes
+
+- AI-generated content (drafts, history, planner queries, prompts) is no longer masked, so redaction placeholders no longer leak into model output.
+- Only properly closed backticks render as inline code, and tool group headers stay stable while tools run.
+
 ## v0.5.18
 
 ### New Features

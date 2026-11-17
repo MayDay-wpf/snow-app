@@ -36,7 +36,7 @@ export const TranscriptStyleNotice = (): React.JSX.Element | null => {
   return (
     <AutoDismissNotice
       key={notice.nonce}
-      tone="info"
+      tone="success"
       durationMs={NOTICE_DURATION_MS}
       message={t("chat.style.switched", {
         defaultValue: "Transcript style: {{style}}",
