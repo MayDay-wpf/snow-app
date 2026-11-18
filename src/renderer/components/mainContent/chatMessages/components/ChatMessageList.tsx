@@ -49,6 +49,8 @@ type MinimalLayout = {
   runs: Map<string, ToolCallRun>;
   /** 整条隐藏的响应 renderKey（没有正文，内容已并入其他集合）。 */
   hidden: Set<string>;
+  /** 最后一条 AI 响应被隐藏时，代它承载授权弹窗的锚点 renderKey。 */
+  tailHost: string | null;
 };
 
 type RunCacheEntry = {
@@ -57,21 +59,13 @@ type RunCacheEntry = {
 };
 
 /** 有独立可见状态的响应必须单独成行，不能被并入工具集合。 */
-const needsOwnRow = (
-  message: ChatConversationMessage,
-  conversationId: string | undefined,
-): boolean => {
+const needsOwnRow = (message: ChatConversationMessage): boolean => {
   if (message.status === "error" || message.failureReason) return true;
   if (message.isRetrying) return true;
-  if (
+  return Boolean(
     message.incompleteVariant ||
     message.interruptionReason ||
-    message.recoveryOutcome
-  ) {
-    return true;
-  }
-  return (message.toolCalls ?? []).some(
-    (toolCall) => toolCall.authorizationConversationId === conversationId,
+    message.recoveryOutcome,
   );
 };
 
@@ -280,28 +274,6 @@ export const ChatMessageList = ({
     [renderKeys],
   );
 
-  // Pinned message ids: the streaming (last assistant) message must always be
-  // rendered so the live output is never unmounted, and any message carrying a
-  // pending tool authorization must stay mounted so the approval dialog is not
-  // unmounted while waiting for the user.
-  const pinnedIds = useMemo(() => {
-    const pinned = new Set<string>();
-    if (lastAssistantMessageId) {
-      pinned.add(renderKeyOf(lastAssistantMessageId));
-    }
-    for (const msg of messages) {
-      const hasPendingAuth =
-        msg.role === "assistant" &&
-        msg.toolCalls?.some(
-          (tc) => tc.authorizationConversationId === activeConversationId,
-        );
-      if (hasPendingAuth) {
-        pinned.add(renderKeyOf(msg.id));
-      }
-    }
-    return pinned;
-  }, [activeConversationId, lastAssistantMessageId, messages, renderKeyOf]);
-
   // 极简模式：按「消息 -> AI 正文 -> 工具集合 -> AI 正文 -> 工具集合」排列。
   // 一条正文之后、下一条正文出现之前的所有工具（可能跨多条无正文的响应）
   // 合并成一个集合，挂在正文所在消息上；无正文的响应整条隐藏。
@@ -379,6 +351,7 @@ export const ChatMessageList = ({
       collectTools(message, current);
     };
 
+    let tailHost: string | null = null;
     for (const message of messages) {
       if (message.role === "user") {
         flush();
@@ -389,26 +362,47 @@ export const ChatMessageList = ({
       }
       const hasBody = message.content.trim().length > 0;
       const hasTools = (message.toolCalls?.length ?? 0) > 0;
-      if (hasBody || needsOwnRow(message, activeConversationId)) {
+      if (hasBody || needsOwnRow(message)) {
         openRun(message);
         continue;
       }
       if (!hasTools) {
         // 没有正文也没有工具：极简模式下没有任何可见内容。
         hidden.add(renderKeyOf(message.id));
-        continue;
-      }
-      if (current) {
+      } else if (current) {
         mergeIntoRun(message);
       } else {
         openRun(message);
+        continue;
+      }
+      // 最后一条响应被隐藏：授权弹窗改挂到当前集合的锚点上。
+      if (message.id === lastAssistantMessageId) {
+        tailHost = anchorKey;
       }
     }
     flush();
 
     runCacheRef.current = nextCache;
-    return { runs, hidden };
-  }, [isMinimalTranscript, messages, activeConversationId, renderKeyOf]);
+    return { runs, hidden, tailHost };
+  }, [isMinimalTranscript, messages, lastAssistantMessageId, renderKeyOf]);
+
+  // 授权弹窗宿主：默认是最后一条 AI 响应，极简模式下它被隐藏时由锚点代管。
+  const authorizationHostKey =
+    minimalLayout?.tailHost ??
+    (lastAssistantMessageId ? renderKeyOf(lastAssistantMessageId) : null);
+
+  // 最后一条 AI 响应（流式输出）与授权弹窗宿主必须常驻挂载，
+  // 避免等待用户处理期间被虚拟化卸载。
+  const pinnedIds = useMemo(() => {
+    const pinned = new Set<string>();
+    if (lastAssistantMessageId) {
+      pinned.add(renderKeyOf(lastAssistantMessageId));
+    }
+    if (authorizationHostKey) {
+      pinned.add(authorizationHostKey);
+    }
+    return pinned;
+  }, [authorizationHostKey, lastAssistantMessageId, renderKeyOf]);
 
   // 挂载时的初始可见窗口(仅当列表大到窗口无法覆盖全部时才起作用):
   // 切换会话后 chat-area 整体重建,新 ChatMessageList 挂载时若以
@@ -612,6 +606,9 @@ export const ChatMessageList = ({
         : undefined;
 
     const renderKey = renderKeyOf(message.id);
+    // 代管被隐藏的最后一条响应：只往下传派生标量，流式期间引用不变，
+    // 锚点消息的 memo 才不会被逐 token 击穿。
+    const hostsRunTail = minimalLayout?.tailHost === renderKey;
     return (
       <VirtualizedMessage
         id={renderKey}
@@ -635,6 +632,14 @@ export const ChatMessageList = ({
         canRollback={canRollback}
         rollbackPreparingMessageId={rollbackPreparingMessageId}
         pendingToolAuthorizations={pendingToolAuthorizations}
+        hostsPendingAuthorizations={renderKey === authorizationHostKey}
+        runTailId={hostsRunTail ? lastAssistantMessage?.id : undefined}
+        runTailResponseId={
+          hostsRunTail ? lastAssistantMessage?.responseId : undefined
+        }
+        runTailIsSending={
+          hostsRunTail && lastAssistantMessage?.status === "sending"
+        }
         onRollback={handleRollback}
         onFork={handleFork}
         onApproveToolAuthorization={approveToolAuthorization}

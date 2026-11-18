@@ -28,6 +28,15 @@ export type MessageContentProps = {
   canRollback: boolean;
   rollbackPreparingMessageId: string | null;
   pendingToolAuthorizations: ToolCallInfo[];
+  /** 是否承载授权弹窗：通常是最后一条 AI 响应，极简模式下它被隐藏时由集合锚点代管。 */
+  hostsPendingAuthorizations: boolean;
+  /** 极简模式：本条代管的、被隐藏的最后一条响应的 id（无则 undefined）。
+   *  只传派生标量而非消息对象：流式期间引用不变，memo 才能继续拦截。 */
+  runTailId?: string;
+  /** 代管响应的 responseId：分支截止点以整轮末尾的响应为准。 */
+  runTailResponseId?: string;
+  /** 代管响应是否仍在流式输出。 */
+  runTailIsSending?: boolean;
   onRollback: (messageId: string) => void;
   onFork: (conversationId: string, upToResponseId: string) => void;
   onApproveToolAuthorization: (toolCall: ToolCallInfo) => void;
@@ -64,6 +73,10 @@ export const MessageContent = memo(
     canRollback,
     rollbackPreparingMessageId,
     pendingToolAuthorizations,
+    hostsPendingAuthorizations,
+    runTailId,
+    runTailResponseId,
+    runTailIsSending,
     onRollback,
     onFork,
     onApproveToolAuthorization,
@@ -107,14 +120,20 @@ export const MessageContent = memo(
       return null;
     }
 
-    const isLastAssistant = message.id === lastAssistantMessageId;
+    // 代管被隐藏的最后一条响应时，本条按「最后一条」承载操作栏与统计。
+    const hostsRunTail = runTailId !== undefined;
+    const isLastAssistant =
+      message.id === lastAssistantMessageId || hostsRunTail;
     // 极简模式：合并后的工具集合（可含后续无正文响应的工具）取代本条消息的。
     const effectiveToolCalls = toolRun ? toolRun.toolCalls : message.toolCalls;
     const effectiveHookExecutions = toolRun
       ? toolRun.hookExecutions
       : message.hookExecutions;
     const hasToolCalls = (effectiveToolCalls?.length ?? 0) > 0;
-    const isMessageStreaming = message.status === "sending";
+    const isMessageStreaming =
+      message.status === "sending" || Boolean(runTailIsSending);
+    // 分支截止点以整轮末尾的响应为准。
+    const responseId = hostsRunTail ? runTailResponseId : message.responseId;
 
     // Hook records bound to a tool call of this message (via
     // toolCallInteractionId) are rendered inside the tool card itself.
@@ -169,17 +188,26 @@ export const MessageContent = memo(
           showActions={showActions}
           footerContent={
             activeConversationId ? (
-              <PluginMessageFooters
-                key={`${activeConversationId}:${message.id}`}
-                conversationId={activeConversationId}
-                messageId={message.id}
-              />
+              <>
+                <PluginMessageFooters
+                  key={`${activeConversationId}:${message.id}`}
+                  conversationId={activeConversationId}
+                  messageId={message.id}
+                />
+                {runTailId ? (
+                  <PluginMessageFooters
+                    key={`${activeConversationId}:${runTailId}`}
+                    conversationId={activeConversationId}
+                    messageId={runTailId}
+                  />
+                ) : null}
+              </>
             ) : undefined
           }
           toolCalls={effectiveToolCalls}
           hookExecutions={effectiveHookExecutions}
           pendingToolAuthorizations={
-            isLastAssistant
+            hostsPendingAuthorizations
               ? pendingToolAuthorizations.filter(
                   (toolCall) =>
                     toolCall.authorizationConversationId ===
@@ -193,7 +221,7 @@ export const MessageContent = memo(
           conversationId={activeConversationId}
           messageId={message.id}
           toolCallMessageIds={toolRun?.messageIds}
-          responseId={message.responseId}
+          responseId={responseId}
           updateSessionMessages={updateSessionMessages}
           onFork={onFork}
           runStats={isLastAssistant ? runStats : null}

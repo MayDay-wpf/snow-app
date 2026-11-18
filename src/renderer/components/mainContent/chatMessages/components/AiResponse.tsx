@@ -7,6 +7,7 @@ import { StreamRetryNotice } from "./StreamRetryNotice";
 import { ThinkingBlock } from "./ThinkingBlock";
 import { ToolCallItem } from "./ToolCallItem";
 import { ToolCallGroup } from "./ToolCallGroup";
+import { SameToolRun } from "./SameToolRun";
 import { MessageTimestamp } from "./MessageTimestamp";
 import { ImageGenGallery } from "../toolCalls/ImageGenGallery";
 import { AskUserQuestionGroup } from "../toolCalls/AskUserQuestionGroup";
@@ -19,7 +20,10 @@ import type { AiResponseProps } from "../utils/types";
 import type { ToolCallInfo } from "../utils/conversationTypes";
 import type { HookExecutionRecord } from "../utils/conversationTypes";
 import { useMessageTimeVisible } from "../utils/messageTimeVisibility";
-import { hasPendingUserInteraction } from "../utils/toolCallInteraction";
+import {
+  hasPendingUserInteraction,
+  isAwaitingUserAction,
+} from "../utils/toolCallInteraction";
 import { useToolCardStyle } from "../../../../utils/toolCardStyle";
 
 /** 工具调用渲染单元：连续的 imagegen-generate 合并为画廊、连续的多个提问合并
@@ -27,6 +31,7 @@ import { useToolCardStyle } from "../../../../utils/toolCardStyle";
 type ToolCallRenderItem =
   | { type: "gallery"; key: string; toolCalls: ToolCallInfo[] }
   | { type: "questionGroup"; key: string; toolCalls: ToolCallInfo[] }
+  | { type: "sameRun"; key: string; toolCalls: ToolCallInfo[] }
   | { type: "single"; key: string; toolCall: ToolCallInfo };
 
 /** 需要合并渲染的工具名（相邻 ≥2 个才合并）。 */
@@ -36,8 +41,19 @@ const IMAGE_TOOL_NAME = "imagegen-generate";
 /** 把 toolCalls 分组：相邻的 imagegen-generate（≥2 个）合并为一组画廊、
  *  相邻的提问（≥2 个）合并为一个 Tab 容器，避免并行生图结果 / 多轮提问
  *  纵向堆叠为多个单卡片；其余调用保持单卡渲染。 */
-const groupToolCalls = (toolCalls: ToolCallInfo[]): ToolCallRenderItem[] => {
+const groupToolCalls = (
+  toolCalls: ToolCallInfo[],
+  mergeSameTools: boolean,
+  pendingAuthorizationIds: ReadonlySet<string>,
+): ToolCallRenderItem[] => {
   const groups: ToolCallRenderItem[] = [];
+  const pushSingle = (index: number): void => {
+    groups.push({
+      type: "single",
+      key: `${toolCalls[index].name}-${index}`,
+      toolCall: toolCalls[index],
+    });
+  };
   for (let i = 0; i < toolCalls.length;) {
     const name = toolCalls[i].name;
     if (name === IMAGE_TOOL_NAME || name === ASK_TOOL_NAME) {
@@ -60,21 +76,36 @@ const groupToolCalls = (toolCalls: ToolCallInfo[]): ToolCallRenderItem[] => {
               },
         );
       } else {
-        groups.push({
-          type: "single",
-          key: `${name}-${i}`,
-          toolCall: toolCalls[i],
-        });
+        pushSingle(i);
       }
       i = j;
-    } else {
-      groups.push({
-        type: "single",
-        key: `${name}-${i}`,
-        toolCall: toolCalls[i],
-      });
-      i += 1;
+      continue;
     }
+    // 等待用户处理的交互型工具单独成行，处理完才并入同类折叠列表。
+    if (
+      !mergeSameTools ||
+      isAwaitingUserAction(toolCalls[i], pendingAuthorizationIds)
+    ) {
+      pushSingle(i);
+      i += 1;
+      continue;
+    }
+    // 极简模式：同名连续合并；单个也走 sameRun，key 取起点索引保持稳定，
+    // 后续同名工具到达时组件不重挂载、用户开合状态不丢。
+    let j = i + 1;
+    while (
+      j < toolCalls.length &&
+      toolCalls[j].name === name &&
+      !isAwaitingUserAction(toolCalls[j], pendingAuthorizationIds)
+    ) {
+      j += 1;
+    }
+    groups.push({
+      type: "sameRun",
+      key: `same-run-${i}`,
+      toolCalls: toolCalls.slice(i, j),
+    });
+    i = j;
   }
   return groups;
 };
@@ -185,10 +216,16 @@ export const AiResponse = memo(
       [pendingToolAuthorizations],
     );
 
-    // 相邻的并行 imagegen 调用合并为统一画廊（生成中占位 → 逐个填充）
+    // 相邻的并行 imagegen 调用合并为统一画廊（生成中占位 → 逐个填充）；
+    // 极简模式下其余同名连续工具合并为折叠列表。
+    const pendingAuthorizationIds = useMemo(
+      () => new Set(pendingToolAuthorizations.map((tc) => tc.interactionId)),
+      [pendingToolAuthorizations],
+    );
     const groupedToolCalls = useMemo(
-      () => groupToolCalls(toolCalls),
-      [toolCalls],
+      () =>
+        groupToolCalls(toolCalls, isMinimalTranscript, pendingAuthorizationIds),
+      [toolCalls, isMinimalTranscript, pendingAuthorizationIds],
     );
 
     // 提问 / 待授权 / 共享确认这类卡片必须露出来，极简模式下强制展开集合。
@@ -215,6 +252,16 @@ export const AiResponse = memo(
       }
       return map;
     }, [hookExecutions]);
+
+    const renderToolCallItem = (toolCall: ToolCallInfo): React.JSX.Element => (
+      <ToolCallItem
+        toolCall={toolCall}
+        conversationId={conversationId}
+        messageId={toolCallMessageIds?.get(toolCall.interactionId) ?? messageId}
+        updateSessionMessages={updateSessionMessages}
+        hookExecutions={hooksByInteractionId.get(toolCall.interactionId)}
+      />
+    );
 
     return (
       <article
@@ -309,6 +356,12 @@ export const AiResponse = memo(
                   <AskUserQuestionGroup
                     key={item.key}
                     toolCalls={item.toolCalls}
+                  />
+                ) : item.type === "sameRun" ? (
+                  <SameToolRun
+                    key={item.key}
+                    toolCalls={item.toolCalls}
+                    renderItem={renderToolCallItem}
                   />
                 ) : (
                   <ToolCallItem

@@ -259,9 +259,113 @@
   padding: 4px 0 8px;
 }
 
+/* ---------- 同类连续工具：最新一次为标题，其余折叠 ---------- */
+
+.tsr-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 0;
+}
+
+.tsr-latest {
+  display: flex;
+  flex: 0 1 auto;
+  flex-direction: column;
+  min-width: 0;
+}
+
+/* 收缩宽度下百分比上限会过早截断，改用固定上限 */
+.tsr-latest .tcn .tcn-name {
+  max-width: 520px;
+}
+
+.tsr-toggle {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 2px;
+  height: 18px;
+  margin-top: 3px;
+  padding: 0 3px 0 6px;
+  border: none;
+  border-radius: 999px;
+  background: var(--bg-hover);
+  color: var(--text-tertiary);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    color 0.12s ease,
+    background-color 0.12s ease;
+}
+
+.tsr-toggle:hover {
+  color: var(--text-primary);
+}
+
+.tsr-toggle.has-error .tsr-count {
+  color: var(--accent-red);
+}
+
+.tsr-toggle.is-running .tsr-count {
+  animation: tcn-minimal-pulse 1.4s ease-in-out infinite;
+}
+
+.tsr-chevron {
+  opacity: 0.7;
+  transition: transform 0.2s cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+.tsr.is-open .tsr-chevron {
+  transform: rotate(90deg);
+}
+
+.tsr-collapse {
+  display: grid;
+  grid-template-rows: 0fr;
+  visibility: hidden;
+  transition:
+    grid-template-rows 0.22s ease,
+    visibility 0s 0.22s;
+}
+
+.tsr-collapse.is-open {
+  grid-template-rows: 1fr;
+  visibility: visible;
+  transition:
+    grid-template-rows 0.22s ease,
+    visibility 0s;
+}
+
+.tsr-list {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  margin-left: 6px;
+  padding-left: 12px;
+  border-left: 1px solid var(--border-color);
+  opacity: 0;
+  transform: translateY(-3px);
+  transition:
+    opacity 0.18s ease,
+    transform 0.18s ease;
+}
+
+.tsr-collapse.is-open > .tsr-list {
+  opacity: 1;
+  transform: none;
+}
+
 @media (prefers-reduced-motion: reduce) {
   :root[data-tool-card-style="minimal"] .tcg .tcg-chevron,
-  :root[data-tool-card-style="minimal"] .tcn .tcn-chevron {
+  :root[data-tool-card-style="minimal"] .tcn .tcn-chevron,
+  .tsr-chevron,
+  .tsr-collapse,
+  .tsr-list,
+  .tsr-toggle.is-running .tsr-count {
     animation: none;
     transition: none;
   }

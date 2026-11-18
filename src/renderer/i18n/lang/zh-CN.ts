@@ -2072,6 +2072,8 @@ export const zhCN = {
   "toolCall.common.status.error": "执行失败",
   "toolCall.group.steps": "{{count}} 个工具",
   "toolCall.group.runningSteps": "{{count}} 个工具",
+  "toolCall.sameRun.expand": "展开 {{count}} 次同类调用",
+  "toolCall.sameRun.collapse": "收起同类调用",
   "toolCall.activity.readOne": "浏览 {{count}} 个文件",
   "toolCall.activity.read": "浏览 {{count}} 个文件",
   "toolCall.activity.searchOne": "搜索 {{count}} 次",

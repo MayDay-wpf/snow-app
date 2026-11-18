@@ -2193,6 +2193,8 @@ export const en = {
   "toolCall.common.status.error": "Failed",
   "toolCall.group.steps": "{{count}} tools",
   "toolCall.group.runningSteps": "{{count}} tools",
+  "toolCall.sameRun.expand": "Show {{count}} similar calls",
+  "toolCall.sameRun.collapse": "Hide similar calls",
   "toolCall.activity.readOne": "Read {{count}} file",
   "toolCall.activity.read": "Read {{count}} files",
   "toolCall.activity.searchOne": "{{count}} search",

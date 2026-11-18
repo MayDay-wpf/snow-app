@@ -2073,6 +2073,8 @@ export const zhTW = {
   "toolCall.common.status.error": "執行失敗",
   "toolCall.group.steps": "{{count}} 個工具",
   "toolCall.group.runningSteps": "{{count}} 個工具",
+  "toolCall.sameRun.expand": "展開 {{count}} 次同類呼叫",
+  "toolCall.sameRun.collapse": "收起同類呼叫",
   "toolCall.activity.readOne": "瀏覽 {{count}} 個檔案",
   "toolCall.activity.read": "瀏覽 {{count}} 個檔案",
   "toolCall.activity.searchOne": "搜尋 {{count}} 次",
