@@ -17,7 +17,7 @@ type FilesystemCopyToolCallProps = {
   toolCall: ToolCallInfo;
 };
 
-type CopyMode = "insert" | "replace";
+type CopyMode = "insert" | "replace" | "delete";
 type InsertPosition = "before" | "after";
 
 type ParsedCopyArgs = {
@@ -45,6 +45,8 @@ type ParsedCopyResult =
       mode: CopyMode;
       position?: InsertPosition;
       deleteSource: boolean;
+      /** 仅 mode=delete 返回：被删掉的行数。 */
+      removedLines?: number;
       matchedLineStart?: number;
       matchedLineEnd?: number;
       totalLines?: number;
@@ -65,7 +67,9 @@ const readLine = (value: unknown): number | undefined =>
   typeof value === "number" && Number.isFinite(value) ? value : undefined;
 
 const readMode = (value: unknown): CopyMode | undefined =>
-  value === "insert" || value === "replace" ? value : undefined;
+  value === "insert" || value === "replace" || value === "delete"
+    ? value
+    : undefined;
 
 const readPosition = (value: unknown): InsertPosition | undefined =>
   value === "before" || value === "after" ? value : undefined;
@@ -131,10 +135,13 @@ const parseResult = (result: string | undefined): ParsedCopyResult => {
           sourceLineStart: readLine(parsed.sourceLineStart),
           sourceLineEnd: readLine(parsed.sourceLineEnd),
           copiedLines: readLine(parsed.copiedLines),
-          targetFilePath: readString(parsed.targetFilePath),
+          // delete 模式只改一个文件，结果里用 filePath 而不是 targetFilePath。
+          targetFilePath:
+            readString(parsed.targetFilePath) || readString(parsed.filePath),
           mode: readMode(parsed.mode) ?? "insert",
           position: readPosition(parsed.position),
           deleteSource: parsed.deleteSource === true,
+          removedLines: readLine(parsed.removedLines),
           matchedLineStart: readLine(parsed.matchedLineStart),
           matchedLineEnd: readLine(parsed.matchedLineEnd),
           totalLines: readLine(parsed.totalLines),
@@ -178,9 +185,12 @@ export const FilesystemCopyToolCall = ({
   const success = parsedResult.type === "success" ? parsedResult : null;
   const args = parsedArgs;
 
-  const isCut = success?.deleteSource ?? args?.deleteSource ?? false;
   const mode = success?.mode ?? args?.mode ?? "insert";
   const position = success?.position ?? args?.position ?? "before";
+  // delete 模式只删不粘，没有复制 / 剪切语义。
+  const isDelete = mode === "delete";
+  const isCut =
+    !isDelete && (success?.deleteSource ?? args?.deleteSource ?? false);
 
   const streaming = useMemo(
     () => (args ? undefined : extractStreamingCopyPath(toolCall.arguments)),
@@ -199,24 +209,34 @@ export const FilesystemCopyToolCall = ({
     success?.sourceLineStart ?? args?.sourceStartLine,
     success?.sourceLineEnd ?? args?.sourceEndLine ?? args?.sourceStartLine,
   );
-  // 源文件与目标文件是否同一个文件（同文件剪切只写一次，也不渲染第二个 diff）。
+  // 源文件与目标文件是否同一个文件（同文件移动只改一次，删除侧 diff 落在同一文件）。
   const sameFile = pathsReferToSameFile(sourceFilePath, filePath);
 
   const replacement = success?.replacedContent ?? "";
   const pasted = success?.pastedContent ?? "";
+  // 删除侧内容：delete 与剪切都会删掉一段行；同文件移动后端不回传
+  // removedContent，此时被删掉的与粘贴进来的正是同一批行。
+  const removalContent =
+    isDelete || isCut ? success?.removedContent || pasted : "";
   const showDiff = !hasError && Boolean(pasted) && success !== null;
-  const showSourceDiff =
-    !hasError && isCut && !sameFile && Boolean(success?.removedContent);
+  const showRemovalDiff =
+    !hasError && Boolean(removalContent) && success !== null;
+  const removalFilePath = isDelete ? filePath : sourceFilePath || filePath;
+  const removalFileName = getFileName(removalFilePath);
 
   const stats = useMemo(() => {
-    if (!showDiff && !showSourceDiff) {
+    if (!showDiff && !showRemovalDiff) {
       return null;
     }
-    if (showDiff) {
-      return getCompareDiffStats(replacement, pasted);
-    }
-    return getCompareDiffStats(success?.removedContent ?? "", "");
-  }, [showDiff, showSourceDiff, replacement, pasted, success]);
+    const target = showDiff ? getCompareDiffStats(replacement, pasted) : null;
+    const removal = showRemovalDiff
+      ? getCompareDiffStats(removalContent, "")
+      : null;
+    return {
+      additions: (target?.additions ?? 0) + (removal?.additions ?? 0),
+      deletions: (target?.deletions ?? 0) + (removal?.deletions ?? 0),
+    };
+  }, [showDiff, showRemovalDiff, replacement, pasted, removalContent]);
 
   const placementLabel = useMemo(() => {
     if (mode === "replace") {
@@ -238,6 +258,20 @@ export const FilesystemCopyToolCall = ({
 
   const landedLabel = success
     ? (() => {
+        // delete 模式没有粘贴落点，只报被删掉的区间。
+        if (isDelete) {
+          const removedRange = formatLineRange(
+            success.sourceLineStart,
+            success.sourceLineEnd,
+          );
+          const count =
+            success.removedLines !== undefined
+              ? ` (${success.removedLines} lines)`
+              : "";
+          return removedRange
+            ? `deleted lines ${removedRange}${count}`
+            : `deleted${count}`;
+        }
         const range = formatLineRange(
           success.matchedLineStart,
           success.matchedLineEnd,
@@ -292,19 +326,19 @@ export const FilesystemCopyToolCall = ({
   }, [success, fileName, filePath, replacement, pasted, mode]);
 
   const handleOpenSourceInTab = useCallback(() => {
-    if (!success || !sourceFilePath) {
+    if (!success || !removalContent) {
       return;
     }
     const payload: OpenFileDiffPreviewPayload = {
-      fileName: sourceFileName,
-      filePath: sourceFilePath,
-      oldContent: success.removedContent,
+      fileName: removalFileName,
+      filePath: removalFilePath,
+      oldContent: removalContent,
       newContent: "",
       oldStartLine: success.sourceLineStart,
       changeType: "modified",
     };
     rightPanelEvents.emit("open-file-diff-preview", payload);
-  }, [success, sourceFilePath, sourceFileName]);
+  }, [success, removalContent, removalFilePath, removalFileName]);
 
   const effectiveStatus = hasError ? "error" : toolCall.status;
 
@@ -351,7 +385,7 @@ export const FilesystemCopyToolCall = ({
           </div>
         ) : null}
 
-        {sourceFilePath ? (
+        {sourceFilePath && !isDelete ? (
           <div className="tool-call-meta-row">
             <span className="tool-call-meta-label">
               {isCut ? "cut from" : "copy from"}
@@ -368,7 +402,14 @@ export const FilesystemCopyToolCall = ({
           </div>
         ) : null}
 
-        {args ? (
+        {isDelete ? (
+          <div className="tool-call-meta-row">
+            <span className="tool-call-meta-label">delete</span>
+            <span className="tool-call-meta-value">
+              {sourceRange ? `lines ${sourceRange}` : "lines"}
+            </span>
+          </div>
+        ) : args ? (
           <div className="tool-call-meta-row">
             <span className="tool-call-meta-label">
               {mode === "replace" ? "replace" : "insert"}
@@ -404,22 +445,22 @@ export const FilesystemCopyToolCall = ({
           />
         ) : null}
 
-        {showSourceDiff && success ? (
+        {showRemovalDiff && success && !isDelete && !sameFile ? (
           <div className="tool-call-meta-row">
             <span className="tool-call-meta-label">removed</span>
             <span
               className="tool-call-meta-value"
-              data-path={sourceFilePath}
-              title={sourceFilePath}
+              data-path={removalFilePath}
+              title={removalFilePath}
             >
-              {sourceFileName}
+              {removalFileName}
             </span>
           </div>
         ) : null}
-        {showSourceDiff && success ? (
+        {showRemovalDiff && success ? (
           <MiniDiffViewer
-            fileName={sourceFileName}
-            oldContent={success.removedContent}
+            fileName={removalFileName}
+            oldContent={removalContent}
             newContent=""
             startLine={success.sourceLineStart}
             onOpenInTab={handleOpenSourceInTab}

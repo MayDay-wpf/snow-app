@@ -855,7 +855,7 @@ export const renderCreateCard: ToolCallRenderer = (tool) => {
 
 // ── copy ─────────────────────────────────────────────────────────────────
 
-type CopyMode = "insert" | "replace";
+type CopyMode = "insert" | "replace" | "delete";
 type CopyPosition = "before" | "after";
 
 type CopyArgs = {
@@ -899,8 +899,10 @@ type CopyResult =
       pastedContent: string;
       omittedLines: number;
       formatPending: boolean;
-      /** 剪切时才有：从源文件删掉的行内容（区域过大时中间省略）。 */
+      /** 剪切 / delete 时才有：被删掉的行内容（区域过大时中间省略）。 */
       removedContent?: string;
+      /** 仅 mode=delete 返回：被删掉的行数。 */
+      removedLines?: number;
       sourceReview?: CopySourceReview;
     }
   | { type: "error"; message: string }
@@ -909,7 +911,9 @@ type CopyResult =
 
 /** 枚举字段读取（非法值一律视为缺失，由调用方回退默认值）。 */
 const copyModeOf = (value: unknown): CopyMode | undefined =>
-  value === "insert" || value === "replace" ? value : undefined;
+  value === "insert" || value === "replace" || value === "delete"
+    ? value
+    : undefined;
 
 const copyPositionOf = (value: unknown): CopyPosition | undefined =>
   value === "before" || value === "after" ? value : undefined;
@@ -977,7 +981,12 @@ const parseCopyResult = (raw?: string): CopyResult => {
     sourceTotalLines:
       numberOf(record, "sourceTotalLines") ?? sourceReview?.totalLines,
     targetFilePath:
-      typeof record.targetFilePath === "string" ? record.targetFilePath : "",
+      typeof record.targetFilePath === "string"
+        ? record.targetFilePath
+        : // delete 模式只改一个文件，结果里用 filePath 而不是 targetFilePath。
+          typeof record.filePath === "string"
+          ? record.filePath
+          : "",
     mode: copyModeOf(record.mode) ?? "insert",
     position: copyPositionOf(record.position),
     matchedLineStart: numberOf(record, "matchedLineStart"),
@@ -989,6 +998,7 @@ const parseCopyResult = (raw?: string): CopyResult => {
       typeof record.pastedContent === "string" ? record.pastedContent : "",
     omittedLines: numberOf(record, "omittedLines") ?? 0,
     formatPending: record.formatPending === true,
+    removedLines: numberOf(record, "removedLines"),
     // removedContent 缺失即 undefined：区分「没有回显」与「被删内容是空串」。
     removedContent:
       typeof record.removedContent === "string"
@@ -1122,28 +1132,33 @@ export const renderCopyCard: ToolCallRenderer = (tool) => {
   const sourceName = fileNameOf(
     args?.sourceFilePath ?? success?.sourceFilePath ?? "",
   );
-  const route = copyRouteRow(
-    [sourceName, copySourceLabel(sourceStart, sourceEnd)]
-      .filter(Boolean)
-      .join(" "),
-    args
-      ? copyTargetLabel(args)
-      : success && success.mode === "replace"
-        ? copyTargetLabel({
-            mode: "replace",
-            targetLine: success.matchedLineStart,
-            targetEndLine: success.matchedLineEnd,
-          })
-        : "",
-  );
+  // delete 模式只删不粘：没有目标位置，route 行换成删除结论行。
+  const isDelete = (success?.mode ?? args?.mode) === "delete";
+  const route = isDelete
+    ? null
+    : copyRouteRow(
+        [sourceName, copySourceLabel(sourceStart, sourceEnd)]
+          .filter(Boolean)
+          .join(" "),
+        args
+          ? copyTargetLabel(args)
+          : success && success.mode === "replace"
+            ? copyTargetLabel({
+                mode: "replace",
+                targetLine: success.matchedLineStart,
+                targetEndLine: success.matchedLineEnd,
+              })
+            : "",
+      );
   if (route) body.append(route);
   if (hasError) body.append(tcErrorRow(result.message));
 
   // 剪切（deleteSource=true）：结果回显优先，结果里缺该字段时退回参数。
-  const cut = success?.deleteSource ?? args?.deleteSource ?? false;
+  const cut =
+    !isDelete && (success?.deleteSource ?? args?.deleteSource ?? false);
   const sourcePath = success?.sourceFilePath || args?.sourceFilePath || "";
   const targetPath = success?.targetFilePath || args?.filePath || "";
-  // 源 / 目标同一文件 = 文件内移动：源侧没有独立的删除 diff，只给一行说明。
+  // 源 / 目标同一文件（delete 恒为同一文件）：删除侧 diff 落在同一文件的源区间上。
   const sameFile =
     sourcePath !== "" &&
     targetPath !== "" &&
@@ -1151,7 +1166,7 @@ export const renderCopyCard: ToolCallRenderer = (tool) => {
 
   let meta: Node[] | undefined;
   if (success) {
-    const pastedLabel = copyPastedLabel(success, cut);
+    const pastedLabel = isDelete ? "" : copyPastedLabel(success, cut);
     if (pastedLabel) body.append(successRow(pastedLabel));
     // 目标侧 diff：replace 用被替换的原目标行作旧侧，insert 旧侧为空串（整段按新增渲染）。
     const replaced = success.mode === "replace" ? success.replacedContent : "";
@@ -1170,10 +1185,34 @@ export const renderCopyCard: ToolCallRenderer = (tool) => {
         ),
       );
     }
-    if (cut) {
-      const removedCount = bounds ? bounds.to - bounds.from + 1 : undefined;
-      if (sameFile) {
-        // 文件内移动：源区间已就地移除，位置说明即可，不再渲染第二个 diff。
+    // delete / 剪切都会删掉一段行：delete 只删不粘，剪切在粘贴后从源文件移除。
+    if (isDelete || cut) {
+      const removedCount =
+        success.removedLines ??
+        (bounds ? bounds.to - bounds.from + 1 : undefined);
+      if (isDelete) {
+        const total = success.totalLines ?? removedCount ?? 0;
+        if (bounds) {
+          body.append(
+            successRow(
+              t("remote.toolCall.filesystem.copyDeleted", {
+                start: bounds.from,
+                end: bounds.to,
+                total,
+              }),
+            ),
+          );
+        } else if (removedCount !== undefined) {
+          body.append(
+            successRow(
+              t("remote.toolCall.filesystem.copyDeletedCount", {
+                count: removedCount,
+              }),
+            ),
+          );
+        }
+      } else if (sameFile) {
+        // 文件内移动：先给位置说明，再渲染源区间的删除 diff。
         if (bounds) {
           body.append(
             noteRow(
@@ -1184,31 +1223,32 @@ export const renderCopyCard: ToolCallRenderer = (tool) => {
             ),
           );
         }
-      } else {
-        // 跨文件剪切：源文件侧的删除 diff（旧侧为被删内容，新侧为空串）。
-        if (removedCount !== undefined) {
-          body.append(
-            noteRow(copyRemovedNote(removedCount, success.sourceTotalLines)),
-          );
-        }
-        const removed = success.removedContent ?? "";
-        // 被删内容是空串（剪掉一行空行）时无从对比，只留上面的统计行。
-        if (removed !== "") {
-          const lines = computeLineDiff(removed, "");
-          if (meta === undefined) meta = [statsNode(diffStats(lines))];
-          body.append(
-            diffBlock(
-              renderDiffView({
-                fileName: fileNameOf(sourcePath),
-                oldText: removed,
-                newText: "",
-                // 行号锚点取源区间起点，sourceReview 只在缺字段时兜底。
-                startLine: sourceStart ?? success.sourceReview?.startLine,
-                lines,
-              }),
-            ),
-          );
-        }
+      } else if (removedCount !== undefined) {
+        // 跨文件剪切：源文件的删除行数与剩余总行数。
+        body.append(
+          noteRow(copyRemovedNote(removedCount, success.sourceTotalLines)),
+        );
+      }
+      // 删除侧 diff：旧侧为被删内容，新侧为空串。同文件移动后端不回传
+      // removedContent，被删掉的与粘贴进来的正是同一批行。
+      const removed =
+        success.removedContent || (sameFile ? success.pastedContent : "");
+      // 被删内容是空串（剪掉一行空行）时无从对比，只留上面的统计行。
+      if (removed !== "") {
+        const lines = computeLineDiff(removed, "");
+        if (meta === undefined) meta = [statsNode(diffStats(lines))];
+        body.append(
+          diffBlock(
+            renderDiffView({
+              fileName: fileNameOf(sourcePath || shownPath || ""),
+              oldText: removed,
+              newText: "",
+              // 行号锚点取源区间起点，sourceReview 只在缺字段时兜底。
+              startLine: sourceStart ?? success.sourceReview?.startLine,
+              lines,
+            }),
+          ),
+        );
       }
     }
     // 目标 / 源都没有 diff 可显示：用行数徽章补足头部信息。
@@ -1243,9 +1283,11 @@ export const renderCopyCard: ToolCallRenderer = (tool) => {
     tool,
     status: resolveStatus(tool),
     badge: t(
-      cut
-        ? "remote.toolCall.filesystem.copyCut"
-        : "remote.toolCall.filesystem.copy",
+      isDelete
+        ? "remote.toolCall.filesystem.copyDelete"
+        : cut
+          ? "remote.toolCall.filesystem.copyCut"
+          : "remote.toolCall.filesystem.copy",
     ),
     display:
       (shownPath ? fileNameOf(shownPath) : undefined) ?? argsSummary(raw),

@@ -68,6 +68,12 @@ export const filesystemEn: Record<string, string> = {
     "{{count}} lines removed from the source file ({{total}} lines left)",
   "remote.toolCall.filesystem.copyRemovedSourceOnly":
     "{{count}} lines removed from the source file",
+
+  // copy delete（mode=delete）：只删不粘
+  "remote.toolCall.filesystem.copyDelete": "Delete",
+  "remote.toolCall.filesystem.copyDeleted":
+    "Deleted lines {{start}}-{{end}} ({{total}} lines total)",
+  "remote.toolCall.filesystem.copyDeletedCount": "Deleted {{count}} lines",
 };
 
 export const filesystemZhCN: Record<string, string> = {
@@ -119,6 +125,11 @@ export const filesystemZhCN: Record<string, string> = {
   "remote.toolCall.filesystem.copyRemovedSource":
     "源文件删除 {{count}} 行，现共 {{total}} 行",
   "remote.toolCall.filesystem.copyRemovedSourceOnly": "源文件删除 {{count}} 行",
+
+  "remote.toolCall.filesystem.copyDelete": "删除",
+  "remote.toolCall.filesystem.copyDeleted":
+    "已删除第 {{start}}-{{end}} 行，现共 {{total}} 行",
+  "remote.toolCall.filesystem.copyDeletedCount": "已删除 {{count}} 行",
 };
 
 export const filesystemZhTW: Record<string, string> = {
@@ -171,4 +182,9 @@ export const filesystemZhTW: Record<string, string> = {
     "來源檔案刪除 {{count}} 行，現共 {{total}} 行",
   "remote.toolCall.filesystem.copyRemovedSourceOnly":
     "來源檔案刪除 {{count}} 行",
+
+  "remote.toolCall.filesystem.copyDelete": "刪除",
+  "remote.toolCall.filesystem.copyDeleted":
+    "已刪除第 {{start}}-{{end}} 行，現共 {{total}} 行",
+  "remote.toolCall.filesystem.copyDeletedCount": "已刪除 {{count}} 行",
 };

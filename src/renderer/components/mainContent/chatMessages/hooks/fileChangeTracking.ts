@@ -212,15 +212,21 @@ const buildCopyFileChanges = (
   result: Record<string, unknown>,
   filePath: string,
 ): ExtractedFileMutation[] => {
+  // delete 模式只删不粘：目标侧就是被删内容，没有粘贴区域。
+  const isDelete =
+    readText(result, "mode") === "delete" ||
+    readText(args, "mode") === "delete";
   const changes: ExtractedFileMutation[] = [
     {
       filePath,
       kind: "edit",
-      diff: buildFileChangeDiff(
-        filePath,
-        readText(result, "replacedContent"),
-        readText(result, "pastedContent"),
-      ),
+      diff: isDelete
+        ? buildFileChangeDiff(filePath, readText(result, "removedContent"), "")
+        : buildFileChangeDiff(
+            filePath,
+            readText(result, "replacedContent"),
+            readText(result, "pastedContent"),
+          ),
     },
   ];
 
@@ -279,6 +285,16 @@ export function extractFileChangesFromTool(
             file.filePath,
             readText(args, "searchContent"),
             readText(args, "replaceContent"),
+          );
+        } else if (
+          toolName === "filesystem-copy" &&
+          readText(result!, "mode") === "delete"
+        ) {
+          // delete 模式没有目标文件，只有被删掉的源区间。
+          diff = buildFileChangeDiff(
+            file.filePath,
+            readText(result!, "removedContent"),
+            "",
           );
         } else if (target && pathsReferToSameFile(file.filePath, target)) {
           diff = buildFileChangeDiff(
