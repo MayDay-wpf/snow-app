@@ -4,6 +4,9 @@ import { useEffect, useState } from "react";
 import { useI18n } from "../../../i18n";
 import { SidebarCollapse } from "./SidebarCollapse";
 
+/** 略长于 CSS 过渡时长（0.24s），作为 transitionend 丢失时的兜底 */
+const TRANSITION_FALLBACK_MS = 360;
+
 type LazyCollapseProps = {
   open: boolean;
   /** 真实内容工厂：折叠状态下不会被调用 */
@@ -65,6 +68,27 @@ export function LazyCollapse({
     setIsExpanded(false);
     setIsContentReady(false);
   };
+
+  // 兜底：transitionend 可能不触发（行在过渡中被重排移动、主题禁用过渡、
+  // 过渡被打断等），超时后强制完成，避免永久停在 loading 占位
+  useEffect(() => {
+    if (!isMounted || !isExpanded) {
+      return;
+    }
+    if (open && isContentReady) {
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      if (open) {
+        setIsContentReady(true);
+        return;
+      }
+      setIsMounted(false);
+      setIsExpanded(false);
+      setIsContentReady(false);
+    }, TRANSITION_FALLBACK_MS);
+    return () => window.clearTimeout(timer);
+  }, [open, isMounted, isExpanded, isContentReady]);
 
   if (!isMounted) {
     return null;
