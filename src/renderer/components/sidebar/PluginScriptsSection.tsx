@@ -33,7 +33,7 @@ import {
 } from "../../userscripts/clientScriptStore";
 import { scriptEditorStore } from "../../userscripts/scriptEditorStore";
 import { ConfirmDialog } from "../common/ConfirmDialog";
-import { UserscriptIcon } from "../common/UserscriptIcon";
+import { PluginMarketIcon } from "../common/PluginMarketIcon";
 import { useChatConversationContext } from "../mainContent/chatMessages";
 import { PluginCreateBox } from "./PluginCreateBox";
 import { PluginPrivacyBadges } from "./PluginPrivacyBadges";
@@ -612,7 +612,10 @@ export const PluginScriptsSection = ({
             <div className="plugins-item" key={script.scriptId}>
               <div className="plugins-item-head">
                 <span className="plugins-item-icon">
-                  <UserscriptIcon icon={script.icon} size={18} />
+                  <PluginMarketIcon
+                    icon={marketEntry?.icon || script.icon}
+                    size={18}
+                  />
                 </span>
                 <div className="plugins-item-title">
                   <span className="plugins-item-name">{script.name}</span>
