@@ -1,5 +1,20 @@
 # Release Notes
 
+## v0.5.20
+
+### New Features
+
+- **Background Context Compaction**: compaction runs in the background instead of blocking the agent loop; messages produced meanwhile stay after the boundary, while tail task messages and in-flight tool results are folded into the summary. Adds an async compress profile toggle and raises the minimum auto-compress threshold to 30%.
+- **Memory Scope Switching**: existing memories can move between project and cross-project scope, with a scope selector in the project memory editor and quick actions in the conversation memory panel.
+- **Anthropic Fast Mode**: with fast mode enabled, Anthropic requests send `speed: fast` and the `fast-mode-2026-02-01` beta header; the toggle is available in the desktop model selector, mobile model panel and API settings, limited to the off / fast tiers.
+- **filesystem-copy Delete Mode**: `mode=delete` removes the source line range without pasting it anywhere.
+
+### Improvements
+
+- Minimal transcript collapses consecutive same-name tool calls into one expandable run with a call count.
+- Thinking strength and fast mode become standalone icon buttons that open their submenu directly.
+- Userscript list rows reuse the plugin market entry icon when a script declares no icon.
+
 ## v0.5.19
 
 ### New Features
