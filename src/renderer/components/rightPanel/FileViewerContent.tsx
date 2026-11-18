@@ -1,7 +1,4 @@
-import {
-  getCodeLanguageFromPath as getLanguageFromFileName,
-  highlightCodeHtml,
-} from "../../utils/syntaxHighlight";
+import { getCodeLanguageFromPath as getLanguageFromFileName } from "../../utils/syntaxHighlight";
 import { isImeComposing } from "../../../shared/imeKeyboard";
 import {
   AlertCircle,
@@ -27,11 +24,9 @@ import {
   Terminal as TerminalIcon,
   X,
 } from "lucide-react";
-import Editor from "react-simple-code-editor";
 import {
   useCallback,
   useEffect,
-  useId,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -55,7 +50,6 @@ import { INSERT_FILE_TAGS_EVENT } from "../mainContent/chatInput/fileTagUtils";
 import { createCodeHighlighter } from "./fileViewer/codeHighlight";
 import {
   computeFoldRegions,
-  countTextLines,
   createLineIndex,
   createLineMapping,
   DEFAULT_LINE_HEIGHT,
@@ -63,6 +57,12 @@ import {
   type FoldRegion,
 } from "./fileViewer/codeText";
 import { useVirtualRows } from "./fileViewer/useVirtualRows";
+import {
+  CodeEditor,
+  type CodeEditorHandle,
+  type CodeEditorSearch,
+} from "./fileViewer/CodeEditor";
+import type { EditorState } from "@codemirror/state";
 import { rightPanelEvents } from "./rightPanelEvents";
 import {
   FileReviewPanel,
@@ -120,11 +120,8 @@ const SEARCH_SEED_MAX_LENGTH = 200;
 const FOLD_MAX_LINES = 200000;
 /** 超过该行数时把折叠计算延后到空闲时段，避免拖慢首屏。 */
 const FOLD_IDLE_MIN_LINES = 20000;
-/** 超过该行数或字符数时，编辑模式降级为原生 textarea（不做语法高亮）。 */
-const PLAIN_EDITOR_MIN_LINES = 1500;
-const PLAIN_EDITOR_MIN_CHARS = 150000;
-/** 降级编辑模式行号列的视口外预渲染行数。 */
-const PLAIN_GUTTER_OVERSCAN = 32;
+/** 编辑器内容同步到 React 状态的防抖间隔（ms）。 */
+const EDITOR_SYNC_DELAY = 200;
 /** 审阅面板上下结构切换阈值：与 fileReview.css 的 @container 断点一致。 */
 const REVIEW_STACK_BREAKPOINT = 520;
 /** 上下结构下审阅面板高度下限与正文区保留下限（px）。 */
@@ -315,9 +312,6 @@ export function FileViewerContent({
 }: FileViewerContentProps): React.JSX.Element {
   const { t } = useI18n();
   const { registerScopedHandler } = useKeyboardShortcutsSettings();
-  // 编辑器 textarea 的实例级 id：同一时刻可能存在多个 FileViewerContent
-  // （右侧面板 tab 与快速编辑弹窗并存），固定 id 会导致焦点/选区互相串扰。
-  const editTextareaId = useId();
   const [content, setContent] = useState<FileContentResult | null>(null);
   const [loading, setLoading] = useState(true);
   // 不可预览（文件缺失 / 超限 / 格式不符 / 读取失败）：显示本地化面板与可操作出口。
@@ -357,16 +351,10 @@ export function FileViewerContent({
 
   const isMarkdown = /\.(md|markdown)$/i.test(fileName);
 
-  /** 获取当前选中的文本（编辑模式读 textarea 选区，否则读浏览器选区）。 */
+  /** 获取当前选中的文本（编辑模式读编辑器选区，否则读浏览器选区）。 */
   const getSelectedText = (): string => {
     if (editMode) {
-      const textarea = document.getElementById(editTextareaId);
-      if (textarea instanceof HTMLTextAreaElement) {
-        const start = textarea.selectionStart ?? 0;
-        const end = textarea.selectionEnd ?? 0;
-        return textarea.value.slice(start, end);
-      }
-      return "";
+      return editorRef.current?.getSelectedText() ?? "";
     }
     return window.getSelection()?.toString() ?? "";
   };
@@ -396,6 +384,12 @@ export function FileViewerContent({
   editModeRef.current = editMode;
   const dirtyRef = useRef(false);
   dirtyRef.current = dirty;
+  const editedContentRef = useRef("");
+  editedContentRef.current = editedContent;
+  // 编辑器命令接口与最新文档状态（逐键只更新引用，不序列化全文）。
+  const editorRef = useRef<CodeEditorHandle | null>(null);
+  const editorStateRef = useRef<EditorState | null>(null);
+  const editorSyncTimerRef = useRef<number | null>(null);
   const onDirtyChangeRef = useRef(onDirtyChange);
   // 虚拟文件源保存在 ref 中：宿主每次渲染传入的对象引用都会变化，
   // 但加载/保存只应在挂载与用户操作时读取，避免触发重复加载。
@@ -473,6 +467,7 @@ export function FileViewerContent({
     setSaveGuarantee(null);
     setDraftStatus(null);
     setEditedContent("");
+    editorStateRef.current = null;
     setMdMode("preview");
     setFoldedStarts(new Set());
     setExternalChange(null);
@@ -533,6 +528,8 @@ export function FileViewerContent({
               serializeRemoteVersion(result.remoteVersion);
             setEditMode(true);
             setEditedContent(draft.content);
+            // 编辑器可能已按原文挂载（快速编辑），需同步替换为草稿。
+            editorRef.current?.setText(draft.content);
             setDirty(draft.content !== result.content);
             setDraftStatus(isCurrentBaseVersion ? draft.status : "conflict");
             if (!isCurrentBaseVersion) {
@@ -646,12 +643,10 @@ export function FileViewerContent({
   }, [content?.content, editMode]);
 
   // 文本行模型：一次扫描得到行边界，行号、折叠、虚拟窗口与搜索定位共用。
+  // 编辑模式由 CodeMirror 自行维护文档。
   const lineIndex = useMemo(
-    () =>
-      content && (showCodeView || editMode)
-        ? createLineIndex(content.content)
-        : null,
-    [content, editMode, showCodeView],
+    () => (content && showCodeView ? createLineIndex(content.content) : null),
+    [content, showCodeView],
   );
   const reviewIndex = useMemo(
     () =>
@@ -1050,12 +1045,6 @@ export function FileViewerContent({
     syncRange,
   ]);
 
-  const highlightCode = useCallback(
-    (code: string): string =>
-      highlightCodeHtml(code, getLanguageFromFileName(fileName)),
-    [fileName],
-  );
-
   const rowHeight = codeMetrics.lineHeight;
   const renderEnd = Math.min(rowRange.end, lineMapping.total);
   const spacerTop = rowRange.start * rowHeight;
@@ -1164,121 +1153,6 @@ export function FileViewerContent({
     codeHighlighter.prefetch(rowRange.start);
   }, [codeHighlighter, rowRange.end, rowRange.start, showCodeView]);
 
-  // 大文件编辑：编辑器每次输入都会整篇重新高亮并重建整列行号，
-  // 超过阈值时改用原生 textarea 负责输入，行号列与高亮层只渲染可视窗口。
-  const plainEditor = Boolean(
-    editMode &&
-    lineIndex &&
-    (lineIndex.total > PLAIN_EDITOR_MIN_LINES ||
-      lineIndex.text.length > PLAIN_EDITOR_MIN_CHARS),
-  );
-
-  const plainTextareaRef = useRef<HTMLTextAreaElement | null>(null);
-  const plainGutterRef = useRef<HTMLSpanElement | null>(null);
-  const plainHighlightRef = useRef<HTMLPreElement | null>(null);
-  const plainMirrorRef = useRef<HTMLDivElement | null>(null);
-  const plainBandsRef = useRef<HTMLDivElement | null>(null);
-  const editScrollRef = useRef<HTMLDivElement | null>(null);
-  const [plainRange, setPlainRange] = useState({ start: 0, end: 0 });
-
-  // 编辑缓冲区自身一份行索引：行号列与高亮层都以编辑中的内容为准。
-  const plainIndex = useMemo(
-    () => (plainEditor ? createLineIndex(editedContent) : null),
-    [editedContent, plainEditor],
-  );
-
-  const plainLineCount = plainIndex?.total ?? 0;
-
-  const plainHighlighter = useMemo(
-    () =>
-      plainIndex
-        ? createCodeHighlighter(plainIndex, getLanguageFromFileName(fileName))
-        : null,
-    [fileName, plainIndex],
-  );
-
-  // 行号列与高亮层跟随 textarea 滚动：位移逐帧同步，行窗口变化才触发重渲染。
-  const syncPlainView = useCallback(() => {
-    const textarea = plainTextareaRef.current;
-    if (!textarea) return;
-    const height = codeMetrics.lineHeight;
-    const scrollTop = textarea.scrollTop;
-    const visible = Math.max(1, Math.ceil(textarea.clientHeight / height));
-    const start = Math.max(
-      0,
-      Math.floor(scrollTop / height) - PLAIN_GUTTER_OVERSCAN,
-    );
-    const end = Math.min(
-      plainLineCount,
-      start + visible + PLAIN_GUTTER_OVERSCAN * 2,
-    );
-    const offsetY = start * height - scrollTop;
-    const gutter = plainGutterRef.current;
-    if (gutter) {
-      gutter.style.transform = `translateY(${offsetY}px)`;
-    }
-    const shift = `translate(${-textarea.scrollLeft}px, ${offsetY}px)`;
-    const highlight = plainHighlightRef.current;
-    if (highlight) {
-      highlight.style.transform = shift;
-    }
-    const mirror = plainMirrorRef.current;
-    if (mirror) {
-      mirror.style.transform = shift;
-    }
-    const bands = plainBandsRef.current;
-    if (bands) {
-      bands.style.transform = `translateY(${offsetY}px)`;
-    }
-    setPlainRange((prev) =>
-      prev.start === start && prev.end === end ? prev : { start, end },
-    );
-  }, [codeMetrics.lineHeight, plainLineCount]);
-
-  useLayoutEffect(() => {
-    if (!plainEditor) return;
-    syncPlainView();
-  }, [plainEditor, syncPlainView]);
-
-  const plainLineNumbers = useMemo(() => {
-    if (plainRange.end <= plainRange.start) return "";
-    const parts: string[] = [];
-    for (let line = plainRange.start + 1; line <= plainRange.end; line += 1) {
-      parts.push(String(line));
-    }
-    return parts.join("\n");
-  }, [plainRange.end, plainRange.start]);
-
-  const plainHighlightRows = useMemo(() => {
-    const rows: React.JSX.Element[] = [];
-    if (!plainIndex || !plainHighlighter?.enabled) return rows;
-    for (let line = plainRange.start + 1; line <= plainRange.end; line += 1) {
-      rows.push(
-        <span
-          key={line}
-          className="file-viewer-code-line"
-          dangerouslySetInnerHTML={{ __html: plainHighlighter.lineHtml(line) }}
-        />,
-      );
-    }
-    return rows;
-  }, [plainHighlighter, plainIndex, plainRange.end, plainRange.start]);
-
-  useEffect(() => {
-    if (!plainHighlighter?.enabled) return;
-    plainHighlighter.prefetch(plainRange.end + 1);
-  }, [plainHighlighter, plainRange.end]);
-
-  const editLineCount = useMemo(
-    () => (editMode && !plainEditor ? countTextLines(editedContent) : 0),
-    [editMode, plainEditor, editedContent],
-  );
-
-  const editLineNumbers = useMemo(
-    () => Array.from({ length: editLineCount }, (_, i) => i + 1).join("\n"),
-    [editLineCount],
-  );
-
   const handleCopy = useCallback(() => {
     if (!content) return;
     navigator.clipboard.writeText(content.content).then(() => {
@@ -1321,37 +1195,22 @@ export function FileViewerContent({
 
   /**
    * 应用外部修改：原地替换内容，不重建滚动容器，滚动位置与折叠状态保留。
-   * 编辑模式下同步刷新编辑器内容并尽量恢复 textarea 滚动位置。
+   * 编辑模式下同步替换编辑器文档（不进撤销栈）。
    */
-  const applyExternalContent = useCallback(
-    (next: FileContentResult) => {
-      const textarea = editModeRef.current
-        ? document.getElementById(editTextareaId)
-        : null;
-      const textareaScrollTop =
-        textarea instanceof HTMLTextAreaElement ? textarea.scrollTop : null;
-      setContent(next);
-      originalContentRef.current = next.content;
-      setExternalChange(null);
-      if (editModeRef.current) {
-        setEditedContent(next.content);
-        setDirty(false);
-        setSaveError(null);
-        setSavedAt(false);
-        setSaveGuarantee(null);
-        setDraftStatus(null);
-        if (textareaScrollTop != null) {
-          requestAnimationFrame(() => {
-            const element = document.getElementById(editTextareaId);
-            if (element instanceof HTMLTextAreaElement) {
-              element.scrollTop = textareaScrollTop;
-            }
-          });
-        }
-      }
-    },
-    [editTextareaId],
-  );
+  const applyExternalContent = useCallback((next: FileContentResult) => {
+    setContent(next);
+    originalContentRef.current = next.content;
+    setExternalChange(null);
+    if (editModeRef.current) {
+      editorRef.current?.setText(next.content);
+      setEditedContent(next.content);
+      setDirty(false);
+      setSaveError(null);
+      setSavedAt(false);
+      setSaveGuarantee(null);
+      setDraftStatus(null);
+    }
+  }, []);
 
   /** 切换工作表 / 数据表：Rust 按需读取该分区，列表与结构随结果一并刷新。 */
   const handleSelectSection = useCallback(
@@ -1496,6 +1355,7 @@ export function FileViewerContent({
     setSaveError(null);
     setSavedAt(false);
     setEditedContent("");
+    editorStateRef.current = null;
   }, [
     applyExternalContent,
     canPersistRemoteDraft,
@@ -1520,6 +1380,46 @@ export function FileViewerContent({
     }
   }, []);
 
+  /** 编辑器最新全文（编辑模式下读编辑器文档，否则读状态）。 */
+  const getEditorText = useCallback((): string => {
+    const latest = editModeRef.current ? editorStateRef.current : null;
+    return latest ? latest.sliceDoc() : editedContentRef.current;
+  }, []);
+
+  // 编辑器每次变更只记最新文档并标脏（O(1)），全文序列化与状态同步延后防抖执行，
+  // 避免大文件逐键触发整页重渲染。
+  const handleEditorChange = useCallback(
+    (state: EditorState, userEdit: boolean) => {
+      editorStateRef.current = state;
+      if (!userEdit) return;
+      if (!dirtyRef.current) {
+        dirtyRef.current = true;
+        setDirty(true);
+        setDraftStatus("pending");
+      }
+      if (editorSyncTimerRef.current != null) {
+        window.clearTimeout(editorSyncTimerRef.current);
+      }
+      editorSyncTimerRef.current = window.setTimeout(() => {
+        editorSyncTimerRef.current = null;
+        const latest = editorStateRef.current;
+        if (latest && editModeRef.current) {
+          handleValueChange(latest.sliceDoc());
+        }
+      }, EDITOR_SYNC_DELAY);
+    },
+    [handleValueChange],
+  );
+
+  useEffect(
+    () => () => {
+      if (editorSyncTimerRef.current != null) {
+        window.clearTimeout(editorSyncTimerRef.current);
+      }
+    },
+    [],
+  );
+
   const persistRemoteDraft = useCallback(
     async (status: "pending" | "conflict"): Promise<void> => {
       if (!canPersistRemoteDraft || !sshSessionId || !sshWorkspaceId) {
@@ -1530,7 +1430,7 @@ export function FileViewerContent({
         workspaceId: sshWorkspaceId,
         remotePath: filePath,
         baseVersionJson: serializeRemoteVersion(content?.remoteVersion),
-        content: editedContent,
+        content: getEditorText(),
         status,
       });
       if (draftSnapshotRef.current) {
@@ -1543,6 +1443,7 @@ export function FileViewerContent({
       content?.remoteVersion,
       editedContent,
       filePath,
+      getEditorText,
       sshSessionId,
       sshWorkspaceId,
     ],
@@ -1590,8 +1491,10 @@ export function FileViewerContent({
       if (!draft?.dirty) {
         return;
       }
+      const latest = editorStateRef.current;
       void window.snow.sshUpsertRemoteDraft({
         ...draft,
+        content: latest ? latest.sliceDoc() : draft.content,
         status: draft.status,
       });
     };
@@ -1603,6 +1506,8 @@ export function FileViewerContent({
     setSaveError(null);
     setSavedAt(false);
     setSaveGuarantee(null);
+    // 以编辑器最新文档为准（React 状态是防抖同步的）。
+    const text = getEditorText();
     try {
       let remoteSave:
         | {
@@ -1612,7 +1517,7 @@ export function FileViewerContent({
         | undefined;
       const virtual = virtualSourceRef.current;
       if (virtual) {
-        await virtual.onSave(editedContent);
+        await virtual.onSave(text);
       } else if (isSsh) {
         if (!sshSessionId || !sshWorkspaceId || !content?.remoteVersion) {
           throw new Error(
@@ -1622,20 +1527,21 @@ export function FileViewerContent({
         remoteSave = await window.snow.sshWriteFile(
           sshSessionId,
           filePath,
-          editedContent,
+          text,
           {
             workspaceId: sshWorkspaceId,
             expectedVersion: content.remoteVersion,
           },
         );
       } else {
-        await window.snow.writeFileContent(filePath, editedContent);
+        await window.snow.writeFileContent(filePath, text);
       }
-      originalContentRef.current = editedContent;
+      originalContentRef.current = text;
       if (draftSnapshotRef.current) {
         draftSnapshotRef.current.dirty = false;
       }
       setExternalChange(null);
+      setEditedContent(text);
       setDirty(false);
       setSavedAt(true);
       setSaveGuarantee(remoteSave?.guarantee ?? null);
@@ -1643,8 +1549,8 @@ export function FileViewerContent({
       if (content) {
         setContent({
           ...content,
-          content: editedContent,
-          size: new Blob([editedContent]).size,
+          content: text,
+          size: new Blob([text]).size,
           remoteVersion: remoteSave?.version ?? content.remoteVersion,
         });
       }
@@ -1689,9 +1595,9 @@ export function FileViewerContent({
     sshSessionId,
     sshWorkspaceRoot,
     filePath,
-    editedContent,
     content,
     canPersistRemoteDraft,
+    getEditorText,
     persistRemoteDraft,
     t,
     sshWorkspaceId,
@@ -1878,93 +1784,12 @@ export function FileViewerContent({
     [filePath, isSsh, sshSessionId, sshWorkspaceRoot, sshWorkspaceId],
   );
 
-  // Keyboard shortcuts handled inside the editor's onKeyDown (which runs before
-  // the library's own key handling): Ctrl/Cmd+S saves, Esc exits edit mode.
-  // Undo/redo (Ctrl/Cmd+Z, Ctrl+Y) is handled natively by the editor library.
-  // IME 组合输入（如中文候选词）期间放行给输入法：确认候选的 Enter/取消
-  // 候选的 Esc 不得触发保存/退出编辑，否则候选词无法上屏。
-  const handleEditorKeyDown = useCallback(
-    (e: React.KeyboardEvent<HTMLElement>) => {
-      if (isImeComposing(e)) {
-        return;
-      }
-      const mod = e.ctrlKey || e.metaKey;
-      if (mod && (e.key === "s" || e.key === "S")) {
-        e.preventDefault();
-        if (dirty && !saving) {
-          void handleSave();
-        }
-        return;
-      }
-      if (e.key === "Escape") {
-        e.preventDefault();
-        handleExitEditMode();
-      }
-    },
-    [dirty, saving, handleSave, handleExitEditMode],
-  );
-
-  // 大文件编辑的输入增强：原生 textarea 默认 Tab 会跳出输入框、
-  // 回车不带缩进，这里补上 Tab/Shift+Tab 缩进与回车保持缩进。
-  const handlePlainKeyDown = useCallback(
-    (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
-      if (!isImeComposing(event)) {
-        const textarea = event.currentTarget;
-        const value = textarea.value;
-        const start = textarea.selectionStart ?? 0;
-        const end = textarea.selectionEnd ?? start;
-        const lineStart =
-          start > 0 ? value.lastIndexOf("\n", start - 1) + 1 : 0;
-        if (event.key === "Tab") {
-          event.preventDefault();
-          if (event.shiftKey) {
-            const lead = /^[ \t]{1,2}/.exec(value.slice(lineStart))?.[0] ?? "";
-            if (lead.length > 0) {
-              textarea.setRangeText(
-                "",
-                lineStart,
-                lineStart + lead.length,
-                "preserve",
-              );
-              handleValueChange(textarea.value);
-            }
-          } else {
-            textarea.setRangeText("  ", start, end, "end");
-            handleValueChange(textarea.value);
-          }
-          return;
-        }
-        if (
-          event.key === "Enter" &&
-          !event.shiftKey &&
-          !event.ctrlKey &&
-          !event.metaKey
-        ) {
-          const indent =
-            /^[ \t]*/.exec(value.slice(lineStart, start))?.[0] ?? "";
-          if (indent.length > 0) {
-            event.preventDefault();
-            textarea.setRangeText(`\n${indent}`, start, end, "end");
-            handleValueChange(textarea.value);
-            return;
-          }
-        }
-      }
-      handleEditorKeyDown(event);
-    },
-    [handleEditorKeyDown, handleValueChange],
-  );
-
-  // Focus the editor when entering edit mode. No scroll syncing is needed for
-  // the gutter: it lives inside `.file-viewer-edit-scroll` alongside the code,
-  // so both scroll together as one piece of content.
-  useEffect(() => {
-    if (!editMode) return;
-    const textarea = document.getElementById(editTextareaId);
-    if (textarea instanceof HTMLTextAreaElement) {
-      textarea.focus();
+  // 编辑器内 Ctrl/Cmd+S（Esc 由编辑器直接调用 handleExitEditMode）。
+  const handleEditorSave = useCallback(() => {
+    if (dirtyRef.current && !saving) {
+      void handleSave();
     }
-  }, [editMode]);
+  }, [saving, handleSave]);
 
   // ===== 文内搜索逻辑 =====
 
@@ -1999,7 +1824,7 @@ export function FileViewerContent({
     const matches: SearchMatch[] = [];
     let from = 0;
 
-    const activeIndex = editMode ? (plainIndex ?? lineIndex) : lineIndex;
+    const activeIndex = editMode ? null : lineIndex;
     if (activeIndex && activeIndex.total > 0) {
       const { starts, total } = activeIndex;
       while (matches.length < SEARCH_MATCH_LIMIT) {
@@ -2053,7 +1878,6 @@ export function FileViewerContent({
   }, [
     editMode,
     lineIndex,
-    plainIndex,
     searchCaseSensitive,
     searchHaystack,
     searchOpen,
@@ -2088,23 +1912,20 @@ export function FileViewerContent({
   }, []);
 
   // 作用域接管的局部 handler：打开（或重新聚焦）文内搜索。
-  // 编辑模式下若 textarea 存在短单行选区，以其作为初始查询。
+  // 编辑模式下若编辑器存在短单行选区，以其作为初始查询。
   const openLocalSearch = useCallback(() => {
     // markdown 预览模式无行号/文本节点定位，打开搜索时自动切回源码视图。
     if (isMarkdown && mdMode !== "code") {
       setMdMode("code");
     }
-    if (editMode) {
-      const textarea = document.getElementById(editTextareaId);
-      if (textarea instanceof HTMLTextAreaElement) {
-        const start = textarea.selectionStart ?? 0;
-        const end = textarea.selectionEnd ?? 0;
-        searchAnchorRef.current = start;
-        if (end > start && end - start <= SEARCH_SEED_MAX_LENGTH) {
-          const selected = textarea.value.slice(start, end);
-          if (!selected.includes("\n")) {
-            setSearchQuery(selected);
-          }
+    const editor = editMode ? editorRef.current : null;
+    if (editor) {
+      const { from, to } = editor.getSelection();
+      searchAnchorRef.current = from;
+      if (to > from && to - from <= SEARCH_SEED_MAX_LENGTH) {
+        const selected = editor.getSelectedText();
+        if (!selected.includes("\n")) {
+          setSearchQuery(selected);
         }
       }
     } else {
@@ -2134,12 +1955,7 @@ export function FileViewerContent({
     setSearchOpen(false);
     setSearchMarkRects([]);
     if (editMode) {
-      requestAnimationFrame(() => {
-        const textarea = document.getElementById(editTextareaId);
-        if (textarea instanceof HTMLTextAreaElement) {
-          textarea.focus();
-        }
-      });
+      requestAnimationFrame(() => editorRef.current?.focus());
     }
   }, [editMode]);
 
@@ -2254,29 +2070,7 @@ export function FileViewerContent({
 
     if (editMode) {
       if (!navigated) return;
-      const textarea = document.getElementById(editTextareaId);
-      if (!(textarea instanceof HTMLTextAreaElement)) return;
-      textarea.setSelectionRange(match.start, match.end);
-      const lineHeight = parseFloat(
-        window.getComputedStyle(textarea).lineHeight,
-      );
-      if (!Number.isFinite(lineHeight) || lineHeight <= 0) return;
-      if (plainEditor) {
-        textarea.scrollTop = Math.max(
-          0,
-          (match.line - 1) * lineHeight - textarea.clientHeight / 3,
-        );
-        return;
-      }
-      // 编辑器 textarea 自身不滚动（overflow: hidden），滚动由外层容器承担。
-      const editScroller = editScrollRef.current;
-      if (!editScroller) return;
-      editScroller.scrollTop = Math.max(
-        0,
-        codeMetrics.paddingTop +
-          (match.line - 1) * lineHeight -
-          editScroller.clientHeight / 3,
-      );
+      editorRef.current?.select(match.start, match.end);
       return;
     }
 
@@ -2306,9 +2100,7 @@ export function FileViewerContent({
     alignMatchRow,
     codeMetrics,
     editMode,
-    editTextareaId,
     lineMapping,
-    plainEditor,
     revealLine,
     searchIndex,
     searchMatches,
@@ -2428,80 +2220,18 @@ export function FileViewerContent({
     searchOpen,
   ]);
 
-  // 编辑模式匹配高亮：与编辑器同排版的透明镜像文本，命中段包 span 着色；
-  // 镜像含完整文本以撑满内容宽度，命中行整行底色挂在其内。
-  // 大文件编辑只镜像可视行窗口（与高亮层同步位移）。
-  const editSearchMirror = useMemo(() => {
-    if (!editMode || !searchOpen || searchMatches.length === 0) return null;
-    let from = 0;
-    let to = editedContent.length;
-    let firstLine = 1;
-    let lastLine = Number.MAX_SAFE_INTEGER;
-    if (plainEditor) {
-      if (!plainIndex || plainRange.end <= plainRange.start) return null;
-      from = plainIndex.starts[plainRange.start];
-      to = plainIndex.starts[Math.min(plainRange.end, plainIndex.total)];
-      firstLine = plainRange.start + 1;
-      lastLine = plainRange.end;
-    }
-    const current =
-      searchMatches[Math.min(searchIndex, searchMatches.length - 1)];
-    const bands = collectMatchLines(
-      searchMatches,
-      firstLine,
-      lastLine,
-      current?.line ?? -1,
-    );
-    if (bands.length === 0) return null;
-    let first = searchMatches.length;
-    let lo = 0;
-    let hi = searchMatches.length - 1;
-    while (lo <= hi) {
-      const mid = (lo + hi) >> 1;
-      if (searchMatches[mid].end > from) {
-        first = mid;
-        hi = mid - 1;
-      } else {
-        lo = mid + 1;
-      }
-    }
-    const nodes: React.ReactNode[] = [];
-    let cursor = from;
-    let marks = 0;
-    for (let i = first; i < searchMatches.length; i += 1) {
-      const match = searchMatches[i];
-      if (match.start >= to) break;
-      if (marks >= SEARCH_MARK_RENDER_LIMIT && match !== current) continue;
-      const start = Math.max(match.start, cursor);
-      const end = Math.min(match.end, to);
-      if (end <= start) continue;
-      if (start > cursor) nodes.push(editedContent.slice(cursor, start));
-      nodes.push(
-        <span
-          key={i}
-          className={`file-viewer-search-mark-inline${
-            match === current ? " current" : ""
-          }`}
-        >
-          {editedContent.slice(start, end)}
-        </span>,
-      );
-      cursor = end;
-      marks += 1;
-    }
-    if (cursor < to) nodes.push(editedContent.slice(cursor, to));
-    return { nodes, bands, firstLine };
-  }, [
-    editMode,
-    editedContent,
-    plainEditor,
-    plainIndex,
-    plainRange.end,
-    plainRange.start,
-    searchIndex,
-    searchMatches,
-    searchOpen,
-  ]);
+  // 编辑模式匹配高亮交给编辑器装饰层（只渲染视口内的标记）。
+  const editSearch = useMemo<CodeEditorSearch | null>(
+    () =>
+      editMode && searchOpen && searchMatches.length > 0
+        ? {
+            matches: searchMatches,
+            current: searchIndex,
+            limit: SEARCH_MARK_RENDER_LIMIT,
+          }
+        : null,
+    [editMode, searchIndex, searchMatches, searchOpen],
+  );
 
   const renderSearchBands = (
     bands: SearchLineBand[],
@@ -2514,12 +2244,6 @@ export function FileViewerContent({
         style={{ top: lineTop(band.line), height: codeMetrics.lineHeight }}
       />
     ));
-
-  // 镜像层挂载时补一次位移同步，否则要等下一次滚动才对齐。
-  const plainMirrorMounted = plainEditor && editSearchMirror != null;
-  useLayoutEffect(() => {
-    if (plainMirrorMounted) syncPlainView();
-  }, [plainMirrorMounted, syncPlainView]);
 
   const buildMenuItems = (): ContextMenuItem[] => {
     const items: ContextMenuItem[] = [];
@@ -2669,112 +2393,19 @@ export function FileViewerContent({
     );
   };
 
-  const renderPlainEditBlock = () => (
-    <div className="file-viewer-edit-scroll file-viewer-edit-scroll--plain">
-      <div className="file-viewer-code file-viewer-code--plain">
-        <code
-          className="file-viewer-line-numbers file-viewer-line-numbers--edit file-viewer-line-numbers--window"
-          aria-hidden="true"
-        >
-          <span className="file-viewer-gutter-window" ref={plainGutterRef}>
-            {plainLineNumbers}
-          </span>
-        </code>
-        <div className="file-viewer-edit-layer">
-          {editSearchMirror ? (
-            <div
-              className="file-viewer-edit-search-bands"
-              ref={plainBandsRef}
-              aria-hidden="true"
-            >
-              {renderSearchBands(
-                editSearchMirror.bands,
-                (line) =>
-                  (line - editSearchMirror.firstLine) * codeMetrics.lineHeight,
-              )}
-            </div>
-          ) : null}
-          {editSearchMirror ? (
-            <div
-              className="file-viewer-edit-search-mirror file-viewer-edit-search-mirror--plain"
-              ref={plainMirrorRef}
-              aria-hidden="true"
-            >
-              {editSearchMirror.nodes}
-            </div>
-          ) : null}
-          {plainHighlighter?.enabled ? (
-            <pre
-              className="hljs file-viewer-edit-highlight"
-              ref={plainHighlightRef}
-              aria-hidden="true"
-            >
-              {plainHighlightRows}
-            </pre>
-          ) : null}
-          <textarea
-            id={editTextareaId}
-            ref={plainTextareaRef}
-            className={`file-viewer-edit-textarea file-viewer-edit-textarea--plain${
-              plainHighlighter?.enabled
-                ? " file-viewer-edit-textarea--ghost"
-                : ""
-            }`}
-            value={editedContent}
-            spellCheck={false}
-            wrap="off"
-            onChange={(event) => handleValueChange(event.target.value)}
-            onScroll={syncPlainView}
-            onKeyDown={handlePlainKeyDown}
-          />
-        </div>
-      </div>
-    </div>
+  const renderEditBlock = () => (
+    <CodeEditor
+      key={filePath}
+      ref={editorRef}
+      initialText={editedContent}
+      language={getLanguageFromFileName(fileName)}
+      autoFocus
+      search={editSearch}
+      onChange={handleEditorChange}
+      onSave={handleEditorSave}
+      onEscape={handleExitEditMode}
+    />
   );
-
-  const renderEditBlock = () =>
-    plainEditor ? (
-      renderPlainEditBlock()
-    ) : (
-      <div className="file-viewer-edit-scroll" ref={editScrollRef}>
-        <div className="file-viewer-code">
-          <code
-            className="file-viewer-line-numbers file-viewer-line-numbers--edit"
-            aria-hidden="true"
-          >
-            {editLineNumbers}
-          </code>
-          <div className="file-viewer-editor-wrap">
-            {editSearchMirror ? (
-              <div
-                className="file-viewer-edit-search-mirror"
-                aria-hidden="true"
-              >
-                {renderSearchBands(
-                  editSearchMirror.bands,
-                  (line) => (line - 1) * codeMetrics.lineHeight,
-                )}
-                {editSearchMirror.nodes}
-              </div>
-            ) : null}
-            <Editor
-              value={editedContent}
-              onValueChange={handleValueChange}
-              highlight={highlightCode}
-              onKeyDown={handleEditorKeyDown}
-              textareaId={editTextareaId}
-              textareaClassName="file-viewer-edit-textarea"
-              preClassName="hljs"
-              padding={{ top: 0, right: 14, bottom: 0, left: 10 }}
-              tabSize={2}
-              insertSpaces
-              spellCheck={false}
-              style={{ minWidth: "max-content" }}
-            />
-          </div>
-        </div>
-      </div>
-    );
 
   if (loading) {
     return (

@@ -87,8 +87,17 @@ export const createCodeHighlighter = (
     normalizedLanguage.length > 0 &&
     Boolean(hljs.getLanguage(normalizedLanguage));
   const pending = new Set<number>();
+  // 实例级分块结果：同一窗口内逐行取 HTML 时不再重复拼接分块文本。
+  const local = new Map<number, string[] | null>();
 
   const computeChunk = (chunk: number): string[] | null => {
+    if (local.has(chunk)) return local.get(chunk) ?? null;
+    const lines = buildChunk(chunk);
+    local.set(chunk, lines);
+    return lines;
+  };
+
+  const buildChunk = (chunk: number): string[] | null => {
     const firstLine = chunk * CHUNK_LINES + 1;
     const lastLine = Math.min(index.total, firstLine + CHUNK_LINES - 1);
     const contextFrom = Math.max(1, firstLine - CONTEXT_LINES);
