@@ -14,6 +14,7 @@
 //! 等长任务共用同一套语义（Windows 用 taskkill /T，Unix 用进程组）。
 
 use std::ffi::OsStr;
+#[cfg(windows)]
 use std::process::Stdio;
 use std::time::{Duration, Instant};
 
@@ -74,6 +75,20 @@ pub async fn poll_child_exit(
     }
 }
 
+#[cfg(unix)]
+fn child_process_group(pid: u32) -> Option<libc::pid_t> {
+    libc::pid_t::try_from(pid).ok().filter(|&id| id > 1)
+}
+
+#[cfg(all(test, unix))]
+#[test]
+fn group_targets_preserve_full_pid_and_exclude_reserved_values() {
+    assert_eq!(child_process_group(123456), Some(123456));
+    for invalid in [0, 1, u32::MAX] {
+        assert_eq!(child_process_group(invalid), None);
+    }
+}
+
 /// Kill the entire process tree rooted at `child`, not just the
 /// immediate shell process. On Windows, `taskkill` is launched asynchronously
 /// and bounded by a short deadline; if it stalls, the shell is force-killed
@@ -106,17 +121,15 @@ pub async fn kill_process_tree(child: &mut tokio::process::Child) {
                 .await;
             }
         }
-        #[cfg(not(target_os = "windows"))]
-        {
-            // Negative PID kills the entire process group. The child was
-            // spawned with process_group(0), so it leads its own group.
-            let _ = cmd_async("kill")
-                .args(["-9", &format!("-{pid}")])
-                .stdin(Stdio::null())
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .status()
-                .await;
+        #[cfg(unix)]
+        if let Some(pgid) = child_process_group(pid) {
+            // Only signal the dedicated group created by process_group(0).
+            // Pass the numeric group directly to avoid command-line parsing.
+            unsafe {
+                if libc::getpgid(pgid) == pgid {
+                    libc::killpg(pgid, libc::SIGKILL);
+                }
+            }
         }
     }
 
