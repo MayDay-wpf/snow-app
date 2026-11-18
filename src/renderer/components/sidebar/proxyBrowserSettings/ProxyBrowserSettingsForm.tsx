@@ -1,6 +1,7 @@
 import { FolderOpen, ListPlus, Loader2, RotateCcw } from "lucide-react";
 import { type ChangeEvent } from "react";
 import { useI18n } from "../../../i18n";
+import { ApiSettingsHintIcon } from "../apiSettings/ApiSettingsFieldLabel";
 import { SEARCH_ENGINE_OPTIONS } from "./proxyBrowserSettingsConstants";
 import { SearchEngineIcon } from "./SearchEngineIcon";
 import type { ProxyBrowserSettingsForm as ProxyBrowserSettingsFormValue } from "./types";
@@ -43,13 +44,13 @@ export function ProxyBrowserSettingsForm({
           {t("settings.proxyBrowserManualTitle", {
             defaultValue: "Manual configuration",
           })}
+          <ApiSettingsHintIcon
+            hint={t("settings.proxyBrowserManualInfo", {
+              defaultValue:
+                "These values are saved in Snow App system settings and can be synced from ~/.snow/proxy-config.json.",
+            })}
+          />
         </strong>
-        <span>
-          {t("settings.proxyBrowserManualInfo", {
-            defaultValue:
-              "These values are saved in Snow App system settings and can be synced from ~/.snow/proxy-config.json.",
-          })}
-        </span>
       </div>
 
       <div className="api-settings-form-body">
@@ -228,6 +229,12 @@ export function ProxyBrowserSettingsForm({
               {t("settings.blockedPatterns", {
                 defaultValue: "Regex blocking rules",
               })}
+              <ApiSettingsHintIcon
+                hint={t("settings.blockedPatternsInfo", {
+                  defaultValue:
+                    "Matching sites are filtered from search results and cannot be fetched.",
+                })}
+              />
             </span>
             <textarea
               className="api-settings-field-textarea"
@@ -242,12 +249,6 @@ export function ProxyBrowserSettingsForm({
               spellCheck={false}
               disabled={isBusy}
             />
-            <span>
-              {t("settings.blockedPatternsInfo", {
-                defaultValue:
-                  "Matching sites are filtered from search results and cannot be fetched.",
-              })}
-            </span>
           </label>
         </div>
       </div>

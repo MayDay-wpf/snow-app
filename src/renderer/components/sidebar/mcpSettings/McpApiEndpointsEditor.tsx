@@ -12,6 +12,7 @@ import { useState } from "react";
 import type { McpApiTestResult } from "../../../../preload";
 import { useI18n } from "../../../i18n";
 import { CustomSelect } from "../../common/CustomSelect";
+import { ApiSettingsHintIcon } from "../apiSettings/ApiSettingsFieldLabel";
 import {
   API_BODY_TYPES,
   API_METHODS,
@@ -148,13 +149,13 @@ export function McpApiEndpointsEditor({
         <div className="mcp-api-section-header">
           <strong className="api-settings-form-section-title">
             {t("settings.mcpApiEndpoints", { defaultValue: "API endpoints" })}
+            <ApiSettingsHintIcon
+              hint={t("settings.mcpApiPlaceholderHint", {
+                defaultValue:
+                  "Each endpoint becomes one tool. Reference parameters with {{name}} in the path, headers, cookies and body template.",
+              })}
+            />
           </strong>
-          <span className="mcp-api-hint">
-            {t("settings.mcpApiPlaceholderHint", {
-              defaultValue:
-                "Each endpoint becomes one tool. Reference parameters with {{name}} in the path, headers, cookies and body template.",
-            })}
-          </span>
         </div>
 
         {api.endpoints.length === 0 ? (
@@ -502,6 +503,14 @@ function McpApiEndpointCard({
               <div className="api-settings-field">
                 <span>
                   {t("settings.mcpApiBodyType", { defaultValue: "Body" })}
+                  {endpoint.bodyType === "multipart" ? (
+                    <ApiSettingsHintIcon
+                      hint={t("settings.mcpApiMultipartHint", {
+                        defaultValue:
+                          "Parameters located in Body are sent as text form fields.",
+                      })}
+                    />
+                  ) : null}
                 </span>
                 <CustomSelect
                   value={endpoint.bodyType}
@@ -579,14 +588,6 @@ function McpApiEndpointCard({
                   disabled={isBusy}
                 />
               </>
-            )}
-            {endpoint.bodyType === "multipart" && (
-              <span className="mcp-api-hint">
-                {t("settings.mcpApiMultipartHint", {
-                  defaultValue:
-                    "Parameters located in Body are sent as text form fields.",
-                })}
-              </span>
             )}
           </div>
 

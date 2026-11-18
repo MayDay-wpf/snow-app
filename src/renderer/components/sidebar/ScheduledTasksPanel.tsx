@@ -26,6 +26,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useEscapeClose } from "../../hooks/useEscapeClose";
 import { useI18n } from "../../i18n";
+import { ApiSettingsHintIcon } from "./apiSettings/ApiSettingsFieldLabel";
 import { useScheduledTasks } from "../../hooks/useScheduledTasks";
 import { useSplitResize } from "../../hooks/useSplitResize";
 import {
@@ -1944,6 +1945,12 @@ export function ScheduledTasksPanel({
                   {t("scheduledTask.workflow.title", {
                     defaultValue: "Workflow",
                   })}
+                  <ApiSettingsHintIcon
+                    hint={t("scheduledTask.workflow.detailsHint", {
+                      defaultValue:
+                        "Click a node that has run to open its conversation.",
+                    })}
+                  />
                   <span className="st-workflow-context-badge">
                     {t(
                       `scheduledTask.workflow.context.${selectedTask.workflow.contextMode}`,
@@ -1994,12 +2001,6 @@ export function ScheduledTasksPanel({
                 onDismiss={dismissNodeConversationMissing}
                 tone="warning"
               />
-              <div className="scheduled-tasks-pre-script-hint">
-                {t("scheduledTask.workflow.detailsHint", {
-                  defaultValue:
-                    "Click a node that has run to open its conversation.",
-                })}
-              </div>
             </section>
           )}
 
@@ -2055,6 +2056,12 @@ export function ScheduledTasksPanel({
                   {t("scheduledTask.preScriptCommand", {
                     defaultValue: "Shell command",
                   })}
+                  <ApiSettingsHintIcon
+                    hint={t("scheduledTask.preScriptHint", {
+                      defaultValue:
+                        'Exit 0 = run AI, exit 1 = skip. Or print a JSON line: {"run":false,"reason":"...","output":"..."} — "output" fills the {{SCRIPT_OUTPUT}} placeholder in the prompt.',
+                    })}
+                  />
                 </span>
                 <div
                   aria-label={t("scheduledTask.preScriptCommand", {
@@ -2168,6 +2175,12 @@ export function ScheduledTasksPanel({
           {t("scheduledTask.workflow.contextMode", {
             defaultValue: "Context between nodes",
           })}
+          <ApiSettingsHintIcon
+            hint={t(
+              `scheduledTask.workflow.contextHint.${workflowDraft.contextMode}`,
+              { defaultValue: "" },
+            )}
+          />
         </span>
         <div className="segmented-tabs" role="group">
           {CONTEXT_MODE_OPTIONS.map((mode) => (
@@ -2190,14 +2203,6 @@ export function ScheduledTasksPanel({
               })}
             </button>
           ))}
-        </div>
-        <div className="scheduled-tasks-pre-script-hint">
-          {t(
-            `scheduledTask.workflow.contextHint.${workflowDraft.contextMode}`,
-            {
-              defaultValue: "",
-            },
-          )}
         </div>
       </div>
       <ScheduledTaskWorkflowCanvas
@@ -2352,6 +2357,12 @@ export function ScheduledTasksPanel({
                 {t("scheduledTask.preScriptCommand", {
                   defaultValue: "Shell command",
                 })}
+                <ApiSettingsHintIcon
+                  hint={t("scheduledTask.preScriptHint", {
+                    defaultValue:
+                      'Exit 0 = run AI, exit 1 = skip. Or print a JSON line: {"run":false,"reason":"...","output":"..."} — "output" fills the {{SCRIPT_OUTPUT}} placeholder in the prompt.',
+                  })}
+                />
               </span>
               <textarea
                 className="scheduled-tasks-script-textarea"
@@ -2363,12 +2374,6 @@ export function ScheduledTasksPanel({
                 value={preScript}
               />
             </label>
-            <div className="scheduled-tasks-pre-script-hint">
-              {t("scheduledTask.preScriptHint", {
-                defaultValue:
-                  'Exit 0 = run AI, exit 1 = skip. Or print a JSON line: {"run":false,"reason":"...","output":"..."} — "output" fills the {{SCRIPT_OUTPUT}} placeholder in the prompt.',
-              })}
-            </div>
             <div className="scheduled-tasks-field-row">
               <label className="scheduled-tasks-field">
                 <span>
@@ -2747,14 +2752,14 @@ export function ScheduledTasksPanel({
                 {t("scheduledTask.wakeWhenClosed", {
                   defaultValue: "Run even when the app is closed",
                 })}
+                <ApiSettingsHintIcon
+                  hint={t("scheduledTask.wakeWhenClosedHint", {
+                    defaultValue:
+                      "After the app quits, the system scheduler launches it in the background shortly before the run time. A run missed while the computer was off runs once on the next launch.",
+                  })}
+                />
               </span>
             </label>
-            <div className="scheduled-tasks-pre-script-hint">
-              {t("scheduledTask.wakeWhenClosedHint", {
-                defaultValue:
-                  "After the app quits, the system scheduler launches it in the background shortly before the run time. A run missed while the computer was off runs once on the next launch.",
-              })}
-            </div>
           </section>
 
           <section className="scheduled-tasks-form-section">
@@ -2762,15 +2767,15 @@ export function ScheduledTasksPanel({
               {t("scheduledTask.runConfigSettingsTitle", {
                 defaultValue: "Run configuration",
               })}
+              {runMode === "workflow" && (
+                <ApiSettingsHintIcon
+                  hint={t("scheduledTask.workflow.defaultConfigHint", {
+                    defaultValue:
+                      "The settings below are the defaults for nodes without their own API config. {{SCRIPT_OUTPUT}} works in every node prompt.",
+                  })}
+                />
+              )}
             </h3>
-            {runMode === "workflow" && (
-              <div className="scheduled-tasks-pre-script-hint">
-                {t("scheduledTask.workflow.defaultConfigHint", {
-                  defaultValue:
-                    "The settings below are the defaults for nodes without their own API config. {{SCRIPT_OUTPUT}} works in every node prompt.",
-                })}
-              </div>
-            )}
             {renderRunConfigFields()}
           </section>
         </div>

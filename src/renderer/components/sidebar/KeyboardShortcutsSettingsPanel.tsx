@@ -7,6 +7,7 @@ import {
   type ChangeEvent,
 } from "react";
 import { useI18n } from "../../i18n";
+import { ApiSettingsHintIcon } from "./apiSettings/ApiSettingsFieldLabel";
 import { useKeyboardShortcutsSettings } from "../KeyboardShortcutsProvider";
 import type {
   KeyboardShortcutAction,
@@ -169,13 +170,16 @@ export function KeyboardShortcutsSettingsPanel(): React.JSX.Element {
             {t("settings.shortcutListTitle", {
               defaultValue: "Shortcut list",
             })}
+            <ApiSettingsHintIcon
+              hint={`${t("settings.shortcutListInfo", {
+                defaultValue:
+                  "Toggle each shortcut on or off, and click the key to rebind it.",
+              })} ${t("settings.shortcutForegroundOnlyNote", {
+                defaultValue:
+                  'When "Foreground only" is on, the shortcut only works while the app window is focused. When off, it is registered as a system-wide global shortcut and also works while the app is in the background. Single-key bindings (e.g. ESC) only work in the foreground.',
+              })}`}
+            />
           </strong>
-          <span>
-            {t("settings.shortcutListInfo", {
-              defaultValue:
-                "Toggle each shortcut on or off, and click the key to rebind it.",
-            })}
-          </span>
         </div>
 
         <div className="shortcut-list">
@@ -319,13 +323,6 @@ export function KeyboardShortcutsSettingsPanel(): React.JSX.Element {
             })}
           </p>
         )}
-
-        <p className="shortcut-note">
-          {t("settings.shortcutForegroundOnlyNote", {
-            defaultValue:
-              'When "Foreground only" is on, the shortcut only works while the app window is focused. When off, it is registered as a system-wide global shortcut and also works while the app is in the background. Single-key bindings (e.g. ESC) only work in the foreground.',
-          })}
-        </p>
 
         <div className="api-settings-form-actions">
           <button

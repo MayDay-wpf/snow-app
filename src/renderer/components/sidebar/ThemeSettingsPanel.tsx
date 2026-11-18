@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AutoDismissNotice } from "../AutoDismissNotice";
 import { CustomSelect } from "../common/CustomSelect";
 import { Modal } from "../common/Modal";
+import { ApiSettingsHintIcon } from "./apiSettings/ApiSettingsFieldLabel";
 import { useI18n } from "../../i18n";
 import { useDebouncedAutoSave } from "../../hooks/useDebouncedAutoSave";
 import { getPresetById } from "./themeSettings/themePresets";
@@ -851,14 +852,14 @@ export function ThemeSettingsPanel(): React.JSX.Element {
                 {t("settings.themeMode", {
                   defaultValue: "Appearance mode",
                 })}
+                <ApiSettingsHintIcon
+                  hint={t("settings.themeModeInfo", {
+                    defaultValue:
+                      "Choose whether the app follows the system, stays light, or stays dark.",
+                  })}
+                />
               </strong>
             </div>
-            <span className="settings-item-description">
-              {t("settings.themeModeInfo", {
-                defaultValue:
-                  "Choose whether the app follows the system, stays light, or stays dark.",
-              })}
-            </span>
             <ThemeModeSelector
               mode={form.mode}
               disabled={busy}
@@ -872,14 +873,14 @@ export function ThemeSettingsPanel(): React.JSX.Element {
                 {t("settings.themeLayoutStyle", {
                   defaultValue: "Layout style",
                 })}
+                <ApiSettingsHintIcon
+                  hint={t("settings.themeLayoutStyleInfo", {
+                    defaultValue:
+                      "Island keeps three separate cards (default); Layered blends the sidebar into the background and stacks the main area and right panel over each other.",
+                  })}
+                />
               </strong>
             </div>
-            <span className="settings-item-description">
-              {t("settings.themeLayoutStyleInfo", {
-                defaultValue:
-                  "Island keeps three separate cards (default); Layered blends the sidebar into the background and stacks the main area and right panel over each other.",
-              })}
-            </span>
             <ThemeLayoutStyleSelector
               layoutStyle={form.layoutStyle}
               disabled={busy}
@@ -893,15 +894,15 @@ export function ThemeSettingsPanel(): React.JSX.Element {
                 {t("settings.themeTranscriptStyle", {
                   defaultValue: "Transcript display",
                 })}
+                <ApiSettingsHintIcon
+                  hint={t("settings.themeTranscriptStyleInfo", {
+                    defaultValue:
+                      "How tool calls appear in the transcript. Classic keeps full tool cards, Chips compacts them into pill rows, Minimal hides thinking and merges tools into one group. Press {{shortcut}} to cycle.",
+                    values: { shortcut: TOOL_CARD_STYLE_SHORTCUT_KEY },
+                  })}
+                />
               </strong>
             </div>
-            <span className="settings-item-description">
-              {t("settings.themeTranscriptStyleInfo", {
-                defaultValue:
-                  "How tool calls appear in the transcript. Classic keeps full tool cards, Chips compacts them into pill rows, Minimal hides thinking and merges tools into one group. Press {{shortcut}} to cycle.",
-                values: { shortcut: TOOL_CARD_STYLE_SHORTCUT_KEY },
-              })}
-            </span>
             <ThemeTranscriptStyleSelector disabled={busy} />
           </div>
 
@@ -911,14 +912,14 @@ export function ThemeSettingsPanel(): React.JSX.Element {
                 {t("settings.themePresets", {
                   defaultValue: "Preset themes",
                 })}
+                <ApiSettingsHintIcon
+                  hint={t("settings.themePresetsInfo", {
+                    defaultValue:
+                      "Pick a built-in color scheme. Light and dark variants are bundled together.",
+                  })}
+                />
               </strong>
             </div>
-            <span className="settings-item-description">
-              {t("settings.themePresetsInfo", {
-                defaultValue:
-                  "Pick a built-in color scheme. Light and dark variants are bundled together.",
-              })}
-            </span>
             <ThemePresetGrid
               selectedPresetId={form.presetId}
               disabled={busy}
@@ -932,6 +933,12 @@ export function ThemeSettingsPanel(): React.JSX.Element {
                 {t("settings.themeCustomTitle", {
                   defaultValue: "Custom theme",
                 })}
+                <ApiSettingsHintIcon
+                  hint={t("settings.themeCustomInfo", {
+                    defaultValue:
+                      "Fine-tune every color. Light and dark palettes are edited separately; editing a color switches to the custom theme.",
+                  })}
+                />
               </strong>
               <label className="toggle-switch">
                 <input
@@ -953,12 +960,6 @@ export function ThemeSettingsPanel(): React.JSX.Element {
                 </span>
               </label>
             </div>
-            <span className="settings-item-description">
-              {t("settings.themeCustomInfo", {
-                defaultValue:
-                  "Fine-tune every color. Light and dark palettes are edited separately; editing a color switches to the custom theme.",
-              })}
-            </span>
             <div className="api-settings-form-actions theme-custom-edit-action">
               <button
                 className="api-settings-form-btn secondary"

@@ -17,6 +17,7 @@ import { CustomSelect } from "../../common/CustomSelect";
 import { Modal } from "../../common/Modal";
 import { RangeSlider } from "../../common/RangeSlider";
 import { UsageDateFilter } from "../usageSettings/UsageDateFilter";
+import { ApiSettingsHintIcon } from "../apiSettings/ApiSettingsFieldLabel";
 import { getActiveLocale, useI18n } from "../../../i18n";
 import {
   usePublishSettingsPageActions,
@@ -788,6 +789,12 @@ export function SystemLogsPanel(): React.JSX.Element {
             {t("settings.systemLogsRequestLogging", {
               defaultValue: "Request logging",
             })}
+            <ApiSettingsHintIcon
+              hint={t("settings.systemLogsRequestLoggingDescription", {
+                defaultValue:
+                  "Record the full raw request JSON of every API call. Very high disk usage.",
+              })}
+            />
           </span>
         </label>
         {requestLoggingEnabled && loggingExpiresAt !== null && (
@@ -804,17 +811,17 @@ export function SystemLogsPanel(): React.JSX.Element {
             </span>
           </span>
         )}
-        <span className="settings-item-description">
-          {t("settings.systemLogsRequestLoggingDescription", {
-            defaultValue:
-              "Record the full raw request JSON of every API call. Very high disk usage.",
-          })}
-        </span>
       </div>
 
       <div className="system-logs-filter-row">
         <span className="system-logs-request-logging-label">
           {t("settings.systemLogsRetention", { defaultValue: "Log retention" })}
+          <ApiSettingsHintIcon
+            hint={t("settings.systemLogsRetentionDescription", {
+              defaultValue:
+                "Logs older than the retention window are deleted automatically.",
+            })}
+          />
         </span>
         <div className="system-logs-retention-select">
           <CustomSelect
@@ -823,12 +830,6 @@ export function SystemLogsPanel(): React.JSX.Element {
             onChange={(value) => void handleRetentionChange(Number(value))}
           />
         </div>
-        <span className="settings-item-description">
-          {t("settings.systemLogsRetentionDescription", {
-            defaultValue:
-              "Logs older than the retention window are deleted automatically.",
-          })}
-        </span>
       </div>
 
       <Modal

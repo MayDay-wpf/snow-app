@@ -7125,6 +7125,9 @@ body.is-panel-resizing * {
 }
 
 .api-settings-manual-header strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   font-size: 12.5px;
 }
 
@@ -7457,10 +7460,54 @@ body.is-panel-resizing * {
   border-color: var(--accent-color);
 }
 
-.api-settings-hint-text {
+/* API 配置字段标题行：标题文字 + 问号说明图标（说明收进 Tooltip，不再常驻小字） */
+.api-settings-field-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.api-settings-field-label-text {
+  min-width: 0;
+}
+
+.api-settings-field-label > .api-settings-hint-anchor,
+.api-settings-form-section-title > .api-settings-hint-anchor,
+.api-settings-manual-header strong > .api-settings-hint-anchor {
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.api-settings-hint-icon {
   color: var(--text-muted);
-  font-size: 10.5px;
-  line-height: 1.4;
+  cursor: help;
+  transition: color 0.12s ease;
+}
+
+/* 设置项标题里的问号图标：紧跟文字并垂直居中（flex 标题容器已有 gap，不用再补间距） */
+.api-settings-hint-anchor {
+  display: inline-flex;
+  align-items: center;
+}
+
+.tooltip-wrapper:has(> .api-settings-hint-icon) {
+  margin-inline-start: 4px;
+  vertical-align: middle;
+  align-items: center;
+}
+
+.api-settings-field-label > .api-settings-hint-anchor > .tooltip-wrapper,
+.api-settings-form-section-title > .api-settings-hint-anchor > .tooltip-wrapper,
+.api-settings-manual-header
+  strong
+  > .api-settings-hint-anchor
+  > .tooltip-wrapper {
+  margin-inline-start: 0;
+}
+
+.api-settings-hint-icon:hover {
+  color: var(--text-secondary);
 }
 
 /* ===== 模型连接自检（决策模型 / 嵌入 / 重排） ===== */
@@ -7908,12 +7955,6 @@ body.is-panel-resizing * {
 
 .range-slider-input:focus-visible::-webkit-slider-thumb {
   box-shadow: 0 0 0 3px var(--focus-ring);
-}
-
-.api-settings-field .api-settings-threshold-hint {
-  color: var(--text-muted);
-  font-size: 10.5px;
-  font-weight: 500;
 }
 
 .api-settings-field .api-settings-field-hint {
@@ -8796,6 +8837,9 @@ body.is-panel-resizing * {
 }
 
 .api-settings-form-section-title {
+  display: flex;
+  align-items: center;
+  gap: 4px;
   font-size: 11px;
   font-weight: 700;
   color: var(--text-muted);
@@ -22707,6 +22751,13 @@ img.tool-call-plugin-origin-icon {
   line-height: 1.45;
 }
 
+/* 开关行与汇总卡片标题内的问号说明图标 */
+.imagegen-toggle-copy > span > .tooltip-wrapper,
+.imagegen-concurrency-head > .tooltip-wrapper {
+  margin-inline-start: 4px;
+  vertical-align: middle;
+}
+
 /* 流式 / 非流式 分段按钮（替代单一开关，明确两种模式） */
 .imagegen-stream-segmented {
   display: flex;
@@ -33998,6 +34049,14 @@ body.is-right-pane-resizing-y * {
   font-size: 10.5px;
 }
 
+/* 字段标题内的问号说明图标 */
+.task-manager-budget-fields label > span,
+.task-manager-sampling-interval > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
 .task-manager-budget-fields input {
   width: 100%;
   min-width: 0;
@@ -34970,6 +35029,13 @@ body.is-right-pane-resizing-y * {
   color: var(--text-primary);
   font-size: 11.5px;
   font-weight: 600;
+}
+
+/* 小节标题内的问号说明图标 */
+.task-manager-section-header strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .task-manager-stale-banner {
@@ -39782,6 +39848,25 @@ body.is-git-pane-resizing :is(.git-panel-changes, .git-panel-graph) {
   font-size: 11px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* 标题里的问号说明：与标题文字同基线，不参与省略号裁剪 */
+.app-modal-title-group strong .tooltip-wrapper {
+  margin-inline-start: 4px;
+  vertical-align: middle;
+}
+
+/* 仅供读屏的隐藏文本（标题说明改为 Tooltip 后保留无障碍描述） */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .app-modal-close {
@@ -56443,16 +56528,6 @@ pre.file-viewer-code {
   white-space: nowrap;
 }
 
-.imagegen-concurrency-hint {
-  display: -webkit-box;
-  overflow: hidden;
-  color: var(--text-muted);
-  font-size: 10.5px;
-  line-height: 1.45;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-}
-
 /* 操作区：搜索 + 添加渠道 */
 .imagegen-table-panel {
   margin-bottom: 10px;
@@ -56571,15 +56646,6 @@ pre.file-viewer-code {
 .imagegen-ratio-option-label {
   font-family: var(--font-mono, monospace);
   font-size: 11px;
-}
-
-/* 模型档位能力提示 */
-.imagegen-model-size-hint {
-  display: block;
-  color: var(--accent-blue-text, var(--text-link));
-  font-size: 10.5px;
-  font-weight: 600;
-  line-height: 1.45;
 }
 
 /* 模型下拉选项：ID + 别名 + 状态徽章 */
@@ -56968,6 +57034,21 @@ pre.file-viewer-code {
   font-size: 11px;
   font-weight: 600;
   color: var(--text-secondary);
+}
+
+/* 行标题 / 卡片标题内的问号说明图标 */
+.general-storage-label > .tooltip-wrapper,
+.storage-card-title > .tooltip-wrapper {
+  margin-inline-start: 4px;
+  vertical-align: middle;
+}
+
+/* 带原生 title 的行标题：图标放在 title 元素外，避免两个提示叠加 */
+.general-storage-hint-row {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 4px;
 }
 
 .general-storage-path {
@@ -62288,9 +62369,11 @@ pre.file-viewer-code {
   min-width: 0;
 }
 
-/* 重要性下拉的两行选项：等级名 + 说明。 */
+/* 重要性下拉的两行选项：等级名 + 说明。说明必须完整换行显示，不能被裁掉。 */
 .memory-editor-row .custom-select-item > span:first-child {
   white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
 }
 
 .memory-importance-option {
@@ -62298,12 +62381,26 @@ pre.file-viewer-code {
   flex-direction: column;
   gap: 2px;
   width: 100%;
+  min-width: 0;
+}
+
+.memory-importance-option-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .memory-importance-option-desc {
   color: var(--text-muted);
   font-size: 10.5px;
-  line-height: 1.35;
+  line-height: 1.4;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+/* 两行选项更高，放宽该下拉的最大高度，避免滚动条挤窄文字造成额外换行。 */
+.custom-select-dropdown:has(.memory-importance-option) {
+  max-height: 320px;
 }
 
 .memory-editor-content {

@@ -20,6 +20,7 @@ import { CustomSelect, type CustomSelectOption } from "../common/CustomSelect";
 import { ConfirmDialog } from "../common/ConfirmDialog";
 import { OverlayScrollbar } from "../common/OverlayScrollbar";
 import { LspResourcePanel } from "../sidebar/lspSettings/LspResourcePanel";
+import { ApiSettingsHintIcon } from "../sidebar/apiSettings/ApiSettingsFieldLabel";
 import type { DetachedTaskInfo, TaskManagerProcess } from "../../../preload";
 import {
   associateLspProcesses,
@@ -1030,7 +1031,10 @@ export const TaskManagerContent = ({
           <div className="task-manager-card-section">
             <div className="task-manager-section-header">
               <Cpu size={14} />
-              <strong>{t("taskManager.budgetTitle")}</strong>
+              <strong>
+                {t("taskManager.budgetTitle")}
+                <ApiSettingsHintIcon hint={t("lsp.resources.policyHint")} />
+              </strong>
             </div>
             <LspResourcePanel
               isActive={isActive && !hidden && activeTab === "sessions"}

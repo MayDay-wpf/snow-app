@@ -15,6 +15,7 @@ import {
   useBrowserDisplayDevices,
   type BrowserDisplayDevice,
 } from "../../rightPanel/browser/browserDeviceSize";
+import { ApiSettingsHintIcon } from "../apiSettings/ApiSettingsFieldLabel";
 
 /**
  * 浏览器设置面板「显示尺寸设备」tab（参考 UserscriptsSection 的 tab 内容组件）：
@@ -190,18 +191,19 @@ export function DisplayDevicesSection(): React.JSX.Element {
       <div className="api-settings-form-section-header">
         <span className="api-settings-form-section-title">
           {t("settings.browserDevicesTitle")}
+          <ApiSettingsHintIcon hint={t("settings.browserDevicesInfo")} />
         </span>
-      </div>
-      <div className="browser-settings-hint-row">
-        <Smartphone size={13} strokeWidth={1.8} />
-        <span>{t("settings.browserDevicesInfo")}</span>
       </div>
 
       {/* 自定义设备：新增 / 行内编辑表单 */}
       <div className="api-settings-manual-form">
         <div className="api-settings-manual-header">
-          <strong>{t("settings.browserDevicesCustomTitle")}</strong>
-          <span>{t("settings.browserDevicesCustomHint")}</span>
+          <strong>
+            {t("settings.browserDevicesCustomTitle")}
+            <ApiSettingsHintIcon
+              hint={t("settings.browserDevicesCustomHint")}
+            />
+          </strong>
         </div>
         <div className="api-settings-form-body">
           <div className="browser-settings-device-add-row">
@@ -396,8 +398,12 @@ export function DisplayDevicesSection(): React.JSX.Element {
       {/* 内置设备：勾选控制是否显示在浏览器菜单中 */}
       <div className="api-settings-manual-form">
         <div className="api-settings-manual-header">
-          <strong>{t("settings.browserDevicesBuiltinTitle")}</strong>
-          <span>{t("settings.browserDevicesBuiltinHint")}</span>
+          <strong>
+            {t("settings.browserDevicesBuiltinTitle")}
+            <ApiSettingsHintIcon
+              hint={t("settings.browserDevicesBuiltinHint")}
+            />
+          </strong>
         </div>
         <div className="api-settings-form-body">
           <div className="browser-settings-search-row">

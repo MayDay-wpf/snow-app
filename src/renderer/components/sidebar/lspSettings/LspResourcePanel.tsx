@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { LspResourcePolicy } from "../../../../preload/types/lsp";
 import { useI18n } from "../../../i18n";
+import { ApiSettingsHintIcon } from "../apiSettings/ApiSettingsFieldLabel";
 
 /** Budget editor only: monitoring belongs to the task manager's shared refresh cycle. */
 export function LspResourcePanel({
@@ -62,7 +63,6 @@ export function LspResourcePanel({
   };
   return (
     <section className="task-manager-budget">
-      <p className="task-manager-hint">{t("lsp.resources.policyHint")}</p>
       <form
         onSubmit={(event) => {
           event.preventDefault();
@@ -72,7 +72,14 @@ export function LspResourcePanel({
         <div className="task-manager-budget-fields">
           {fields.map(([key, min, max]) => (
             <label key={key}>
-              <span>{t(`lsp.resources.${key}`)}</span>
+              <span>
+                {t(`lsp.resources.${key}`)}
+                <ApiSettingsHintIcon
+                  hint={t("taskManager.fieldRange", {
+                    values: { min, max },
+                  })}
+                />
+              </span>
               <input
                 type="number"
                 min={min}
@@ -98,9 +105,6 @@ export function LspResourcePanel({
                   );
                 }}
               />
-              <small>
-                {min}–{max}
-              </small>
             </label>
           ))}
         </div>

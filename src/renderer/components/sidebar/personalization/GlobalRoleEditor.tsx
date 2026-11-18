@@ -2,6 +2,7 @@ import { AlertCircle, FileText, Globe, Loader2, Save } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { AutoDismissNotice } from "../../AutoDismissNotice";
 import { useI18n } from "../../../i18n";
+import { ApiSettingsHintIcon } from "../apiSettings/ApiSettingsFieldLabel";
 import { RoleSwitchRow } from "./RoleSwitchRow";
 
 /**
@@ -90,13 +91,16 @@ export const GlobalRoleEditor = (): React.JSX.Element => {
             {t("personalization.globalTitle", {
               defaultValue: "Global rules",
             })}
+            <ApiSettingsHintIcon
+              hint={`${t("personalization.globalInfo", {
+                defaultValue:
+                  "Rules that apply to all projects and conversations.",
+              })} ${t("personalization.globalScopeNote", {
+                defaultValue:
+                  "Global rules are saved to ~/.snow/ROLE.md and apply to every project.",
+              })}`}
+            />
           </strong>
-          <span>
-            {t("personalization.globalInfo", {
-              defaultValue:
-                "Rules that apply to all projects and conversations.",
-            })}
-          </span>
         </div>
       </div>
 
@@ -120,12 +124,6 @@ export const GlobalRoleEditor = (): React.JSX.Element => {
         <div className="personalization-toolbar-main">
           <FileText size={14} />
           <div className="personalization-toolbar-info">
-            <span>
-              {t("personalization.globalScopeNote", {
-                defaultValue:
-                  "Global rules are saved to ~/.snow/ROLE.md and apply to every project.",
-              })}
-            </span>
             {filePath ? (
               <small className="project-skills-path" title={filePath}>
                 {filePath}

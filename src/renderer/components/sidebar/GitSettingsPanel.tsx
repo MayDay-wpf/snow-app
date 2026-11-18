@@ -5,6 +5,7 @@ import { AutoDismissNotice } from "../AutoDismissNotice";
 import { useBlurAutoSave } from "../../hooks/useBlurAutoSave";
 import { useI18n } from "../../i18n";
 import { GIT_SETTINGS_CHANGED_EVENT } from "../../constants/gitEvents";
+import { ApiSettingsHintIcon } from "./apiSettings/ApiSettingsFieldLabel";
 
 type GitScanSettings = {
   maxDepth: number;
@@ -193,6 +194,12 @@ export function GitSettingsPanel(): React.JSX.Element {
                 {t("settings.gitScanDepthLabel", {
                   defaultValue: "Repository scan depth",
                 })}
+                <ApiSettingsHintIcon
+                  hint={t("settings.gitScanDepthHint", {
+                    defaultValue:
+                      "How many levels below the workspace root are scanned for .git folders (default 1). Enter -1 for unlimited depth. Deeper scans can consume significant resources on large directories.",
+                  })}
+                />
               </span>
               <input
                 className="form-dialog-input"
@@ -204,12 +211,6 @@ export function GitSettingsPanel(): React.JSX.Element {
                 placeholder="1"
                 value={form.maxDepth}
               />
-              <span className="settings-item-description">
-                {t("settings.gitScanDepthHint", {
-                  defaultValue:
-                    "How many levels below the workspace root are scanned for .git folders (default 1). Enter -1 for unlimited depth. Deeper scans can consume significant resources on large directories.",
-                })}
-              </span>
             </label>
 
             <label className="form-dialog-field">
@@ -217,6 +218,12 @@ export function GitSettingsPanel(): React.JSX.Element {
                 {t("settings.gitIgnoredFoldersLabel", {
                   defaultValue: "Ignored folders",
                 })}
+                <ApiSettingsHintIcon
+                  hint={t("settings.gitIgnoredFoldersHint", {
+                    defaultValue:
+                      "Comma-separated folder names that are never traversed during repository discovery (matched case-insensitively).",
+                  })}
+                />
               </span>
               <input
                 className="form-dialog-input"
@@ -227,12 +234,6 @@ export function GitSettingsPanel(): React.JSX.Element {
                 placeholder="node_modules, vendor, archives"
                 value={form.ignoredFolders}
               />
-              <span className="settings-item-description">
-                {t("settings.gitIgnoredFoldersHint", {
-                  defaultValue:
-                    "Comma-separated folder names that are never traversed during repository discovery (matched case-insensitively).",
-                })}
-              </span>
             </label>
 
             <label className="form-dialog-field">
@@ -240,6 +241,12 @@ export function GitSettingsPanel(): React.JSX.Element {
                 {t("settings.gitChangeDebounceLabel", {
                   defaultValue: "Change detection debounce (ms)",
                 })}
+                <ApiSettingsHintIcon
+                  hint={t("settings.gitChangeDebounceHint", {
+                    defaultValue:
+                      "How long file changes are collected before refreshing git status. Higher values reduce disk/CPU usage on busy repositories.",
+                  })}
+                />
               </span>
               <input
                 className="form-dialog-input"
@@ -251,12 +258,6 @@ export function GitSettingsPanel(): React.JSX.Element {
                 placeholder="400"
                 value={form.changeDebounceMs}
               />
-              <span className="settings-item-description">
-                {t("settings.gitChangeDebounceHint", {
-                  defaultValue:
-                    "How long file changes are collected before refreshing git status. Higher values reduce disk/CPU usage on busy repositories.",
-                })}
-              </span>
             </label>
 
             <label className="form-dialog-field">
@@ -264,6 +265,12 @@ export function GitSettingsPanel(): React.JSX.Element {
                 {t("settings.gitRemotePollLabel", {
                   defaultValue: "Remote repo poll interval (ms)",
                 })}
+                <ApiSettingsHintIcon
+                  hint={t("settings.gitRemotePollHint", {
+                    defaultValue:
+                      "How often the status of SSH (ssh://) repositories is refreshed by polling, since remote repos have no local file watcher.",
+                  })}
+                />
               </span>
               <input
                 className="form-dialog-input"
@@ -275,12 +282,6 @@ export function GitSettingsPanel(): React.JSX.Element {
                 placeholder="10000"
                 value={form.remotePollIntervalMs}
               />
-              <span className="settings-item-description">
-                {t("settings.gitRemotePollHint", {
-                  defaultValue:
-                    "How often the status of SSH (ssh://) repositories is refreshed by polling, since remote repos have no local file watcher.",
-                })}
-              </span>
             </label>
 
             <label className="form-dialog-field">
@@ -288,6 +289,12 @@ export function GitSettingsPanel(): React.JSX.Element {
                 {t("settings.gitStatusLimitLabel", {
                   defaultValue: "Change list limit",
                 })}
+                <ApiSettingsHintIcon
+                  hint={t("settings.gitStatusLimitHint", {
+                    defaultValue:
+                      "Maximum number of changes shown in the git panel. 0 disables the limit. Hitting the limit keeps huge repositories responsive.",
+                  })}
+                />
               </span>
               <input
                 className="form-dialog-input"
@@ -299,12 +306,6 @@ export function GitSettingsPanel(): React.JSX.Element {
                 placeholder="10000"
                 value={form.statusLimit}
               />
-              <span className="settings-item-description">
-                {t("settings.gitStatusLimitHint", {
-                  defaultValue:
-                    "Maximum number of changes shown in the git panel. 0 disables the limit. Hitting the limit keeps huge repositories responsive.",
-                })}
-              </span>
             </label>
 
             <label className="form-dialog-field">
@@ -312,6 +313,12 @@ export function GitSettingsPanel(): React.JSX.Element {
                 {t("settings.gitAutoRefreshLabel", {
                   defaultValue: "Auto refresh on file changes",
                 })}
+                <ApiSettingsHintIcon
+                  hint={t("settings.gitAutoRefreshHint", {
+                    defaultValue:
+                      "When enabled, git status refreshes automatically when files change. Disable to only refresh manually, saving resources on very large repositories.",
+                  })}
+                />
               </span>
               <label
                 className="toggle-switch"
@@ -335,12 +342,6 @@ export function GitSettingsPanel(): React.JSX.Element {
                 />
                 <span className="toggle-slider" />
               </label>
-              <span className="settings-item-description">
-                {t("settings.gitAutoRefreshHint", {
-                  defaultValue:
-                    "When enabled, git status refreshes automatically when files change. Disable to only refresh manually, saving resources on very large repositories.",
-                })}
-              </span>
             </label>
 
             <label className="form-dialog-field">
@@ -348,6 +349,12 @@ export function GitSettingsPanel(): React.JSX.Element {
                 {t("settings.gitConfirmPullPushLabel", {
                   defaultValue: "Confirm before pull / push",
                 })}
+                <ApiSettingsHintIcon
+                  hint={t("settings.gitConfirmPullPushHint", {
+                    defaultValue:
+                      "When enabled, a confirmation bubble appears before pulling or pushing so the operation is never triggered by accident.",
+                  })}
+                />
               </span>
               <label
                 className="toggle-switch"
@@ -371,12 +378,6 @@ export function GitSettingsPanel(): React.JSX.Element {
                 />
                 <span className="toggle-slider" />
               </label>
-              <span className="settings-item-description">
-                {t("settings.gitConfirmPullPushHint", {
-                  defaultValue:
-                    "When enabled, a confirmation bubble appears before pulling or pushing so the operation is never triggered by accident.",
-                })}
-              </span>
             </label>
           </>
         )}

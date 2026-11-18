@@ -25,6 +25,7 @@ import {
   normalizeBackupSchedule,
 } from "../../../shared/backupSchedule";
 import { useI18n } from "../../i18n";
+import { ApiSettingsHintIcon } from "./apiSettings/ApiSettingsFieldLabel";
 import { ConfirmDialog } from "../common/ConfirmDialog";
 import { CustomSelect } from "../common/CustomSelect";
 
@@ -486,12 +487,12 @@ export function BackupSettingsSection(): React.JSX.Element {
         <div className="storage-card-text">
           <span className="storage-card-title">
             {t("settings.backupTitle", { defaultValue: "Data backup" })}
-          </span>
-          <span className="storage-card-desc">
-            {t("settings.backupInfo", {
-              defaultValue:
-                "Back up app data to a local folder. Blocks are content-addressed, so later backups only write what changed.",
-            })}
+            <ApiSettingsHintIcon
+              hint={t("settings.backupInfo", {
+                defaultValue:
+                  "Back up app data to a local folder. Blocks are content-addressed, so later backups only write what changed.",
+              })}
+            />
           </span>
         </div>
         <button
@@ -567,12 +568,12 @@ export function BackupSettingsSection(): React.JSX.Element {
                     {t("settings.backupKeep", {
                       defaultValue: "Backups to keep",
                     })}
-                  </span>
-                  <span className="settings-item-description">
-                    {t("settings.backupKeepInfo", {
-                      defaultValue:
-                        "Older backups beyond this count are removed automatically.",
-                    })}
+                    <ApiSettingsHintIcon
+                      hint={t("settings.backupKeepInfo", {
+                        defaultValue:
+                          "Older backups beyond this count are removed automatically.",
+                      })}
+                    />
                   </span>
                 </div>
               </div>
@@ -658,12 +659,12 @@ export function BackupSettingsSection(): React.JSX.Element {
                       {t("settings.backupScheduleTime", {
                         defaultValue: "Backup time",
                       })}
-                    </span>
-                    <span className="settings-item-description">
-                      {t("settings.backupScheduleTimeInfo", {
-                        defaultValue:
-                          "Runs the automatic backup at this time every day.",
-                      })}
+                      <ApiSettingsHintIcon
+                        hint={t("settings.backupScheduleTimeInfo", {
+                          defaultValue:
+                            "Runs the automatic backup at this time every day.",
+                        })}
+                      />
                     </span>
                   </div>
                 </div>
@@ -715,12 +716,12 @@ export function BackupSettingsSection(): React.JSX.Element {
                     {t("settings.backupWakeWhenClosed", {
                       defaultValue: "Run even when the app is closed",
                     })}
-                  </span>
-                  <span className="settings-item-description">
-                    {t("settings.backupWakeWhenClosedHint", {
-                      defaultValue:
-                        "The system scheduler launches Snow App in the background shortly before the backup time. A missed backup runs once on the next launch.",
-                    })}
+                    <ApiSettingsHintIcon
+                      hint={t("settings.backupWakeWhenClosedHint", {
+                        defaultValue:
+                          "The system scheduler launches Snow App in the background shortly before the backup time. A missed backup runs once on the next launch.",
+                      })}
+                    />
                   </span>
                 </div>
               </div>
@@ -753,12 +754,12 @@ export function BackupSettingsSection(): React.JSX.Element {
                 <div className="general-storage-text">
                   <span className="general-storage-label">
                     {t("settings.backupRun", { defaultValue: "Create backup" })}
-                  </span>
-                  <span className="settings-item-description">
-                    {t("settings.backupStartHint", {
-                      defaultValue:
-                        "The first backup writes the full dataset; later ones only upload changes.",
-                    })}
+                    <ApiSettingsHintIcon
+                      hint={t("settings.backupStartHint", {
+                        defaultValue:
+                          "The first backup writes the full dataset; later ones only upload changes.",
+                      })}
+                    />
                   </span>
                 </div>
               </div>

@@ -38,6 +38,10 @@ import { CustomSelect, type CustomSelectOption } from "../common/CustomSelect";
 import { useI18n } from "../../i18n";
 import { ModelBrandIcon } from "../common/ModelBrandIcon";
 import { ApiModelCombobox } from "./apiSettings/ApiModelCombobox";
+import {
+  ApiSettingsFieldLabel,
+  ApiSettingsHintIcon,
+} from "./apiSettings/ApiSettingsFieldLabel";
 import { ApiSettingsFormActions } from "./apiSettings/ApiSettingsFormPanel";
 import { ApiSettingsSelectionBar } from "./apiSettings/ApiSettingsSelectionBar";
 import { ImportConflictModal } from "./apiSettings/ImportConflictModal";
@@ -1385,11 +1389,16 @@ export function ImageGenSettingsPanel(): React.JSX.Element {
             </label>
 
             <label className="api-settings-field imagegen-field-wide">
-              <span className="api-settings-field-label">
+              <ApiSettingsFieldLabel
+                hint={t("settings.imagegenChannelNameHint", {
+                  defaultValue:
+                    "Custom name shown in the list and used by the agent (leave empty to use the default).",
+                })}
+              >
                 {t("settings.imagegenChannelName", {
                   defaultValue: "Channel name",
                 })}
-              </span>
+              </ApiSettingsFieldLabel>
               <input
                 type="text"
                 value={draft.name}
@@ -1399,12 +1408,6 @@ export function ImageGenSettingsPanel(): React.JSX.Element {
                 spellCheck={false}
                 autoFocus
               />
-              <small className="api-settings-field-hint">
-                {t("settings.imagegenChannelNameHint", {
-                  defaultValue:
-                    "Custom name shown in the list and used by the agent (leave empty to use the default).",
-                })}
-              </small>
             </label>
 
             <label className="api-settings-field">
@@ -1476,11 +1479,15 @@ export function ImageGenSettingsPanel(): React.JSX.Element {
           </strong>
           <div className="api-settings-form-grid">
             <label className="api-settings-field">
-              <span className="api-settings-field-label">
+              <ApiSettingsFieldLabel
+                hint={t("settings.imagegenBaseUrlHint", {
+                  defaultValue: "Leave empty to use the provider default",
+                })}
+              >
                 {t("settings.imagegenBaseUrl", {
                   defaultValue: "Base URL",
                 })}
-              </span>
+              </ApiSettingsFieldLabel>
               <input
                 type="text"
                 value={draft.baseUrl}
@@ -1489,11 +1496,6 @@ export function ImageGenSettingsPanel(): React.JSX.Element {
                 disabled={draftSaving}
                 spellCheck={false}
               />
-              <small className="api-settings-field-hint">
-                {t("settings.imagegenBaseUrlHint", {
-                  defaultValue: "Leave empty to use the provider default",
-                })}
-              </small>
             </label>
 
             <label className="api-settings-field">
@@ -1529,16 +1531,13 @@ export function ImageGenSettingsPanel(): React.JSX.Element {
             {t("settings.imagegenMultiModelsGroup", {
               defaultValue: "Image models (multi-model channel)",
             })}
+            <ApiSettingsHintIcon
+              hint={t("settings.imagegenMultiModelsHint", {
+                defaultValue:
+                  "A channel connection can include multiple image models. Each model independently configures size, quality, thinking effort, and custom prompt.",
+              })}
+            />
           </strong>
-          <small
-            className="api-settings-field-hint"
-            style={{ marginBottom: 6 }}
-          >
-            {t("settings.imagegenMultiModelsHint", {
-              defaultValue:
-                "A channel connection can include multiple image models. Each model independently configures size, quality, thinking effort, and custom prompt.",
-            })}
-          </small>
 
           <div className="imagegen-models-manager">
             {/* 多模型 Tab 栏与添加入口 */}
@@ -1827,11 +1826,16 @@ export function ImageGenSettingsPanel(): React.JSX.Element {
 
               {/* 模型显示别名 */}
               <label className="api-settings-field">
-                <span className="api-settings-field-label">
+                <ApiSettingsFieldLabel
+                  hint={t("settings.imagegenModelAliasHint", {
+                    defaultValue:
+                      "Custom label shown on tabs for easier identification (shows model ID if empty)",
+                  })}
+                >
                   {t("settings.imagegenModelAlias", {
                     defaultValue: "Model display alias",
                   })}
-                </span>
+                </ApiSettingsFieldLabel>
                 <input
                   type="text"
                   value={activeModelItem.name ?? ""}
@@ -1844,21 +1848,31 @@ export function ImageGenSettingsPanel(): React.JSX.Element {
                   disabled={draftSaving}
                   spellCheck={false}
                 />
-                <small className="api-settings-field-hint">
-                  {t("settings.imagegenModelAliasHint", {
-                    defaultValue:
-                      "Custom label shown on tabs for easier identification (shows model ID if empty)",
-                  })}
-                </small>
               </label>
 
               {/* 默认尺寸 */}
               <label className="api-settings-field imagegen-field-wide">
-                <span className="api-settings-field-label">
+                <ApiSettingsFieldLabel
+                  hint={
+                    !isGeminiModel &&
+                    supportsArbitraryOpenAISize(currentModelId)
+                      ? `${t("settings.imagegenDefaultSizeHint", {
+                          defaultValue:
+                            "Gemini: image size (1K/2K/4K) or aspect ratio (16:9). OpenAI: e.g. 1024x1024",
+                        })} ${t("settings.imagegenSizeLimitsHint", {
+                          defaultValue:
+                            "Rules: max side ≤3840px AND total pixels 655,360–8,294,400 (multiples of 16, aspect ≤3:1). Largest square is 2880x2880; 16:9 tops at 3840x2160; the 4K tier is the recommended size closest to the pixel cap for each ratio.",
+                        })}`
+                      : t("settings.imagegenDefaultSizeHint", {
+                          defaultValue:
+                            "Gemini: image size (1K/2K/4K) or aspect ratio (16:9). OpenAI: e.g. 1024x1024",
+                        })
+                  }
+                >
                   {t("settings.imagegenDefaultSize", {
                     defaultValue: "Default size",
                   })}
-                </span>
+                </ApiSettingsFieldLabel>
                 {isGeminiModel ? (
                   <GeminiSizeControls
                     model={currentModelId}
@@ -1921,21 +1935,6 @@ export function ImageGenSettingsPanel(): React.JSX.Element {
                     />
                   </div>
                 )}
-                {!isGeminiModel &&
-                supportsArbitraryOpenAISize(currentModelId) ? (
-                  <small className="imagegen-model-size-hint">
-                    {t("settings.imagegenSizeLimitsHint", {
-                      defaultValue:
-                        "Rules: max side ≤3840px AND total pixels 655,360–8,294,400 (multiples of 16, aspect ≤3:1). Largest square is 2880x2880; 16:9 tops at 3840x2160; the 4K tier is the recommended size closest to the pixel cap for each ratio.",
-                    })}
-                  </small>
-                ) : null}
-                <small className="api-settings-field-hint">
-                  {t("settings.imagegenDefaultSizeHint", {
-                    defaultValue:
-                      "Gemini: image size (1K/2K/4K) or aspect ratio (16:9). OpenAI: e.g. 1024x1024",
-                  })}
-                </small>
               </label>
 
               {/* 默认质量（仅 OpenAI） */}
@@ -2032,9 +2031,11 @@ export function ImageGenSettingsPanel(): React.JSX.Element {
                     />
                   </label>
                   <label className="api-settings-field">
-                    <span className="api-settings-field-label">
+                    <ApiSettingsFieldLabel
+                      hint={t("settings.imagegenVectorAnimationHint")}
+                    >
                       {t("settings.imagegenModelOutputFormat")}
-                    </span>
+                    </ApiSettingsFieldLabel>
                     <CustomSelect
                       value={activeModelItem.defaultOutputFormat ?? ""}
                       options={[
@@ -2052,20 +2053,29 @@ export function ImageGenSettingsPanel(): React.JSX.Element {
                       disabled={draftSaving}
                       portal
                     />
-                    <small className="api-settings-field-hint">
-                      {t("settings.imagegenVectorAnimationHint")}
-                    </small>
                   </label>
                 </>
               ) : null}
 
               {/* 支持宽高比 */}
               <label className="api-settings-field">
-                <span className="api-settings-field-label">
+                <ApiSettingsFieldLabel
+                  hint={
+                    activeModelItem.supportedRatios?.trim()
+                      ? t("settings.imagegenSupportedRatiosHint", {
+                          defaultValue:
+                            "Ratios available for this model (comma-separated, e.g. 1:1, 16:9, 9:16)",
+                        })
+                      : t("settings.imagegenCapabilityEmptyHint", {
+                          defaultValue:
+                            "Empty = unrestricted: the backend skips the check and lets any valid value through.",
+                        })
+                  }
+                >
                   {t("settings.imagegenSupportedRatios", {
                     defaultValue: "Supported aspect ratios",
                   })}
-                </span>
+                </ApiSettingsFieldLabel>
                 <input
                   type="text"
                   value={activeModelItem.supportedRatios ?? ""}
@@ -2076,26 +2086,27 @@ export function ImageGenSettingsPanel(): React.JSX.Element {
                   disabled={draftSaving}
                   spellCheck={false}
                 />
-                <small className="api-settings-field-hint">
-                  {activeModelItem.supportedRatios?.trim()
-                    ? t("settings.imagegenSupportedRatiosHint", {
-                        defaultValue:
-                          "Ratios available for this model (comma-separated, e.g. 1:1, 16:9, 9:16)",
-                      })
-                    : t("settings.imagegenCapabilityEmptyHint", {
-                        defaultValue:
-                          "Empty = unrestricted: the backend skips the check and lets any valid value through.",
-                      })}
-                </small>
               </label>
 
               {/* 支持分辨率 / 档位 */}
               <label className="api-settings-field">
-                <span className="api-settings-field-label">
+                <ApiSettingsFieldLabel
+                  hint={
+                    activeModelItem.supportedResolutions?.trim()
+                      ? t("settings.imagegenSupportedResolutionsHint", {
+                          defaultValue:
+                            "Resolution tiers or dimensions (e.g. 1K, 2K, 4K or 1024x1024)",
+                        })
+                      : t("settings.imagegenCapabilityEmptyHint", {
+                          defaultValue:
+                            "Empty = unrestricted: the backend skips the check and lets any valid value through.",
+                        })
+                  }
+                >
                   {t("settings.imagegenSupportedResolutions", {
                     defaultValue: "Supported resolutions / tiers",
                   })}
-                </span>
+                </ApiSettingsFieldLabel>
                 <input
                   type="text"
                   value={activeModelItem.supportedResolutions ?? ""}
@@ -2109,27 +2120,28 @@ export function ImageGenSettingsPanel(): React.JSX.Element {
                   disabled={draftSaving}
                   spellCheck={false}
                 />
-                <small className="api-settings-field-hint">
-                  {activeModelItem.supportedResolutions?.trim()
-                    ? t("settings.imagegenSupportedResolutionsHint", {
-                        defaultValue:
-                          "Resolution tiers or dimensions (e.g. 1K, 2K, 4K or 1024x1024)",
-                      })
-                    : t("settings.imagegenCapabilityEmptyHint", {
-                        defaultValue:
-                          "Empty = unrestricted: the backend skips the check and lets any valid value through.",
-                      })}
-                </small>
               </label>
 
               {/* 支持思考强度（仅 Gemini：OpenAI Images API 无该请求参数） */}
               {isGeminiModel ? (
                 <label className="api-settings-field imagegen-field-wide">
-                  <span className="api-settings-field-label">
+                  <ApiSettingsFieldLabel
+                    hint={
+                      activeModelItem.supportedThinking?.trim()
+                        ? t("settings.imagegenSupportedThinkingHint", {
+                            defaultValue:
+                              "thinking_level values supported by this model (e.g. minimal, medium, high / minimal, high)",
+                          })
+                        : t("settings.imagegenCapabilityEmptyHint", {
+                            defaultValue:
+                              "Empty = unrestricted: the backend skips the check and lets any valid value through.",
+                          })
+                    }
+                  >
                     {t("settings.imagegenSupportedThinking", {
                       defaultValue: "Supported thinking strength",
                     })}
-                  </span>
+                  </ApiSettingsFieldLabel>
                   <input
                     type="text"
                     value={activeModelItem.supportedThinking ?? ""}
@@ -2140,28 +2152,29 @@ export function ImageGenSettingsPanel(): React.JSX.Element {
                     disabled={draftSaving}
                     spellCheck={false}
                   />
-                  <small className="api-settings-field-hint">
-                    {activeModelItem.supportedThinking?.trim()
-                      ? t("settings.imagegenSupportedThinkingHint", {
-                          defaultValue:
-                            "thinking_level values supported by this model (e.g. minimal, medium, high / minimal, high)",
-                        })
-                      : t("settings.imagegenCapabilityEmptyHint", {
-                          defaultValue:
-                            "Empty = unrestricted: the backend skips the check and lets any valid value through.",
-                        })}
-                  </small>
                 </label>
               ) : null}
 
               {/* 支持画质 / 质量选项（仅 OpenAI：Gemini 无 quality 请求参数） */}
               {!isGemini ? (
                 <label className="api-settings-field imagegen-field-wide">
-                  <span className="api-settings-field-label">
+                  <ApiSettingsFieldLabel
+                    hint={
+                      activeModelItem.supportedQualities?.trim()
+                        ? t("settings.imagegenSupportedQualitiesHint", {
+                            defaultValue:
+                              "Qualities available for this model (comma-separated, e.g. low, medium, high, xhigh, max)",
+                          })
+                        : t("settings.imagegenCapabilityEmptyHint", {
+                            defaultValue:
+                              "Empty = unrestricted: the backend skips the check and lets any valid value through.",
+                          })
+                    }
+                  >
                     {t("settings.imagegenSupportedQualities", {
                       defaultValue: "Supported qualities",
                     })}
-                  </span>
+                  </ApiSettingsFieldLabel>
                   <input
                     type="text"
                     value={activeModelItem.supportedQualities ?? ""}
@@ -2175,17 +2188,6 @@ export function ImageGenSettingsPanel(): React.JSX.Element {
                     disabled={draftSaving}
                     spellCheck={false}
                   />
-                  <small className="api-settings-field-hint">
-                    {activeModelItem.supportedQualities?.trim()
-                      ? t("settings.imagegenSupportedQualitiesHint", {
-                          defaultValue:
-                            "Qualities available for this model (comma-separated, e.g. low, medium, high, xhigh, max)",
-                        })
-                      : t("settings.imagegenCapabilityEmptyHint", {
-                          defaultValue:
-                            "Empty = unrestricted: the backend skips the check and lets any valid value through.",
-                        })}
-                  </small>
                 </label>
               ) : null}
 
@@ -2199,11 +2201,16 @@ export function ImageGenSettingsPanel(): React.JSX.Element {
                     marginBottom: 4,
                   }}
                 >
-                  <span className="api-settings-field-label">
+                  <ApiSettingsFieldLabel
+                    hint={t("settings.imagegenCustomPromptHint", {
+                      defaultValue:
+                        "Directly injected into AI tool description to guide model on parameters and features.",
+                    })}
+                  >
                     {t("settings.imagegenCustomPrompt", {
                       defaultValue: "Custom prompt instructions for this model",
                     })}
-                  </span>
+                  </ApiSettingsFieldLabel>
                   <button
                     type="button"
                     className="api-settings-form-btn secondary"
@@ -2274,12 +2281,6 @@ export function ImageGenSettingsPanel(): React.JSX.Element {
                   disabled={draftSaving}
                   spellCheck={false}
                 />
-                <small className="api-settings-field-hint">
-                  {t("settings.imagegenCustomPromptHint", {
-                    defaultValue:
-                      "Directly injected into AI tool description to guide model on parameters and features.",
-                  })}
-                </small>
               </label>
             </div>
           </div>
@@ -2337,13 +2338,13 @@ export function ImageGenSettingsPanel(): React.JSX.Element {
                     {t("settings.imagegenWebSearch", {
                       defaultValue: "Google Search grounding",
                     })}
+                    <ApiSettingsHintIcon
+                      hint={t("settings.imagegenWebSearchHint", {
+                        defaultValue:
+                          "Gemini native protocol only: let the model use real-time web information via google_search grounding",
+                      })}
+                    />
                   </span>
-                  <small>
-                    {t("settings.imagegenWebSearchHint", {
-                      defaultValue:
-                        "Gemini native protocol only: let the model use real-time web information via google_search grounding",
-                    })}
-                  </small>
                   {!supportsWebSearch ? (
                     <small className="api-settings-field-hint">
                       {t("settings.imagegenWebSearchModelUnsupported", {
@@ -2370,13 +2371,13 @@ export function ImageGenSettingsPanel(): React.JSX.Element {
                     {t("settings.imagegenWebSearch", {
                       defaultValue: "Google Search grounding",
                     })}
+                    <ApiSettingsHintIcon
+                      hint={t("settings.imagegenWebSearchProtocolOnly", {
+                        defaultValue:
+                          "Only available on the Gemini native protocol (google_search grounding). Switch this channel's provider to Google Gemini to enable it — OpenAI-compatible endpoints do not support web search.",
+                      })}
+                    />
                   </span>
-                  <small>
-                    {t("settings.imagegenWebSearchProtocolOnly", {
-                      defaultValue:
-                        "Only available on the Gemini native protocol (google_search grounding). Switch this channel's provider to Google Gemini to enable it — OpenAI-compatible endpoints do not support web search.",
-                    })}
-                  </small>
                 </span>
                 <label className="toggle-switch">
                   <input type="checkbox" checked={false} disabled />
@@ -2391,13 +2392,13 @@ export function ImageGenSettingsPanel(): React.JSX.Element {
                   {t("settings.imagegenStreaming", {
                     defaultValue: "Streaming preview",
                   })}
+                  <ApiSettingsHintIcon
+                    hint={t("settings.imagegenStreamingHint", {
+                      defaultValue:
+                        "Streaming: show intermediate preview images while generating; Non-streaming: show images once generation finishes (OpenAI gpt-image / Gemini Imagen)",
+                    })}
+                  />
                 </span>
-                <small>
-                  {t("settings.imagegenStreamingHint", {
-                    defaultValue:
-                      "Streaming: show intermediate preview images while generating; Non-streaming: show images once generation finishes (OpenAI gpt-image / Gemini Imagen)",
-                  })}
-                </small>
               </span>
               <div
                 className="imagegen-stream-segmented"
@@ -2462,6 +2463,12 @@ export function ImageGenSettingsPanel(): React.JSX.Element {
             {t("settings.imagegenMaxConcurrent", {
               defaultValue: "Max concurrent generations",
             })}
+            <ApiSettingsHintIcon
+              hint={t("settings.imagegenMaxConcurrentHint", {
+                defaultValue:
+                  "When the agent requests several images at once, at most this many are generated in parallel; the rest wait in the queue. Lower it if your provider rate-limits image requests.",
+              })}
+            />
           </span>
           <div className="imagegen-concurrency-control">
             <button
@@ -2517,18 +2524,6 @@ export function ImageGenSettingsPanel(): React.JSX.Element {
               {IMAGE_GEN_MAX_CONCURRENT_RANGE.max}
             </span>
           </div>
-          <small
-            className="imagegen-concurrency-hint"
-            title={t("settings.imagegenMaxConcurrentHint", {
-              defaultValue:
-                "When the agent requests several images at once, at most this many are generated in parallel; the rest wait in the queue. Lower it if your provider rate-limits image requests.",
-            })}
-          >
-            {t("settings.imagegenMaxConcurrentHint", {
-              defaultValue:
-                "When the agent requests several images at once, at most this many are generated in parallel; the rest wait in the queue. Lower it if your provider rate-limits image requests.",
-            })}
-          </small>
         </div>
         <div className="api-settings-summary-card imagegen-concurrency-card imagegen-timeout-card">
           <span className="imagegen-concurrency-head">
@@ -2536,6 +2531,12 @@ export function ImageGenSettingsPanel(): React.JSX.Element {
             {t("settings.imagegenTimeout", {
               defaultValue: "Generation timeout (s)",
             })}
+            <ApiSettingsHintIcon
+              hint={t("settings.imagegenTimeoutHint", {
+                defaultValue:
+                  "Max wait time per generation/edit request (including streaming). Complex prompts or 2K/4K output can take several minutes — raise this if requests time out.",
+              })}
+            />
           </span>
           <div className="imagegen-concurrency-control">
             <button
@@ -2587,18 +2588,6 @@ export function ImageGenSettingsPanel(): React.JSX.Element {
               {IMAGE_GEN_TIMEOUT_RANGE.min}–{IMAGE_GEN_TIMEOUT_RANGE.max}
             </span>
           </div>
-          <small
-            className="imagegen-concurrency-hint"
-            title={t("settings.imagegenTimeoutHint", {
-              defaultValue:
-                "Max wait time per generation/edit request (including streaming). Complex prompts or 2K/4K output can take several minutes — raise this if requests time out.",
-            })}
-          >
-            {t("settings.imagegenTimeoutHint", {
-              defaultValue:
-                "Max wait time per generation/edit request (including streaming). Complex prompts or 2K/4K output can take several minutes — raise this if requests time out.",
-            })}
-          </small>
         </div>
         <div className="api-settings-summary-card imagegen-concurrency-card imagegen-mode-card">
           <span className="imagegen-concurrency-head">
@@ -3017,7 +3006,7 @@ export function ImageGenSettingsPanel(): React.JSX.Element {
                 defaultValue: "Edit channel",
               })}: ${draft ? channelLabel(draft) : ""}`
         }
-        description={t("settings.imagegenEditorInfo", {
+        titleHint={t("settings.imagegenEditorInfo", {
           defaultValue:
             "Each channel is fully independent: provider, base URL, API key, model and defaults.",
         })}

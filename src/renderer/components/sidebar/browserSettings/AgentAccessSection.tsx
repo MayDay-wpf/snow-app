@@ -1,11 +1,12 @@
 import { useCallback, useState } from "react";
-import { Bot, Globe, Loader2, Plus, ShieldCheck, X } from "lucide-react";
+import { Bot, Globe, Loader2, Plus, X } from "lucide-react";
 import { useI18n } from "../../../i18n";
 import {
   normalizeBrowserAgentDomain,
   useBrowserAgentSettings,
   type BrowserAgentDomainMode,
 } from "../../rightPanel/browser/browserAgentSettings";
+import { ApiSettingsHintIcon } from "../apiSettings/ApiSettingsFieldLabel";
 
 const DOMAIN_MODES: BrowserAgentDomainMode[] = ["off", "allow", "deny"];
 
@@ -61,18 +62,14 @@ export function AgentAccessSection(): React.JSX.Element {
           {t("settings.browserAgentAccess", {
             defaultValue: "Agent access",
           })}
+          <ApiSettingsHintIcon
+            hint={t("settings.browserAgentAccessHint", {
+              defaultValue:
+                "Browser tabs are private by default: the agent can only drive tabs you share with it (or tabs the agent opened itself, which use an isolated session).",
+            })}
+          />
         </span>
         {saving && <Loader2 size={13} strokeWidth={1.8} className="spin" />}
-      </div>
-
-      <div className="browser-settings-hint-row">
-        <ShieldCheck size={13} strokeWidth={1.8} />
-        <span>
-          {t("settings.browserAgentAccessHint", {
-            defaultValue:
-              "Browser tabs are private by default: the agent can only drive tabs you share with it (or tabs the agent opened itself, which use an isolated session).",
-          })}
-        </span>
       </div>
 
       <div className="browser-settings-agent-row">
@@ -87,14 +84,14 @@ export function AgentAccessSection(): React.JSX.Element {
             {t("settings.browserAgentEnabled", {
               defaultValue: "Allow the agent to use the embedded browser",
             })}
+            <ApiSettingsHintIcon
+              hint={t("settings.browserAgentEnabledHint", {
+                defaultValue:
+                  "When off, every browser tool is rejected with an error.",
+              })}
+            />
           </span>
         </label>
-        <span className="browser-settings-hint">
-          {t("settings.browserAgentEnabledHint", {
-            defaultValue:
-              "When off, every browser tool is rejected with an error.",
-          })}
-        </span>
       </div>
 
       <div className="browser-settings-agent-row">
@@ -109,14 +106,14 @@ export function AgentAccessSection(): React.JSX.Element {
             {t("settings.browserAgentIsolation", {
               defaultValue: "Give agent-opened tabs an isolated session",
             })}
+            <ApiSettingsHintIcon
+              hint={t("settings.browserAgentIsolationHint", {
+                defaultValue:
+                  "Isolated tabs keep their own cookies and storage (in memory only), so they never touch your logged-in session. Turn this off to let the agent reuse your login state in tabs it opens.",
+              })}
+            />
           </span>
         </label>
-        <span className="browser-settings-hint">
-          {t("settings.browserAgentIsolationHint", {
-            defaultValue:
-              "Isolated tabs keep their own cookies and storage (in memory only), so they never touch your logged-in session. Turn this off to let the agent reuse your login state in tabs it opens.",
-          })}
-        </span>
       </div>
 
       <div className="api-settings-manual-form">
@@ -125,13 +122,16 @@ export function AgentAccessSection(): React.JSX.Element {
             {t("settings.browserAgentDomainMode", {
               defaultValue: "Domain policy",
             })}
+            <ApiSettingsHintIcon
+              hint={`${t("settings.browserAgentDomainModeHint", {
+                defaultValue:
+                  "Restrict which sites the agent may drive, in addition to tab sharing.",
+              })} ${t("settings.browserAgentDomainsHint", {
+                defaultValue:
+                  "Entries match the host and its subdomains. Allow list: only these hosts are reachable. Block list: everything except these hosts is reachable.",
+              })}`}
+            />
           </strong>
-          <span>
-            {t("settings.browserAgentDomainModeHint", {
-              defaultValue:
-                "Restrict which sites the agent may drive, in addition to tab sharing.",
-            })}
-          </span>
         </div>
         <div className="api-settings-form-body">
           <div className="browser-settings-agent-domain-modes">
@@ -209,13 +209,6 @@ export function AgentAccessSection(): React.JSX.Element {
                   ))}
                 </div>
               )}
-
-              <span className="browser-settings-hint">
-                {t("settings.browserAgentDomainsHint", {
-                  defaultValue:
-                    "Entries match the host and its subdomains. Allow list: only these hosts are reachable. Block list: everything except these hosts is reachable.",
-                })}
-              </span>
             </>
           )}
         </div>

@@ -19,6 +19,7 @@ import { ConfirmDialog } from "../common/ConfirmDialog";
 import { CustomSelect } from "../common/CustomSelect";
 import { RangeSlider } from "../common/RangeSlider";
 import { ApiModelCombobox } from "./apiSettings/ApiModelCombobox";
+import { ApiSettingsHintIcon } from "./apiSettings/ApiSettingsFieldLabel";
 import { PetPersonaDialog } from "./pets/PetPersonaDialog";
 
 /** 预览区宠物动画的固定缩放（约 96×104 px，与列表缩略图区分开）。 */
@@ -399,13 +400,13 @@ export function PetsSettingsPanel(): React.JSX.Element {
         <div className="api-settings-manual-header">
           <strong>
             {t("settings.petsManageTitle", { defaultValue: "Manage pets" })}
+            <ApiSettingsHintIcon
+              hint={t("settings.petsManageInfo", {
+                defaultValue:
+                  "Wake or dismiss the pet, adjust its size, and pick the active pet.",
+              })}
+            />
           </strong>
-          <span>
-            {t("settings.petsManageInfo", {
-              defaultValue:
-                "Wake or dismiss the pet, adjust its size, and pick the active pet.",
-            })}
-          </span>
         </div>
 
         <div className="api-settings-form-body">
@@ -415,6 +416,12 @@ export function PetsSettingsPanel(): React.JSX.Element {
                 {t("settings.petsActiveSection", {
                   defaultValue: "Active pet",
                 })}
+                <ApiSettingsHintIcon
+                  hint={t("settings.petsActiveInfo", {
+                    defaultValue:
+                      "Show or hide the desktop pet on your screen.",
+                  })}
+                />
               </strong>
               <label className="toggle-switch">
                 <input
@@ -438,11 +445,6 @@ export function PetsSettingsPanel(): React.JSX.Element {
                 </span>
               </label>
             </div>
-            <span className="settings-item-description">
-              {t("settings.petsActiveInfo", {
-                defaultValue: "Show or hide the desktop pet on your screen.",
-              })}
-            </span>
             {petEnabled && (
               <RangeSlider
                 label={t("settings.petsScale", { defaultValue: "Size" })}
@@ -491,14 +493,14 @@ export function PetsSettingsPanel(): React.JSX.Element {
             <div className="api-settings-form-section-header">
               <strong className="api-settings-form-section-title">
                 {t("settings.petsChatSection", { defaultValue: "Pet chat" })}
+                <ApiSettingsHintIcon
+                  hint={t("settings.petsChatInfo", {
+                    defaultValue:
+                      "Double-click the pet to open a small chat window. It answers with your current session as background, and falls back to small talk when no session is open.",
+                  })}
+                />
               </strong>
             </div>
-            <span className="settings-item-description">
-              {t("settings.petsChatInfo", {
-                defaultValue:
-                  "Double-click the pet to open a small chat window. It answers with your current session as background, and falls back to small talk when no session is open.",
-              })}
-            </span>
 
             <div className="api-settings-form-grid">
               <label className="api-settings-field">
@@ -563,6 +565,11 @@ export function PetsSettingsPanel(): React.JSX.Element {
                 {t("settings.petsInstalledSection", {
                   defaultValue: "Installed pets",
                 })}
+                <ApiSettingsHintIcon
+                  hint={t("settings.petsInstalledInfo", {
+                    defaultValue: "Select a pet to make it the active one.",
+                  })}
+                />
               </strong>
               <button
                 className="api-settings-form-btn secondary"
@@ -586,11 +593,6 @@ export function PetsSettingsPanel(): React.JSX.Element {
                 </span>
               </button>
             </div>
-            <span className="settings-item-description">
-              {t("settings.petsInstalledInfo", {
-                defaultValue: "Select a pet to make it the active one.",
-              })}
-            </span>
             {pets.length === 0 ? (
               <div className="pets-empty">
                 <PawPrint size={18} strokeWidth={1.6} />

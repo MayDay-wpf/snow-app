@@ -1,5 +1,6 @@
 import { Type } from "lucide-react";
 import { useI18n } from "../../../i18n";
+import { ApiSettingsHintIcon } from "../apiSettings/ApiSettingsFieldLabel";
 
 type ThemeFontSectionProps = {
   fontFamily: string;
@@ -124,14 +125,14 @@ export function ThemeFontSection({
           {t("settings.themeFontTitle", {
             defaultValue: "Font",
           })}
+          <ApiSettingsHintIcon
+            hint={t("settings.themeFontInfo", {
+              defaultValue:
+                "Set the application font. Choose a common font or enter a custom CSS font-family value.",
+            })}
+          />
         </strong>
       </div>
-      <span className="settings-item-description">
-        {t("settings.themeFontInfo", {
-          defaultValue:
-            "Set the application font. Choose a common font or enter a custom CSS font-family value.",
-        })}
-      </span>
 
       <div className="theme-font-input-row">
         <Type size={15} strokeWidth={1.8} className="theme-font-input-icon" />

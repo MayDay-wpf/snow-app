@@ -6,6 +6,7 @@ import type {
 import { useI18n } from "../../../i18n";
 import { CustomSelect } from "../../common/CustomSelect";
 import { Modal } from "../../common/Modal";
+import { ApiSettingsHintIcon } from "../apiSettings/ApiSettingsFieldLabel";
 
 export type CustomCommandDraft = {
   commandId: string;
@@ -152,6 +153,12 @@ export function CustomCommandEditModal({
                 : t("settings.customCommandPromptContent", {
                     defaultValue: "Prompt",
                   })}
+              <ApiSettingsHintIcon
+                hint={t("settings.customCommandArgumentsHint", {
+                  defaultValue:
+                    "Text typed after the command name is passed in: $ARGUMENTS is replaced in place, otherwise it is appended.",
+                })}
+              />
             </span>
             <textarea
               className="api-settings-field-textarea"
@@ -201,13 +208,7 @@ export function CustomCommandEditModal({
             </span>
           </label>
 
-          <p className="custom-command-arguments-hint">
-            {t("settings.customCommandArgumentsHint", {
-              defaultValue:
-                "Text typed after the command name is passed in: $ARGUMENTS is replaced in place, otherwise it is appended.",
-            })}
-            {` ${scopeHint}`}
-          </p>
+          <p className="custom-command-arguments-hint">{scopeHint}</p>
         </div>
       )}
     </Modal>

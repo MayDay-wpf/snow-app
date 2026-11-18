@@ -250,7 +250,7 @@ export function ApiModelTestModal({
       title={t("settings.apiModelTestTitle", {
         defaultValue: "Test API model",
       })}
-      description={t("settings.apiModelTestDescription", {
+      titleHint={t("settings.apiModelTestDescription", {
         defaultValue:
           "Send “Say 1” using this profile's request method, system prompts, and custom headers.",
       })}

@@ -2,6 +2,7 @@ import { RotateCcw } from "lucide-react";
 import { type ChangeEvent, type FocusEvent } from "react";
 import { useI18n } from "../../../i18n";
 import { CustomSelect } from "../../common/CustomSelect";
+import { ApiSettingsHintIcon } from "../apiSettings/ApiSettingsFieldLabel";
 import {
   FONT_WEIGHT_OPTIONS,
   TERMINAL_FONT_FAMILY_PRESETS,
@@ -62,13 +63,13 @@ export function TerminalSettingsForm({
           {t("settings.terminalManualTitle", {
             defaultValue: "Manual configuration",
           })}
+          <ApiSettingsHintIcon
+            hint={t("settings.terminalManualInfo", {
+              defaultValue:
+                "These values are saved in Snow App system settings and used when launching the integrated terminal.",
+            })}
+          />
         </strong>
-        <span>
-          {t("settings.terminalManualInfo", {
-            defaultValue:
-              "These values are saved in Snow App system settings and used when launching the integrated terminal.",
-          })}
-        </span>
       </div>
 
       <div className="api-settings-form-body">

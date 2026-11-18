@@ -1233,6 +1233,7 @@ export function ProjectMemoryPanel({
               value: String(level),
             }))}
             portal
+            dropdownMinWidth={288}
             renderOption={(option) => (
               <span className="memory-importance-option">
                 <span className="memory-importance-option-name">

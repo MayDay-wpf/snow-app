@@ -1,6 +1,7 @@
 import { FolderX, LoaderCircle, RefreshCw, Server, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useI18n } from "../../i18n";
+import { ApiSettingsHintIcon } from "./apiSettings/ApiSettingsFieldLabel";
 import { AutoDismissNotice } from "../AutoDismissNotice";
 import { ConfirmDialog } from "../common/ConfirmDialog";
 import { scheduledTasksStore } from "../../hooks/scheduledTasksStore";
@@ -378,22 +379,24 @@ export function OrphanProjectCleanupSection({
             {t("settings.orphanTitle", {
               defaultValue: "Removed project data",
             })}
+            <ApiSettingsHintIcon
+              hint={t("settings.orphanInfo", {
+                defaultValue:
+                  "Find chats, archives, snapshots and other data left behind by projects removed from the project list. Re-adding the same folder reconnects its data, so only delete what you no longer need.",
+              })}
+            />
           </strong>
-          <span>
-            {t("settings.orphanInfo", {
-              defaultValue:
-                "Find chats, archives, snapshots and other data left behind by projects removed from the project list. Re-adding the same folder reconnects its data, so only delete what you no longer need.",
-            })}
-            {scan !== null && projects.length > 0
-              ? ` · ${t("settings.orphanTotal", {
-                  values: {
-                    count: projects.length,
-                    size: formatBytes(totalBytes),
-                  },
-                  defaultValue: `${projects.length} project(s) · snapshots ${formatBytes(totalBytes)}`,
-                })}`
-              : ""}
-          </span>
+          {scan !== null && projects.length > 0 ? (
+            <span>
+              {t("settings.orphanTotal", {
+                values: {
+                  count: projects.length,
+                  size: formatBytes(totalBytes),
+                },
+                defaultValue: `${projects.length} project(s) · snapshots ${formatBytes(totalBytes)}`,
+              })}
+            </span>
+          ) : null}
         </div>
       )}
 
@@ -444,21 +447,24 @@ export function OrphanProjectCleanupSection({
                     },
                     defaultValue: `${plan.projectCount} project(s), ${selectedCategoryCount} category(ies) selected`,
                   })}
+                  <ApiSettingsHintIcon
+                    hint={t("settings.orphanSelectHint", {
+                      defaultValue:
+                        "Select projects or individual data types to delete.",
+                    })}
+                  />
                 </span>
-                <span className="settings-item-description">
-                  {plan.items > 0
-                    ? t("settings.orphanWillDelete", {
-                        values: {
-                          items: plan.items,
-                          size: formatBytes(plan.bytes),
-                        },
-                        defaultValue: `Will delete ${plan.items} item(s) and free ${formatBytes(plan.bytes)} of snapshots`,
-                      })
-                    : t("settings.orphanSelectHint", {
-                        defaultValue:
-                          "Select projects or individual data types to delete.",
-                      })}
-                </span>
+                {plan.items > 0 ? (
+                  <span className="settings-item-description">
+                    {t("settings.orphanWillDelete", {
+                      values: {
+                        items: plan.items,
+                        size: formatBytes(plan.bytes),
+                      },
+                      defaultValue: `Will delete ${plan.items} item(s) and free ${formatBytes(plan.bytes)} of snapshots`,
+                    })}
+                  </span>
+                ) : null}
               </div>
             </div>
             <div className="general-storage-actions">

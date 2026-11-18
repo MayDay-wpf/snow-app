@@ -716,7 +716,7 @@ export function ApiSettingsTreePanel({
         title={t("settings.apiManualFormTitle", {
           defaultValue: "Manual API profile",
         })}
-        description={t("settings.apiManualFormInfo", {
+        titleHint={t("settings.apiManualFormInfo", {
           defaultValue: "Add a provider without importing Snow CLI profiles.",
         })}
         closeLabel={t("settings.cancel", { defaultValue: "Cancel" })}

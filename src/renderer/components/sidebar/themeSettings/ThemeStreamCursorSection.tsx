@@ -2,6 +2,7 @@ import { FileCode, FileUp, ImageUp, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useI18n } from "../../../i18n";
 import { CustomSelect } from "../../common/CustomSelect";
+import { ApiSettingsHintIcon } from "../apiSettings/ApiSettingsFieldLabel";
 import { RangeSlider } from "../../common/RangeSlider";
 import { AnimatedSnowBotIcon } from "../../icons/AnimatedSnowBotIcon";
 import { STREAM_CURSOR_LUCIDE_ICONS } from "./streamCursorIcons";
@@ -152,14 +153,14 @@ export function ThemeStreamCursorSection({
           {t("settings.themeStreamCursorTitle", {
             defaultValue: "Streaming indicator",
           })}
+          <ApiSettingsHintIcon
+            hint={t("settings.themeStreamCursorInfo", {
+              defaultValue:
+                "Customize the indicator shown while the AI is generating a response.",
+            })}
+          />
         </strong>
       </div>
-      <span className="settings-item-description">
-        {t("settings.themeStreamCursorInfo", {
-          defaultValue:
-            "Customize the indicator shown while the AI is generating a response.",
-        })}
-      </span>
 
       <div className="theme-stream-cursor-type-select">
         <CustomSelect

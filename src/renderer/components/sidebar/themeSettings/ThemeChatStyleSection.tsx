@@ -1,6 +1,7 @@
 import { ImageUp, RotateCcw } from "lucide-react";
 import { useI18n } from "../../../i18n";
 import { ChatImAvatar } from "../../mainContent/chatMessages/components/ChatImAvatar";
+import { ApiSettingsHintIcon } from "../apiSettings/ApiSettingsFieldLabel";
 import type { ThemeChatStyle } from "./types";
 
 export type ChatAvatarRole = "ai" | "user";
@@ -41,19 +42,21 @@ export function ThemeChatStyleSection({
               : t("settings.themeChatStyleUserAvatar", {
                   defaultValue: "My avatar",
                 })}
-          </span>
-          <span className="theme-chat-avatar-hint">
-            {path
-              ? t("settings.themeChatStyleAvatarCustom", {
-                  defaultValue: "Custom image",
-                })
-              : role === "ai"
-                ? t("settings.themeChatStyleAiAvatarDefault", {
-                    defaultValue: "Default: built-in pet",
-                  })
-                : t("settings.themeChatStyleUserAvatarDefault", {
-                    defaultValue: "Default icon",
-                  })}
+            <ApiSettingsHintIcon
+              hint={
+                path
+                  ? t("settings.themeChatStyleAvatarCustom", {
+                      defaultValue: "Custom image",
+                    })
+                  : role === "ai"
+                    ? t("settings.themeChatStyleAiAvatarDefault", {
+                        defaultValue: "Default: built-in pet",
+                      })
+                    : t("settings.themeChatStyleUserAvatarDefault", {
+                        defaultValue: "Default icon",
+                      })
+              }
+            />
           </span>
         </div>
         <div className="theme-chat-avatar-actions">
@@ -95,6 +98,12 @@ export function ThemeChatStyleSection({
           {t("settings.themeChatStyleTitle", {
             defaultValue: "IM chat style",
           })}
+          <ApiSettingsHintIcon
+            hint={t("settings.themeChatStyleInfo", {
+              defaultValue:
+                "Show avatars next to messages like an instant messenger. Avatars can be replaced with your own images.",
+            })}
+          />
         </strong>
         <label className="toggle-switch">
           <input
@@ -112,12 +121,6 @@ export function ThemeChatStyleSection({
           </span>
         </label>
       </div>
-      <span className="settings-item-description">
-        {t("settings.themeChatStyleInfo", {
-          defaultValue:
-            "Show avatars next to messages like an instant messenger. Avatars can be replaced with your own images.",
-        })}
-      </span>
       {chatStyle.imMode ? (
         <div className="theme-chat-avatar-list">
           {renderAvatarCard("ai")}

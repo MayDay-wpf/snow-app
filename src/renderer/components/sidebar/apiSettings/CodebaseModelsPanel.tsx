@@ -22,6 +22,10 @@ import {
   type RerankingModelConfig,
 } from "../../../constants/codebaseModels";
 import { AutoDismissNotice } from "../../AutoDismissNotice";
+import {
+  ApiSettingsFieldLabel,
+  ApiSettingsHintIcon,
+} from "./ApiSettingsFieldLabel";
 import { ConfirmDialog } from "../../common/ConfirmDialog";
 import { CustomSelect } from "../../common/CustomSelect";
 import { Modal } from "../../common/Modal";
@@ -566,8 +570,10 @@ export function CodebaseModelsPanel({
   return (
     <>
       <div className="api-settings-manual-header">
-        <strong>{texts.title}</strong>
-        <span>{texts.info}</span>
+        <strong>
+          {texts.title}
+          <ApiSettingsHintIcon hint={texts.info} />
+        </strong>
       </div>
 
       <div className="api-settings-table-panel">
@@ -786,7 +792,7 @@ export function CodebaseModelsPanel({
       <Modal
         open={draft !== null}
         title={isNewDraft ? texts.addTitle : texts.editTitle}
-        description={t("settings.codebaseModelEditorInfo", {
+        titleHint={t("settings.codebaseModelEditorInfo", {
           defaultValue:
             "The API key is stored locally and only sent when calling this model.",
         })}
@@ -874,7 +880,18 @@ export function CodebaseModelsPanel({
               />
             </label>
             <label className="api-settings-field">
-              <span>{texts.contextLength}</span>
+              {isEmbedding ? (
+                <ApiSettingsFieldLabel
+                  hint={t("settings.codebaseModelContextLengthHint", {
+                    defaultValue:
+                      "Max input tokens per chunk for the embedding model. Chunks are split to 80% of this value; over-long lines are hard-cut, and chunks the API still rejects are split again or skipped.",
+                  })}
+                >
+                  {texts.contextLength}
+                </ApiSettingsFieldLabel>
+              ) : (
+                <span>{texts.contextLength}</span>
+              )}
               <input
                 value={draft.contextLength}
                 onChange={(event) =>
@@ -885,22 +902,19 @@ export function CodebaseModelsPanel({
                 min={1}
                 placeholder={String(spec.defaultContextLength)}
               />
-              {isEmbedding ? (
-                <small className="api-settings-hint-text">
-                  {t("settings.codebaseModelContextLengthHint", {
-                    defaultValue:
-                      "Max input tokens per chunk for the embedding model. Chunks are split to 80% of this value; over-long lines are hard-cut, and chunks the API still rejects are split again or skipped.",
-                  })}
-                </small>
-              ) : null}
             </label>
             {isEmbedding ? (
               <label className="api-settings-field">
-                <span>
+                <ApiSettingsFieldLabel
+                  hint={t("settings.codebaseEmbeddingDimensionsHint", {
+                    defaultValue:
+                      "Leave empty to omit the dimensions parameter (some models do not support it).",
+                  })}
+                >
                   {t("settings.codebaseEmbeddingDimensions", {
                     defaultValue: "Embedding dimensions",
                   })}
-                </span>
+                </ApiSettingsFieldLabel>
                 <input
                   value={draft.dimensions}
                   onChange={(event) =>
@@ -910,12 +924,6 @@ export function CodebaseModelsPanel({
                   type="number"
                   min={1}
                 />
-                <small className="api-settings-hint-text">
-                  {t("settings.codebaseEmbeddingDimensionsHint", {
-                    defaultValue:
-                      "Leave empty to omit the dimensions parameter (some models do not support it).",
-                  })}
-                </small>
               </label>
             ) : null}
             <label className="api-settings-field wide">

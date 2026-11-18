@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { useI18n } from "../../../i18n";
 import type { PetManifest } from "../../../../preload/types/pets";
 import { CustomSelect } from "../../common/CustomSelect";
+import { ApiSettingsHintIcon } from "../apiSettings/ApiSettingsFieldLabel";
 import { RangeSlider } from "../../common/RangeSlider";
 import { PetPreview } from "../../pet/PetPreview";
 import { themeBgUrl } from "../../../utils/themeBgUrl";
@@ -233,6 +234,12 @@ export function ThemeBackgroundSection({
           {t("settings.themeBackgroundTitle", {
             defaultValue: "Background",
           })}
+          <ApiSettingsHintIcon
+            hint={t("settings.themeBackgroundInfo", {
+              defaultValue:
+                "Use a custom image or a desktop pet animation as the background, then adjust its opacity and blur.",
+            })}
+          />
         </strong>
         <label className="toggle-switch">
           <input
@@ -250,12 +257,6 @@ export function ThemeBackgroundSection({
           </span>
         </label>
       </div>
-      <span className="settings-item-description">
-        {t("settings.themeBackgroundInfo", {
-          defaultValue:
-            "Use a custom image or a desktop pet animation as the background, then adjust its opacity and blur.",
-        })}
-      </span>
 
       <div className="theme-background-source" role="radiogroup">
         {SOURCE_OPTIONS.map((option) => {

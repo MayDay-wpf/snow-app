@@ -5974,6 +5974,7 @@ export const en = {
   "taskManager.samplingInterval": "Sampling interval (seconds)",
   "taskManager.samplingIntervalHint":
     "5–3600 seconds. Default 60 seconds (1 minute).",
+  "taskManager.fieldRange": "Allowed {{min}}–{{max}}",
   "taskManager.samplingInvalid":
     "The interval must be an integer from 5 to 3600 seconds.",
   "taskManager.samplingFile": "Log file",

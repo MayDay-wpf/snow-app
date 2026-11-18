@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import type { TaskManagerProcessKind } from "../../../preload";
 import { useI18n } from "../../i18n";
+import { ApiSettingsHintIcon } from "../sidebar/apiSettings/ApiSettingsFieldLabel";
 import { formatDisplayPath } from "../../utils/formatDisplayPath";
 import { DisplayPath } from "../common/DisplayPath";
 import {
@@ -122,6 +123,7 @@ export function TaskManagerProcessTable({
         </div>
         {view === "tree" && (
           <div className="task-manager-tree-actions">
+            <ApiSettingsHintIcon hint={t("taskManager.treeHint")} />
             <button
               type="button"
               className="task-manager-btn-sm"
@@ -149,11 +151,6 @@ export function TaskManagerProcessTable({
           </div>
         )}
       </div>
-      {view === "tree" && (
-        <p className="task-manager-hint task-manager-accounting">
-          {t("taskManager.treeHint")}
-        </p>
-      )}
       <div className={`task-manager-table-wrap${stale ? " is-stale" : ""}`}>
         <table
           className="task-manager-table"

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { FileClock } from "lucide-react";
 import type { ProcessSamplingLogState } from "../../../preload/types/taskManager";
 import { useI18n } from "../../i18n";
+import { ApiSettingsHintIcon } from "../sidebar/apiSettings/ApiSettingsFieldLabel";
 import { DisplayPath } from "../common/DisplayPath";
 
 const INTERVAL_MIN_SECS = 5;
@@ -82,7 +83,10 @@ export function TaskManagerSamplingLog(): React.JSX.Element {
     <section className="task-manager-card-section task-manager-sampling-log">
       <div className="task-manager-section-header">
         <FileClock size={14} aria-hidden="true" />
-        <strong>{t("taskManager.samplingTitle")}</strong>
+        <strong>
+          {t("taskManager.samplingTitle")}
+          <ApiSettingsHintIcon hint={t("taskManager.samplingHint")} />
+        </strong>
         <span className="task-manager-badge">
           {t(
             enabled ? "taskManager.alertEnabled" : "taskManager.alertDisabled",
@@ -106,7 +110,10 @@ export function TaskManagerSamplingLog(): React.JSX.Element {
           <span>{t("taskManager.samplingEnable")}</span>
         </label>
         <label className="task-manager-sampling-interval">
-          <span>{t("taskManager.samplingInterval")}</span>
+          <span>
+            {t("taskManager.samplingInterval")}
+            <ApiSettingsHintIcon hint={t("taskManager.samplingIntervalHint")} />
+          </span>
           <input
             type="number"
             inputMode="numeric"
@@ -122,7 +129,6 @@ export function TaskManagerSamplingLog(): React.JSX.Element {
               if (event.key === "Enter") commitInterval();
             }}
           />
-          <small>{t("taskManager.samplingIntervalHint")}</small>
         </label>
         {parsed === null && (
           <p className="task-manager-error" role="status">
@@ -140,7 +146,6 @@ export function TaskManagerSamplingLog(): React.JSX.Element {
             <DisplayPath path={state.filePath} />
           </div>
         )}
-        <p className="task-manager-hint">{t("taskManager.samplingHint")}</p>
       </div>
     </section>
   );

@@ -22,6 +22,7 @@ import { useI18n } from "../../i18n";
 import { AutoDismissNotice } from "../AutoDismissNotice";
 import { ConfirmDialog } from "../common/ConfirmDialog";
 import { GitHubLogo } from "../common/GitHubLogo";
+import { ApiSettingsHintIcon } from "./apiSettings/ApiSettingsFieldLabel";
 import { SkillEditModal } from "./SkillEditModal";
 
 type SkillsSettingsPanelProps = {
@@ -509,13 +510,13 @@ export function SkillsSettingsPanel({
               {t("settings.skillsInstallTitle", {
                 defaultValue: "Install from GitHub",
               })}
+              <ApiSettingsHintIcon
+                hint={t("settings.skillsInstallUrlHint", {
+                  defaultValue:
+                    "Supports full URLs, shorthand owner/repo, with optional branch and sub-directory.",
+                })}
+              />
             </strong>
-            <span>
-              {t("settings.skillsInstallUrlHint", {
-                defaultValue:
-                  "Supports full URLs, shorthand owner/repo, with optional branch and sub-directory.",
-              })}
-            </span>
           </div>
           <GitHubLogo size={16} />
         </div>
@@ -589,8 +590,8 @@ export function SkillsSettingsPanel({
           <div>
             <strong className="api-settings-form-section-title">
               {scopeTitle}
+              <ApiSettingsHintIcon hint={scopeDescription} />
             </strong>
-            <span>{scopeDescription}</span>
           </div>
           <div className="skills-settings-paths" aria-label={scopeTitle}>
             <code>.snow/skills/</code>

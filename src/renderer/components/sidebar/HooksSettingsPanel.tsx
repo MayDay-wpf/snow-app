@@ -9,6 +9,7 @@ import { useI18n } from "../../i18n";
 import { AutoDismissNotice } from "../AutoDismissNotice";
 import { ConfirmDialog } from "../common/ConfirmDialog";
 import { Modal } from "../common/Modal";
+import { ApiSettingsHintIcon } from "./apiSettings/ApiSettingsFieldLabel";
 import {
   HookRuleEditor,
   HookRuleEditorActions,
@@ -536,19 +537,23 @@ export function HooksSettingsPanel({
 
       <div className="api-settings-manual-form">
         <div className="api-settings-manual-header">
-          <strong>{listTitle}</strong>
-          <span>
-            {isGlobalScope
-              ? t("settings.hooksGlobalTabInfo", {
-                  defaultValue:
-                    "Manage lifecycle hooks shared by all projects.",
-                })
-              : t("settings.hooksProjectTabInfo", {
-                  defaultValue:
-                    "Manage project hooks for {{name}}. Project hooks override global hooks when configured.",
-                  values: { name: activeDirectory?.name ?? "" },
-                })}
-          </span>
+          <strong>
+            {listTitle}
+            <ApiSettingsHintIcon
+              hint={
+                isGlobalScope
+                  ? t("settings.hooksGlobalTabInfo", {
+                      defaultValue:
+                        "Manage lifecycle hooks shared by all projects.",
+                    })
+                  : t("settings.hooksProjectTabInfo", {
+                      defaultValue:
+                        "Manage project hooks for {{name}}. Project hooks override global hooks when configured.",
+                      values: { name: activeDirectory?.name ?? "" },
+                    })
+              }
+            />
+          </strong>
         </div>
 
         <div className="api-settings-form-body">

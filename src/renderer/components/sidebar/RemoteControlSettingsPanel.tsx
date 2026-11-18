@@ -30,6 +30,7 @@ import { useI18n } from "../../i18n";
 import { AutoDismissNotice } from "../AutoDismissNotice";
 import { ConfirmDialog } from "../common/ConfirmDialog";
 import { CustomSelect, type CustomSelectOption } from "../common/CustomSelect";
+import { ApiSettingsHintIcon } from "./apiSettings/ApiSettingsFieldLabel";
 
 type RemoteControlSettingsTab = "lan" | "wan";
 
@@ -856,13 +857,13 @@ export function RemoteControlSettingsPanel(): React.JSX.Element {
         <div>
           <strong>
             {t("remoteControl.enableTitle", { defaultValue: "启用手机远控" })}
+            <ApiSettingsHintIcon
+              hint={t("remoteControl.enableDescription", {
+                defaultValue:
+                  "关闭时不会监听端口或连接隧道；开启状态在重启后保持。",
+              })}
+            />
           </strong>
-          <p>
-            {t("remoteControl.enableDescription", {
-              defaultValue:
-                "关闭时不会监听端口或连接隧道；开启状态在重启后保持。",
-            })}
-          </p>
         </div>
         <label className="toggle-switch">
           <input
@@ -907,13 +908,13 @@ export function RemoteControlSettingsPanel(): React.JSX.Element {
                 {t("remoteControl.portLabel", {
                   defaultValue: "局域网监听端口",
                 })}
+                <ApiSettingsHintIcon
+                  hint={t("remoteControl.portDescription", {
+                    defaultValue:
+                      "手机通过该端口访问本机，默认 8788；修改后服务会自动重启。",
+                  })}
+                />
               </strong>
-              <p>
-                {t("remoteControl.portDescription", {
-                  defaultValue:
-                    "手机通过该端口访问本机，默认 8788；修改后服务会自动重启。",
-                })}
-              </p>
             </div>
             <div className="remote-port-input">
               <input
@@ -952,6 +953,12 @@ export function RemoteControlSettingsPanel(): React.JSX.Element {
                 {t("remoteControl.lanTokenTitle", {
                   defaultValue: "局域网令牌",
                 })}
+                <ApiSettingsHintIcon
+                  hint={t("remoteControl.lanTokenDescription", {
+                    defaultValue:
+                      "扫码或打开配对链接会自动携带令牌；固定后重启 Snow 也不变，也可以在手机上手动填写。",
+                  })}
+                />
               </strong>
               <span
                 className={`remote-token-status ${state?.tokenPinned ? "pinned" : ""}`}
@@ -965,12 +972,6 @@ export function RemoteControlSettingsPanel(): React.JSX.Element {
                     })}
               </span>
             </div>
-            <p>
-              {t("remoteControl.lanTokenDescription", {
-                defaultValue:
-                  "扫码或打开配对链接会自动携带令牌；固定后重启 Snow 也不变，也可以在手机上手动填写。",
-              })}
-            </p>
             <div className="remote-token-value">
               <code>{maskedSecret(state?.token ?? "")}</code>
               <button
@@ -1140,13 +1141,13 @@ export function RemoteControlSettingsPanel(): React.JSX.Element {
                   {t("remoteControl.tunnelTitle", {
                     defaultValue: "自建服务器公网连接",
                   })}
+                  <ApiSettingsHintIcon
+                    hint={t("remoteControl.tunnelDescription", {
+                      defaultValue:
+                        "Snow 会自动生成隧道专用密钥；部署失败时不会保存凭据，验证成功后才会在本机加密保存。",
+                    })}
+                  />
                 </strong>
-                <p>
-                  {t("remoteControl.tunnelDescription", {
-                    defaultValue:
-                      "Snow 会自动生成隧道专用密钥；部署失败时不会保存凭据，验证成功后才会在本机加密保存。",
-                  })}
-                </p>
               </div>
               <span
                 className={`remote-service-status ${tunnel?.stage === "online" ? "running" : ""}`}
@@ -1851,12 +1852,12 @@ export function RemoteControlSettingsPanel(): React.JSX.Element {
                       {t("remoteControl.serverIpLabel", {
                         defaultValue: "服务器公网 IP",
                       })}
-                      <small>
-                        {t("remoteControl.serverIpHint", {
+                      <ApiSettingsHintIcon
+                        hint={t("remoteControl.serverIpHint", {
                           defaultValue:
                             "服务器详情页中的“公网 IP / 公网 IPv4”，不是私有 IP。",
                         })}
-                      </small>
+                      />
                       <input
                         value={deployForm.serverIp}
                         placeholder={t("remoteControl.serverIpPlaceholder", {
@@ -1876,12 +1877,12 @@ export function RemoteControlSettingsPanel(): React.JSX.Element {
                       {t("remoteControl.rootDomainLabel", {
                         defaultValue: "你的根域名",
                       })}
-                      <small>
-                        {t("remoteControl.rootDomainHint", {
+                      <ApiSettingsHintIcon
+                        hint={t("remoteControl.rootDomainHint", {
                           defaultValue:
                             "填写买到的域名，如 example.com；不要加 snow、https 或路径。",
                         })}
-                      </small>
+                      />
                       <input
                         value={deployForm.rootDomain}
                         placeholder={t("remoteControl.rootDomainExample", {
@@ -1901,12 +1902,12 @@ export function RemoteControlSettingsPanel(): React.JSX.Element {
                       {t("remoteControl.sshUsername", {
                         defaultValue: "SSH 用户名",
                       })}
-                      <small>
-                        {t("remoteControl.sshUsernameHint", {
+                      <ApiSettingsHintIcon
+                        hint={t("remoteControl.sshUsernameHint", {
                           defaultValue:
                             "Ubuntu/Debian、CentOS/RHEL 系密码登录通常填 root；云厂商一键登录显示的 admin 不一定能用。",
                         })}
-                      </small>
+                      />
                       <input
                         value={deployForm.sshUsername}
                         onChange={(event) =>
@@ -1920,12 +1921,12 @@ export function RemoteControlSettingsPanel(): React.JSX.Element {
                     </label>
                     <label>
                       {t("remoteControl.sshPort", { defaultValue: "SSH 端口" })}
-                      <small>
-                        {t("remoteControl.sshPortHint", {
+                      <ApiSettingsHintIcon
+                        hint={t("remoteControl.sshPortHint", {
                           defaultValue:
                             "服务器远程连接页面显示的端口，未修改时通常是 22。",
                         })}
-                      </small>
+                      />
                       <input
                         type="number"
                         min="1"
@@ -1944,12 +1945,12 @@ export function RemoteControlSettingsPanel(): React.JSX.Element {
                         {t("remoteControl.ssh2TunnelPort", {
                           defaultValue: "SSH2 隧道端口",
                         })}
-                        <small>
-                          {t("remoteControl.ssh2TunnelPortHint", {
+                        <ApiSettingsHintIcon
+                          hint={t("remoteControl.ssh2TunnelPortHint", {
                             defaultValue:
                               "专用 snow-tunnel-sshd 的监听端口，需要在安全组放行；未修改时通常是 7001。",
                           })}
-                        </small>
+                        />
                         <input
                           type="number"
                           min="1"
@@ -1967,12 +1968,12 @@ export function RemoteControlSettingsPanel(): React.JSX.Element {
                         {t("remoteControl.ssh2RemotePort", {
                           defaultValue: "SSH2 隧道回环端口",
                         })}
-                        <small>
-                          {t("remoteControl.ssh2RemotePortHint", {
+                        <ApiSettingsHintIcon
+                          hint={t("remoteControl.ssh2RemotePortHint", {
                             defaultValue:
                               "服务器内部回环端口，只由 Caddy 使用；无需在安全组放行。",
                           })}
-                        </small>
+                        />
                         <input
                           type="number"
                           min="1"
@@ -1991,12 +1992,12 @@ export function RemoteControlSettingsPanel(): React.JSX.Element {
                       {t("remoteControl.authMethod", {
                         defaultValue: "登录方式",
                       })}
-                      <small>
-                        {t("remoteControl.authMethodHint", {
+                      <ApiSettingsHintIcon
+                        hint={t("remoteControl.authMethodHint", {
                           defaultValue:
                             "新手建议使用在服务器控制台设置的 SSH 密码。",
                         })}
-                      </small>
+                      />
                       <CustomSelect
                         value={deployForm.authMethod}
                         options={authMethodOptions}
@@ -2013,12 +2014,12 @@ export function RemoteControlSettingsPanel(): React.JSX.Element {
                         {t("remoteControl.authPassword", {
                           defaultValue: "SSH 密码",
                         })}
-                        <small>
-                          {t("remoteControl.sshPasswordHint", {
+                        <ApiSettingsHintIcon
+                          hint={t("remoteControl.sshPasswordHint", {
                             defaultValue:
                               "服务器 root 密码，不是阿里云/腾讯云等网站的登录密码。",
                           })}
-                        </small>
+                        />
                         <input
                           type="password"
                           value={deployForm.password}
@@ -2043,12 +2044,12 @@ export function RemoteControlSettingsPanel(): React.JSX.Element {
                           {t("remoteControl.sshKeyFile", {
                             defaultValue: "SSH 私钥文件",
                           })}
-                          <small>
-                            {t("remoteControl.sshKeyFileHint", {
+                          <ApiSettingsHintIcon
+                            hint={t("remoteControl.sshKeyFileHint", {
                               defaultValue:
                                 "选择创建服务器或绑定密钥对时下载到本机的私钥文件。",
                             })}
-                          </small>
+                          />
                           <span>
                             <input
                               value={deployForm.privateKeyPath}
@@ -2199,6 +2200,12 @@ export function RemoteControlSettingsPanel(): React.JSX.Element {
             <div className="remote-token-head">
               <strong>
                 {t("remoteControl.wanTokenTitle", { defaultValue: "公网令牌" })}
+                <ApiSettingsHintIcon
+                  hint={t("remoteControl.wanTokenDescription", {
+                    defaultValue:
+                      "公网二维码与地址始终携带该令牌，重启 Snow 或重连隧道都不变；也可以让手机手动填写。",
+                  })}
+                />
               </strong>
               {state?.wan.token ? (
                 <span className="remote-token-status pinned">
@@ -2208,12 +2215,6 @@ export function RemoteControlSettingsPanel(): React.JSX.Element {
                 </span>
               ) : null}
             </div>
-            <p>
-              {t("remoteControl.wanTokenDescription", {
-                defaultValue:
-                  "公网二维码与地址始终携带该令牌，重启 Snow 或重连隧道都不变；也可以让手机手动填写。",
-              })}
-            </p>
             <div className="remote-token-value">
               <code>{maskedSecret(state?.wan.token ?? "")}</code>
               <button

@@ -2,6 +2,7 @@ import { ChevronRight, FolderOpen, Globe, Info } from "lucide-react";
 import { useState } from "react";
 import type { WorkspaceDirectoryRecord } from "../../../../preload";
 import { useI18n } from "../../../i18n";
+import { ApiSettingsHintIcon } from "../apiSettings/ApiSettingsFieldLabel";
 import { GlobalRoleEditor } from "./GlobalRoleEditor";
 import { ProjectRoleEditor } from "./ProjectRoleEditor";
 
@@ -86,6 +87,12 @@ export function PersonalizationSettingsPanel({
           <Info size={14} />
           <span>
             {t("personalization.loadOrder", { defaultValue: "Load order" })}
+            <ApiSettingsHintIcon
+              hint={t("personalization.priorityNote", {
+                defaultValue:
+                  "All enabled scopes are loaded; later instructions take priority only when they conflict.",
+              })}
+            />
           </span>
         </div>
         <div className="personalization-rule-chain-steps">
@@ -107,12 +114,6 @@ export function PersonalizationSettingsPanel({
             })}
           </span>
         </div>
-        <small>
-          {t("personalization.priorityNote", {
-            defaultValue:
-              "All enabled scopes are loaded; later instructions take priority only when they conflict.",
-          })}
-        </small>
       </section>
     </div>
   );

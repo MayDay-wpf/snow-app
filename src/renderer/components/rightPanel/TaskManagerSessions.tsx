@@ -5,6 +5,7 @@ import type {
   LspSessionTarget,
 } from "../../../preload/types/lsp";
 import { useI18n } from "../../i18n";
+import { ApiSettingsHintIcon } from "../sidebar/apiSettings/ApiSettingsFieldLabel";
 import { formatDisplayPath } from "../../utils/formatDisplayPath";
 import { ConfirmDialog } from "../common/ConfirmDialog";
 import { DisplayPath } from "../common/DisplayPath";
@@ -204,18 +205,20 @@ export function TaskManagerSessions({
             {t("taskManager.sessionsTitle", {
               values: { count: sessions.length },
             })}
+            <ApiSettingsHintIcon
+              hint={
+                <>
+                  <div>{t("taskManager.sessionAccounting")}</div>
+                  <div>{t("taskManager.sessionActionHint")}</div>
+                </>
+              }
+            />
           </strong>
           {sessionsStale && (
             <span className="task-manager-badge">{t("taskManager.stale")}</span>
           )}
         </div>
         <div className="task-manager-session-list">
-          <p className="task-manager-hint">
-            {t("taskManager.sessionAccounting")}
-          </p>
-          <p className="task-manager-hint">
-            {t("taskManager.sessionActionHint")}
-          </p>
           {sessionsStale && (
             <p className="task-manager-error" role="status">
               {t("taskManager.lspStale")}

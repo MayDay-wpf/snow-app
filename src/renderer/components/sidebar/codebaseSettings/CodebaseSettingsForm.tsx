@@ -14,6 +14,7 @@ import {
 } from "../../../constants/codebaseModels";
 import type { ModelConnectionTestResult } from "../../../../preload";
 import { CustomSelect } from "../../common/CustomSelect";
+import { ApiSettingsHintIcon } from "../apiSettings/ApiSettingsFieldLabel";
 import { ModelSettingsJumpButton } from "../apiSettings/ModelSettingsJumpButton";
 import { ModelConnectionStatus } from "../modelHealth/ModelConnectionStatus";
 import type { CodebaseSettingsForm as CodebaseSettingsFormValue } from "./types";
@@ -153,7 +154,10 @@ export function CodebaseSettingsForm({
     hint?: string,
   ) => (
     <label className="api-settings-field">
-      <span>{label}</span>
+      <span>
+        {label}
+        <ApiSettingsHintIcon hint={hint} />
+      </span>
       <input
         value={String(form[field])}
         onChange={onUpdateField(field)}
@@ -163,7 +167,6 @@ export function CodebaseSettingsForm({
         min={min}
         disabled={isBusy}
       />
-      {hint ? <span className="api-settings-field-hint">{hint}</span> : null}
     </label>
   );
 
@@ -192,13 +195,13 @@ export function CodebaseSettingsForm({
           {t("settings.codebaseManualTitle", {
             defaultValue: "Manual configuration",
           })}
+          <ApiSettingsHintIcon
+            hint={t("settings.codebaseManualInfo", {
+              defaultValue:
+                "These values are saved in the local app database and can be synced from Snow CLI settings.json files.",
+            })}
+          />
         </strong>
-        <span>
-          {t("settings.codebaseManualInfo", {
-            defaultValue:
-              "These values are saved in the local app database and can be synced from Snow CLI settings.json files.",
-          })}
-        </span>
       </div>
 
       <div className="api-settings-form-body">
@@ -215,6 +218,12 @@ export function CodebaseSettingsForm({
                   {t("settings.codebaseEmbeddingModel", {
                     defaultValue: "Embedding model",
                   })}
+                  <ApiSettingsHintIcon
+                    hint={t("settings.codebaseEmbeddingModelHint", {
+                      defaultValue:
+                        "Embedding models are managed in API configuration → Embedding models; only enabled ones can be selected here. Rebuild the index after switching models.",
+                    })}
+                  />
                 </span>
                 <ModelSettingsJumpButton tab="embedding" />
               </div>
@@ -234,12 +243,6 @@ export function CodebaseSettingsForm({
                 "No usable embedding model is selected, so codebase indexing cannot run.",
             }),
           )}
-          <span className="settings-item-description">
-            {t("settings.codebaseEmbeddingModelHint", {
-              defaultValue:
-                "Embedding models are managed in API configuration → Embedding models; only enabled ones can be selected here. Rebuild the index after switching models.",
-            })}
-          </span>
         </div>
 
         <div className="api-settings-form-section">
@@ -255,6 +258,12 @@ export function CodebaseSettingsForm({
                   {t("settings.codebaseRerankingModel", {
                     defaultValue: "Reranking model",
                   })}
+                  <ApiSettingsHintIcon
+                    hint={t("settings.codebaseRerankingModelHint", {
+                      defaultValue:
+                        "Reranking models are managed in API configuration → Reranking models; only enabled ones can be selected here.",
+                    })}
+                  />
                 </span>
                 <ModelSettingsJumpButton tab="reranking" />
               </div>
@@ -280,12 +289,6 @@ export function CodebaseSettingsForm({
             rerankingHealth[form.rerankingModelId],
             "",
           )}
-          <span className="settings-item-description">
-            {t("settings.codebaseRerankingModelHint", {
-              defaultValue:
-                "Reranking models are managed in API configuration → Reranking models; only enabled ones can be selected here.",
-            })}
-          </span>
         </div>
 
         <div className="api-settings-form-section">
@@ -293,13 +296,13 @@ export function CodebaseSettingsForm({
             {t("settings.codebaseAgentReviewSettings", {
               defaultValue: "Agent review settings",
             })}
+            <ApiSettingsHintIcon
+              hint={t("settings.codebaseAgentReviewInfo", {
+                defaultValue:
+                  "Agent review removes irrelevant search results. The LLM (basic model) judges them by default; a decision model judges every result on its own. When a refined query is needed, the LLM only writes the new query.",
+              })}
+            />
           </strong>
-          <span className="settings-item-description">
-            {t("settings.codebaseAgentReviewInfo", {
-              defaultValue:
-                "Agent review removes irrelevant search results. The LLM (basic model) judges them by default; a decision model judges every result on its own. When a refined query is needed, the LLM only writes the new query.",
-            })}
-          </span>
           <div className="api-settings-form-grid">
             <div className="api-settings-field">
               <div className="api-settings-field-head">
@@ -307,6 +310,12 @@ export function CodebaseSettingsForm({
                   {t("settings.codebaseReviewModel", {
                     defaultValue: "Review model",
                   })}
+                  <ApiSettingsHintIcon
+                    hint={t("settings.codebaseReviewModelHint", {
+                      defaultValue:
+                        "Decision models are managed in API configuration → Decision models; only enabled ones can be selected here.",
+                    })}
+                  />
                 </span>
                 <ModelSettingsJumpButton tab="decision" />
               </div>
@@ -334,12 +343,6 @@ export function CodebaseSettingsForm({
                 )
               : null}
           </div>
-          <span className="settings-item-description">
-            {t("settings.codebaseReviewModelHint", {
-              defaultValue:
-                "Decision models are managed in API configuration → Decision models; only enabled ones can be selected here.",
-            })}
-          </span>
         </div>
 
         <div className="api-settings-form-section">

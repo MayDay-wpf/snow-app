@@ -14,6 +14,7 @@ import {
 } from "../../../constants/sensitiveCommandAssist";
 import { useI18n } from "../../../i18n";
 import { CustomSelect } from "../../common/CustomSelect";
+import { ApiSettingsHintIcon } from "../apiSettings/ApiSettingsFieldLabel";
 import { ModelSettingsJumpButton } from "../apiSettings/ModelSettingsJumpButton";
 import { Tooltip } from "../../common/Tooltip";
 import { ConfirmDialog } from "../../common/ConfirmDialog";
@@ -271,13 +272,13 @@ export function SensitiveCommandDecisionAssist({
             {t("settings.sensitiveCommandAssistTitle", {
               defaultValue: "Decision model assist",
             })}
+            <ApiSettingsHintIcon
+              hint={t("settings.sensitiveCommandAssistInfo", {
+                defaultValue:
+                  "Let a decision model judge a command that matched a sensitive rule before the confirmation prompt shows up.",
+              })}
+            />
           </strong>
-          <span className="settings-item-description">
-            {t("settings.sensitiveCommandAssistInfo", {
-              defaultValue:
-                "Let a decision model judge a command that matched a sensitive rule before the confirmation prompt shows up.",
-            })}
-          </span>
         </div>
       </div>
 
@@ -288,13 +289,13 @@ export function SensitiveCommandDecisionAssist({
               {t("settings.sensitiveCommandAssistToggle", {
                 defaultValue: "Enable decision model assist",
               })}
+              <ApiSettingsHintIcon
+                hint={t("settings.sensitiveCommandAssistToggleInfo", {
+                  defaultValue:
+                    "Off by default. While off, sensitive commands keep the plain confirmation prompt.",
+                })}
+              />
             </strong>
-            <small>
-              {t("settings.sensitiveCommandAssistToggleInfo", {
-                defaultValue:
-                  "Off by default. While off, sensitive commands keep the plain confirmation prompt.",
-              })}
-            </small>
           </span>
           <span className="toggle-switch">
             <input
@@ -361,13 +362,13 @@ export function SensitiveCommandDecisionAssist({
               {t("settings.sensitiveCommandAssistDelegate", {
                 defaultValue: "Let the decision model handle the gate",
               })}
+              <ApiSettingsHintIcon
+                hint={t("settings.sensitiveCommandAssistDelegateInfo", {
+                  defaultValue:
+                    "When on, an allow verdict runs the command directly and a deny verdict rejects it, without showing the prompt.",
+                })}
+              />
             </strong>
-            <small>
-              {t("settings.sensitiveCommandAssistDelegateInfo", {
-                defaultValue:
-                  "When on, an allow verdict runs the command directly and a deny verdict rejects it, without showing the prompt.",
-              })}
-            </small>
           </span>
           <span className="toggle-switch">
             <input
@@ -396,13 +397,13 @@ export function SensitiveCommandDecisionAssist({
               {t("settings.sensitiveCommandAssistAskOnDeny", {
                 defaultValue: "Still ask me when denied",
               })}
+              <ApiSettingsHintIcon
+                hint={t("settings.sensitiveCommandAssistAskOnDenyInfo", {
+                  defaultValue:
+                    "After a delegated deny verdict, still show the confirmation prompt and let you decide whether to run it. Turning this on weakens automatic blocking.",
+                })}
+              />
             </strong>
-            <small>
-              {t("settings.sensitiveCommandAssistAskOnDenyInfo", {
-                defaultValue:
-                  "After a delegated deny verdict, still show the confirmation prompt and let you decide whether to run it. Turning this on weakens automatic blocking.",
-              })}
-            </small>
           </span>
           {askOnDenyHint === "" ? (
             askOnDenyToggle
@@ -417,14 +418,14 @@ export function SensitiveCommandDecisionAssist({
               {t("settings.sensitiveCommandAssistContext", {
                 defaultValue: "Include recent conversation",
               })}
+              <ApiSettingsHintIcon
+                hint={t("settings.sensitiveCommandAssistContextInfo", {
+                  values: { count: settings.contextMessageCount },
+                  defaultValue:
+                    "Off by default. When on, the last {{count}} conversation messages (user and assistant text, plus names, argument summaries and output summaries of finished tool calls) are sent to the selected decision model with each judgement, so it can tell commands you asked for from ones the AI started on its own. Tool outputs pass the privacy filter first.",
+                })}
+              />
             </strong>
-            <small>
-              {t("settings.sensitiveCommandAssistContextInfo", {
-                values: { count: settings.contextMessageCount },
-                defaultValue:
-                  "Off by default. When on, the last {{count}} conversation messages (user and assistant text, plus names, argument summaries and output summaries of finished tool calls) are sent to the selected decision model with each judgement, so it can tell commands you asked for from ones the AI started on its own. Tool outputs pass the privacy filter first.",
-              })}
-            </small>
           </span>
           {contextHint === "" ? (
             contextToggle
@@ -439,18 +440,18 @@ export function SensitiveCommandDecisionAssist({
               {t("settings.sensitiveCommandAssistContextCount", {
                 defaultValue: "Conversation messages to send",
               })}
+              <ApiSettingsHintIcon
+                hint={t("settings.sensitiveCommandAssistContextCountInfo", {
+                  values: {
+                    default: DEFAULT_SENSITIVE_COMMAND_CONTEXT_MESSAGES,
+                    min: MIN_SENSITIVE_COMMAND_CONTEXT_MESSAGES,
+                    max: MAX_SENSITIVE_COMMAND_CONTEXT_MESSAGES,
+                  },
+                  defaultValue:
+                    "Default {{default}}, range {{min}}-{{max}}. More messages give a fuller picture but send more content; whatever exceeds the state budget is truncated from the oldest end.",
+                })}
+              />
             </strong>
-            <small>
-              {t("settings.sensitiveCommandAssistContextCountInfo", {
-                values: {
-                  default: DEFAULT_SENSITIVE_COMMAND_CONTEXT_MESSAGES,
-                  min: MIN_SENSITIVE_COMMAND_CONTEXT_MESSAGES,
-                  max: MAX_SENSITIVE_COMMAND_CONTEXT_MESSAGES,
-                },
-                defaultValue:
-                  "Default {{default}}, range {{min}}-{{max}}. More messages give a fuller picture but send more content; whatever exceeds the state budget is truncated from the oldest end.",
-              })}
-            </small>
           </span>
           <span className="sensitive-command-assist-number">
             <input
@@ -481,13 +482,13 @@ export function SensitiveCommandDecisionAssist({
               {t("settings.sensitiveCommandAssistLearn", {
                 defaultValue: "Learn my preferences automatically",
               })}
+              <ApiSettingsHintIcon
+                hint={t("settings.sensitiveCommandAssistLearnInfo", {
+                  defaultValue:
+                    "Off by default. When on, your allow and deny choices in the sensitive command prompt are recorded on this device, including commands the decision model denied but you allowed. Every judgement, whether shown as a suggestion or delegated, sends the most similar records to the decision model so it can follow your past choices.",
+                })}
+              />
             </strong>
-            <small>
-              {t("settings.sensitiveCommandAssistLearnInfo", {
-                defaultValue:
-                  "Off by default. When on, your allow and deny choices in the sensitive command prompt are recorded on this device, including commands the decision model denied but you allowed. Every judgement, whether shown as a suggestion or delegated, sends the most similar records to the decision model so it can follow your past choices.",
-              })}
-            </small>
           </span>
           {contextHint === "" ? (
             learnToggle

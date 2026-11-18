@@ -16,7 +16,6 @@ import {
   Plus,
   ScanSearch,
   Search,
-  ShieldCheck,
   Smartphone,
   Trash2,
   X,
@@ -32,6 +31,7 @@ import {
   BROWSER_LOGO_COMPONENTS,
   type BrowserLogoId,
 } from "../../icons/browserLogos";
+import { ApiSettingsHintIcon } from "../apiSettings/ApiSettingsFieldLabel";
 import { UserscriptsSection } from "./UserscriptsSection";
 import { DisplayDevicesSection } from "./DisplayDevicesSection";
 import { HistorySection } from "./HistorySection";
@@ -761,6 +761,11 @@ export function BrowserSettingsPanel({
             <div className="api-settings-form-section-header">
               <span className="api-settings-form-section-title">
                 {t("settings.browserHomepage", { defaultValue: "Homepage" })}
+                <ApiSettingsHintIcon
+                  hint={t("settings.browserHomepageHint", {
+                    defaultValue: "Empty means a blank page",
+                  })}
+                />
               </span>
             </div>
             <div className="browser-settings-homepage-row">
@@ -781,11 +786,6 @@ export function BrowserSettingsPanel({
                 })}
                 spellCheck={false}
               />
-              <span className="browser-settings-hint">
-                {t("settings.browserHomepageHint", {
-                  defaultValue: "Empty means a blank page",
-                })}
-              </span>
             </div>
           </div>
 
@@ -794,15 +794,12 @@ export function BrowserSettingsPanel({
             <div className="api-settings-form-section-header">
               <span className="api-settings-form-section-title">
                 {t("settings.browserImport", { defaultValue: "Import" })}
-              </span>
-            </div>
-            <div className="browser-settings-hint-row">
-              <ShieldCheck size={13} strokeWidth={1.8} />
-              <span>
-                {t("settings.browserImportHint", {
-                  defaultValue:
-                    "Imported passwords are encrypted into the vault; cookies are written into the current browser session",
-                })}
+                <ApiSettingsHintIcon
+                  hint={t("settings.browserImportHint", {
+                    defaultValue:
+                      "Imported passwords are encrypted into the vault; cookies are written into the current browser session",
+                  })}
+                />
               </span>
             </div>
 
@@ -1017,13 +1014,13 @@ export function BrowserSettingsPanel({
                   {t("settings.browserPasswordsManualTitle", {
                     defaultValue: "Manage saved passwords",
                   })}
+                  <ApiSettingsHintIcon
+                    hint={t("settings.browserPasswordsHint", {
+                      defaultValue:
+                        "Stored AES-256-GCM encrypted, key protected by the OS keychain",
+                    })}
+                  />
                 </strong>
-                <span>
-                  {t("settings.browserPasswordsHint", {
-                    defaultValue:
-                      "Stored AES-256-GCM encrypted, key protected by the OS keychain",
-                  })}
-                </span>
               </div>
 
               <div className="api-settings-form-body">
@@ -1276,13 +1273,13 @@ export function BrowserSettingsPanel({
                   {t("settings.browserBookmarksManageTitle", {
                     defaultValue: "Manage bookmarks",
                   })}
+                  <ApiSettingsHintIcon
+                    hint={t("settings.browserBookmarksHint", {
+                      defaultValue:
+                        "Imported from local browsers or saved from the embedded browser, shown in the bookmarks bar",
+                    })}
+                  />
                 </strong>
-                <span>
-                  {t("settings.browserBookmarksHint", {
-                    defaultValue:
-                      "Imported from local browsers or saved from the embedded browser, shown in the bookmarks bar",
-                  })}
-                </span>
               </div>
 
               <div className="api-settings-form-body">

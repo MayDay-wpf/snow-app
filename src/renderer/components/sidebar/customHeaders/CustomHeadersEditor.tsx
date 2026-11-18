@@ -1,6 +1,7 @@
 import { Info, Loader2, Plus, Save, Trash2, X } from "lucide-react";
 import { useRef, useState } from "react";
 import { useI18n } from "../../../i18n";
+import { ApiSettingsHintIcon } from "../apiSettings/ApiSettingsFieldLabel";
 import type { SchemeDraft } from "./types";
 
 /**
@@ -166,6 +167,12 @@ export function CustomHeadersEditor({
             {t("settings.customHeadersVariablesLabel", {
               defaultValue: "Available variables",
             })}
+            <ApiSettingsHintIcon
+              hint={t("settings.customHeadersVariablesHint", {
+                defaultValue:
+                  "All six spellings are equivalent: they are replaced with the session ID of the conversation that sends the request (they can be combined with other text, e.g. snow-app-{{session_id}}); requests without a session context (e.g. model listing) omit this header.",
+              })}
+            />
           </span>
           <div className="custom-headers-variables-chips">
             {SESSION_ID_VARIABLES.map((variable) => (
@@ -183,12 +190,6 @@ export function CustomHeadersEditor({
               </button>
             ))}
           </div>
-          <span className="custom-headers-variables-desc">
-            {t("settings.customHeadersVariablesHint", {
-              defaultValue:
-                "All six spellings are equivalent: they are replaced with the session ID of the conversation that sends the request (they can be combined with other text, e.g. snow-app-{{session_id}}); requests without a session context (e.g. model listing) omit this header.",
-            })}
-          </span>
         </div>
       </div>
     </>

@@ -410,15 +410,27 @@ export const useCompaction = (ctx: ConversationContextValue) => {
         const protectedMessages = isBackground
           ? undefined
           : collectProtectedMessages();
+        // 后台压缩的上下文估算：折叠压缩读折叠行落库的快照，交接式取交接文档长度。
+        // 必须给出估算值，否则闸门消费时会沿用压缩前的过期用量再次触发压缩。
+        let contextTokens: number | undefined;
+        if (isBackground) {
+          const boundaryRecord = latestRecords.find(
+            (record) => record.id === response.persistedUserMessageIds?.[0],
+          );
+          const foldTokens = boundaryRecord
+            ? boundaryRecord.inputTokens + boundaryRecord.outputTokens
+            : 0;
+          contextTokens =
+            contextFold && foldTokens > 0
+              ? foldTokens
+              : (response.tokenUsage?.outputTokens ?? 0);
+        }
         completed = true;
         return {
           content,
           checkpointId,
           protectedMessages,
-          contextTokens:
-            isBackground && !contextFold
-              ? response.tokenUsage?.outputTokens
-              : undefined,
+          contextTokens,
         };
       } catch (error) {
         // 会话中断导致的后台压缩取消：静默作废，只清理快照。

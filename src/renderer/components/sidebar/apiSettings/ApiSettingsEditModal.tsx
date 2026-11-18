@@ -158,7 +158,7 @@ export function ApiSettingsEditModal({
       title={`${t("settings.apiEditTitle", {
         defaultValue: "Edit profile",
       })}: ${editForm?.profileName ?? ""}`}
-      description={t("settings.apiEditInfo", {
+      titleHint={t("settings.apiEditInfo", {
         defaultValue: "Leave API key blank to keep the existing value.",
       })}
       closeLabel={t("settings.cancel", { defaultValue: "Cancel" })}

@@ -23,6 +23,7 @@ import { useI18n } from "../../i18n";
 import { CustomSelect } from "../common/CustomSelect";
 import { useDebouncedAutoSave } from "../../hooks/useDebouncedAutoSave";
 import { formatMcpError } from "./mcpSettings/mcpErrorMessages";
+import { ApiSettingsHintIcon } from "./apiSettings/ApiSettingsFieldLabel";
 import {
   PrivacyToggleList,
   type PrivacyToggleGroup,
@@ -529,18 +530,20 @@ export function PrivacySettingsPanel({
               : t("settings.privacyRulesTitle", {
                   defaultValue: "Masking rules",
                 })}
+            <ApiSettingsHintIcon
+              hint={
+                activeTab === "tools"
+                  ? t("settings.privacyManualInfo", {
+                      defaultValue:
+                        "These values are stored locally and used to redact tool results before they are sent to the model.",
+                    })
+                  : t("settings.privacyRulesTabInfo", {
+                      defaultValue:
+                        "Toggle built-in rules and manage your own regex rules. Custom rules also apply after the online API.",
+                    })
+              }
+            />
           </strong>
-          <span>
-            {activeTab === "tools"
-              ? t("settings.privacyManualInfo", {
-                  defaultValue:
-                    "These values are stored locally and used to redact tool results before they are sent to the model.",
-                })
-              : t("settings.privacyRulesTabInfo", {
-                  defaultValue:
-                    "Toggle built-in rules and manage your own regex rules. Custom rules also apply after the online API.",
-                })}
-          </span>
         </div>
 
         <div className="api-settings-form-body">
@@ -560,6 +563,12 @@ export function PrivacySettingsPanel({
                     {t("settings.privacyEnable", {
                       defaultValue: "Enable privacy filter",
                     })}
+                    <ApiSettingsHintIcon
+                      hint={t("settings.privacyEnableInfo", {
+                        defaultValue:
+                          "Redact sensitive data (API keys, tokens, IDs, cards) from selected tool results before sending to the model.",
+                      })}
+                    />
                   </strong>
                   <label className="toggle-switch">
                     <input
@@ -579,12 +588,6 @@ export function PrivacySettingsPanel({
                     </span>
                   </label>
                 </div>
-                <span className="settings-item-description">
-                  {t("settings.privacyEnableInfo", {
-                    defaultValue:
-                      "Redact sensitive data (API keys, tokens, IDs, cards) from selected tool results before sending to the model.",
-                  })}
-                </span>
               </div>
 
               <div className="api-settings-form-section">
@@ -593,6 +596,19 @@ export function PrivacySettingsPanel({
                     {t("settings.privacyMode", {
                       defaultValue: "Filter mode",
                     })}
+                    <ApiSettingsHintIcon
+                      hint={
+                        form.mode === "api"
+                          ? t("settings.privacyModeApiInfo", {
+                              defaultValue:
+                                "Send tool results to a configured privacy filter API for redaction.",
+                            })
+                          : t("settings.privacyModeLocalInfo", {
+                              defaultValue:
+                                "Use built-in Rust regex rules for redaction. No external service required.",
+                            })
+                      }
+                    />
                   </strong>
                 </div>
                 <div className="api-settings-form-grid">
@@ -603,17 +619,6 @@ export function PrivacySettingsPanel({
                     disabled={isConfigDisabled}
                   />
                 </div>
-                <span className="settings-item-description">
-                  {form.mode === "api"
-                    ? t("settings.privacyModeApiInfo", {
-                        defaultValue:
-                          "Send tool results to a configured privacy filter API for redaction.",
-                      })
-                    : t("settings.privacyModeLocalInfo", {
-                        defaultValue:
-                          "Use built-in Rust regex rules for redaction. No external service required.",
-                      })}
-                </span>
               </div>
 
               {form.mode === "api" && (
@@ -623,14 +628,14 @@ export function PrivacySettingsPanel({
                       {t("settings.privacyApiConfig", {
                         defaultValue: "API configuration",
                       })}
+                      <ApiSettingsHintIcon
+                        hint={t("settings.privacyApiConfigInfo", {
+                          defaultValue:
+                            "Configure the online privacy filter API endpoint.",
+                        })}
+                      />
                     </strong>
                   </div>
-                  <span className="settings-item-description">
-                    {t("settings.privacyApiConfigInfo", {
-                      defaultValue:
-                        "Configure the online privacy filter API endpoint.",
-                    })}
-                  </span>
                   <span className="privacy-api-reference">
                     {t("settings.privacyApiDeployHint", {
                       defaultValue:
@@ -712,6 +717,12 @@ export function PrivacySettingsPanel({
                     {t("settings.privacyToolResults", {
                       defaultValue: "Tool results to filter",
                     })}
+                    <ApiSettingsHintIcon
+                      hint={t("settings.privacyToolResultsInfo", {
+                        defaultValue:
+                          "Select which tool results should be redacted before reaching the model.",
+                      })}
+                    />
                   </strong>
                   <span className="privacy-option-count">
                     {t("settings.privacyToolsSelected", {
@@ -720,12 +731,6 @@ export function PrivacySettingsPanel({
                     })}
                   </span>
                 </div>
-                <span className="settings-item-description">
-                  {t("settings.privacyToolResultsInfo", {
-                    defaultValue:
-                      "Select which tool results should be redacted before reaching the model.",
-                  })}
-                </span>
                 <label className="privacy-tool-search">
                   <Search size={14} />
                   <input
@@ -779,14 +784,14 @@ export function PrivacySettingsPanel({
                     {t("settings.privacyRules", {
                       defaultValue: "Local masking rules",
                     })}
+                    <ApiSettingsHintIcon
+                      hint={t("settings.privacyRulesInfo", {
+                        defaultValue:
+                          "Choose which kinds of sensitive data the local rules redact. Also applies when the online API falls back to local rules.",
+                      })}
+                    />
                   </strong>
                 </div>
-                <span className="settings-item-description">
-                  {t("settings.privacyRulesInfo", {
-                    defaultValue:
-                      "Choose which kinds of sensitive data the local rules redact. Also applies when the online API falls back to local rules.",
-                  })}
-                </span>
                 {ruleGroups.length > 0 ? (
                   <PrivacyToggleList
                     groups={ruleGroups}
@@ -813,6 +818,12 @@ export function PrivacySettingsPanel({
                     {t("settings.privacyCustomRules", {
                       defaultValue: "Custom rules",
                     })}
+                    <ApiSettingsHintIcon
+                      hint={t("settings.privacyCustomRulesInfo", {
+                        defaultValue:
+                          "Define your own regex rules to mask project-specific data such as internal hosts or employee IDs. You can also ask the AI to write them via the config tool.",
+                      })}
+                    />
                   </strong>
                   <button
                     className="api-settings-action-btn secondary"
@@ -828,12 +839,6 @@ export function PrivacySettingsPanel({
                     </span>
                   </button>
                 </div>
-                <span className="settings-item-description">
-                  {t("settings.privacyCustomRulesInfo", {
-                    defaultValue:
-                      "Define your own regex rules to mask project-specific data such as internal hosts or employee IDs. You can also ask the AI to write them via the config tool.",
-                  })}
-                </span>
                 {customGroups.length > 0 ? (
                   <PrivacyToggleList
                     groups={customGroups}
@@ -862,14 +867,14 @@ export function PrivacySettingsPanel({
                     {t("settings.privacyPreview", {
                       defaultValue: "Test masking",
                     })}
+                    <ApiSettingsHintIcon
+                      hint={t("settings.privacyPreviewInfo", {
+                        defaultValue:
+                          "Paste sample text to preview the local rules (built-in and custom) using the current switches.",
+                      })}
+                    />
                   </strong>
                 </div>
-                <span className="settings-item-description">
-                  {t("settings.privacyPreviewInfo", {
-                    defaultValue:
-                      "Paste sample text to preview the local rules (built-in and custom) using the current switches.",
-                  })}
-                </span>
                 <textarea
                   className="privacy-preview-input"
                   value={previewSample}

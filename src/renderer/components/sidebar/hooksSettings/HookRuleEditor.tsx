@@ -1,6 +1,7 @@
 import { Loader2, Save, Trash2, X } from "lucide-react";
 import { useI18n } from "../../../i18n";
 import { CustomSelect } from "../../common/CustomSelect";
+import { ApiSettingsHintIcon } from "../apiSettings/ApiSettingsFieldLabel";
 import type {
   HookActionDraft,
   HookActionType,
@@ -25,7 +26,7 @@ type HookRuleEditorProps = {
   onUpdateAction: (
     ruleId: string,
     actionId: string,
-    patch: Partial<HookActionDraft>
+    patch: Partial<HookActionDraft>,
   ) => void;
   onAddAction: (ruleId: string) => void;
   onRemoveAction: (ruleId: string, actionId: string) => void;
@@ -40,10 +41,10 @@ const ACTION_TYPE_OPTIONS: { value: HookActionType; label: string }[] = [
 ];
 
 const getActionTypeOptions = (
-  hookType: HookType
+  hookType: HookType,
 ): { value: HookActionType; label: string }[] => {
   return ACTION_TYPE_OPTIONS.filter((option) =>
-    isActionTypeAllowed(hookType, option.value)
+    isActionTypeAllowed(hookType, option.value),
   );
 };
 
@@ -153,6 +154,12 @@ export function HookRuleEditor({
                   {t("settings.hooksMatcher", {
                     defaultValue: "Tool matcher",
                   })}
+                  <ApiSettingsHintIcon
+                    hint={t("settings.hooksMatcherHint", {
+                      defaultValue:
+                        "Comma-separated patterns. Supports * wildcard. Empty matches all tools.",
+                    })}
+                  />
                 </span>
                 <input
                   value={rule.matcher}
@@ -165,12 +172,6 @@ export function HookRuleEditor({
                   })}
                   disabled={isBusy}
                 />
-                <small className="api-settings-field-hint">
-                  {t("settings.hooksMatcherHint", {
-                    defaultValue:
-                      "Comma-separated patterns. Supports * wildcard. Empty matches all tools.",
-                  })}
-                </small>
               </label>
             )}
 

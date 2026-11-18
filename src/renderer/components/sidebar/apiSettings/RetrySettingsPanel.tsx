@@ -2,6 +2,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useI18n } from "../../../i18n";
 import { AutoDismissNotice } from "../../AutoDismissNotice";
 import {
+  ApiSettingsFieldLabel,
+  ApiSettingsHintIcon,
+} from "./ApiSettingsFieldLabel";
+import {
   parseRetryPolicy,
   serializeRetryPolicy,
   type RetryConfigState,
@@ -242,13 +246,13 @@ export function RetrySettingsPanel(): React.JSX.Element {
       <div className="api-settings-manual-header">
         <strong>
           {t("settings.retryPanelTitle", { defaultValue: "Retry policy" })}
+          <ApiSettingsHintIcon
+            hint={t("settings.retryPanelInfo", {
+              defaultValue:
+                "Configure which errors are retried. Applies to all API profiles. Changes are saved automatically.",
+            })}
+          />
         </strong>
-        <span>
-          {t("settings.retryPanelInfo", {
-            defaultValue:
-              "Configure which errors are retried. Applies to all API profiles. Changes are saved automatically.",
-          })}
-        </span>
       </div>
 
       <div className="api-settings-form-body">
@@ -258,9 +262,14 @@ export function RetrySettingsPanel(): React.JSX.Element {
           </strong>
           <div className="api-settings-form-grid">
             <div className="api-settings-field">
-              <span>
+              <ApiSettingsFieldLabel
+                hint={t("settings.retryAlwaysHint", {
+                  defaultValue:
+                    "When enabled, any error is retried regardless of the categories below. The retry count is still capped by Max retries, and aborted or cancelled requests are never retried.",
+                })}
+              >
                 {t("settings.retryAlways", { defaultValue: "Retry any error" })}
-              </span>
+              </ApiSettingsFieldLabel>
               <label className="toggle-switch">
                 <input
                   type="checkbox"
@@ -281,12 +290,6 @@ export function RetrySettingsPanel(): React.JSX.Element {
                     : t("settings.disabled", { defaultValue: "Disabled" })}
                 </span>
               </label>
-              <small className="api-settings-hint-text">
-                {t("settings.retryAlwaysHint", {
-                  defaultValue:
-                    "When enabled, any error is retried regardless of the categories below. The retry count is still capped by Max retries, and aborted or cancelled requests are never retried.",
-                })}
-              </small>
             </div>
           </div>
         </div>
@@ -344,11 +347,16 @@ export function RetrySettingsPanel(): React.JSX.Element {
                 );
               })}
               <label className="api-settings-field wide">
-                <span>
+                <ApiSettingsFieldLabel
+                  hint={t("settings.retryCustomKeywordsHint", {
+                    defaultValue:
+                      "Comma-separated keywords matched against the error message in addition to all enabled categories above. Matching is a case-insensitive substring test; leave a category empty to restore its defaults. Aborted or cancelled requests are never retried.",
+                  })}
+                >
                   {t("settings.retryCustomKeywords", {
                     defaultValue: "Extra keywords",
                   })}
-                </span>
+                </ApiSettingsFieldLabel>
                 <input
                   value={draft?.customKeywords ?? ""}
                   placeholder="quota exceeded, billing"
@@ -360,12 +368,6 @@ export function RetrySettingsPanel(): React.JSX.Element {
                   }
                   disabled={busy || !draft}
                 />
-                <small className="api-settings-hint-text">
-                  {t("settings.retryCustomKeywordsHint", {
-                    defaultValue:
-                      "Comma-separated keywords matched against the error message in addition to all enabled categories above. Matching is a case-insensitive substring test; leave a category empty to restore its defaults. Aborted or cancelled requests are never retried.",
-                  })}
-                </small>
               </label>
             </div>
           </div>

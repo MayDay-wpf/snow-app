@@ -36,6 +36,7 @@ import { createPortal } from "react-dom";
 import { localeLabels, useI18n, type Locale } from "../../i18n";
 import { AutoDismissNotice } from "../AutoDismissNotice";
 import { AppLockSettingsSection } from "./AppLockSettingsSection";
+import { ApiSettingsHintIcon } from "./apiSettings/ApiSettingsFieldLabel";
 import { BackupSettingsSection } from "./BackupSettingsSection";
 import { ChangelogSection } from "./ChangelogSection";
 import {
@@ -1508,9 +1509,11 @@ export function GeneralSettingsPanel(): React.JSX.Element {
             <span className="cleanup-category-box" aria-hidden="true" />
           </label>
           <div className="general-storage-text">
-            <span className="general-storage-label">{label}</span>
-            <span className="settings-item-description">
-              {t(text.description, { defaultValue: "" })}
+            <span className="general-storage-label">
+              {label}
+              <ApiSettingsHintIcon
+                hint={t(text.description, { defaultValue: "" })}
+              />
             </span>
           </div>
         </div>
@@ -1749,12 +1752,12 @@ export function GeneralSettingsPanel(): React.JSX.Element {
           <div className="api-settings-manual-header">
             <strong>
               {t("settings.languageSettings", { defaultValue: "Language" })}
+              <ApiSettingsHintIcon
+                hint={t("settings.languageSettingsInfo", {
+                  defaultValue: "Choose the display language for Snow App.",
+                })}
+              />
             </strong>
-            <span>
-              {t("settings.languageSettingsInfo", {
-                defaultValue: "Choose the display language for Snow App.",
-              })}
-            </span>
           </div>
 
           <div className="api-settings-form-body">
@@ -1781,13 +1784,13 @@ export function GeneralSettingsPanel(): React.JSX.Element {
           <div className="api-settings-manual-header">
             <strong>
               {t("settings.autoLaunch", { defaultValue: "Startup" })}
+              <ApiSettingsHintIcon
+                hint={t("settings.autoLaunchInfo", {
+                  defaultValue:
+                    "Launch Snow App automatically when you sign in to your computer.",
+                })}
+              />
             </strong>
-            <span>
-              {t("settings.autoLaunchInfo", {
-                defaultValue:
-                  "Launch Snow App automatically when you sign in to your computer.",
-              })}
-            </span>
           </div>
 
           <div className="api-settings-form-body">
@@ -1825,12 +1828,12 @@ export function GeneralSettingsPanel(): React.JSX.Element {
               {t("settings.closeBehavior", {
                 defaultValue: "关闭 Snow APP 时",
               })}
+              <ApiSettingsHintIcon
+                hint={t("settings.closeBehaviorInfo", {
+                  defaultValue: "选择关闭应用窗口时的行为。",
+                })}
+              />
             </strong>
-            <span>
-              {t("settings.closeBehaviorInfo", {
-                defaultValue: "选择关闭应用窗口时的行为。",
-              })}
-            </span>
           </div>
 
           <div className="api-settings-form-body">
@@ -1879,13 +1882,13 @@ export function GeneralSettingsPanel(): React.JSX.Element {
           <div className="api-settings-manual-header">
             <strong>
               {t("settings.notificationTitle", { defaultValue: "系统通知" })}
+              <ApiSettingsHintIcon
+                hint={t("settings.notificationInfo", {
+                  defaultValue:
+                    "默认只在窗口失焦时弹出系统通知；可改为始终通知，并选择提示音或使用自定义 MP3。",
+                })}
+              />
             </strong>
-            <span>
-              {t("settings.notificationInfo", {
-                defaultValue:
-                  "默认只在窗口失焦时弹出系统通知；可改为始终通知，并选择提示音或使用自定义 MP3。",
-              })}
-            </span>
           </div>
 
           <div className="api-settings-form-body">
@@ -1960,21 +1963,23 @@ export function GeneralSettingsPanel(): React.JSX.Element {
                     aria-hidden="true"
                   />
                   <div className="general-storage-text">
-                    <span
-                      className="general-storage-label"
-                      title={notificationSettings.customSoundPath}
-                    >
-                      {notificationSettings.customSoundPath
-                        ? fileNameOf(notificationSettings.customSoundPath)
-                        : t("settings.notificationSoundNoFile", {
-                            defaultValue: "尚未选择 MP3 文件",
-                          })}
-                    </span>
-                    <span className="settings-item-description">
-                      {t("settings.notificationSoundCustomHint", {
-                        defaultValue:
-                          "仅支持 .mp3 文件；路径只保存在本机设置里。",
-                      })}
+                    <span className="general-storage-hint-row">
+                      <span
+                        className="general-storage-label"
+                        title={notificationSettings.customSoundPath}
+                      >
+                        {notificationSettings.customSoundPath
+                          ? fileNameOf(notificationSettings.customSoundPath)
+                          : t("settings.notificationSoundNoFile", {
+                              defaultValue: "尚未选择 MP3 文件",
+                            })}
+                      </span>
+                      <ApiSettingsHintIcon
+                        hint={t("settings.notificationSoundCustomHint", {
+                          defaultValue:
+                            "仅支持 .mp3 文件；路径只保存在本机设置里。",
+                        })}
+                      />
                     </span>
                   </div>
                 </div>
@@ -2026,8 +2031,10 @@ export function GeneralSettingsPanel(): React.JSX.Element {
       {activeTab === "general" && (
         <div className="api-settings-manual-form">
           <div className="api-settings-manual-header">
-            <strong>{t("settings.busySendBehavior")}</strong>
-            <span>{t("settings.busySendBehaviorInfo")}</span>
+            <strong>
+              {t("settings.busySendBehavior")}
+              <ApiSettingsHintIcon hint={t("settings.busySendBehaviorInfo")} />
+            </strong>
           </div>
           <div className="api-settings-form-body">
             <div className="settings-about-row">
@@ -2150,19 +2157,21 @@ export function GeneralSettingsPanel(): React.JSX.Element {
             <div className="storage-card-text">
               <span className="storage-card-title">
                 {t("settings.cleanupTitle", { defaultValue: "Data cleanup" })}
+                <ApiSettingsHintIcon
+                  hint={t("settings.cleanupInfo", {
+                    defaultValue:
+                      "Scan local data by category, then delete only the items you select.",
+                  })}
+                />
               </span>
-              <span className="storage-card-desc">
-                {t("settings.cleanupInfo", {
-                  defaultValue:
-                    "Scan local data by category, then delete only the items you select.",
-                })}
-                {cleanupScan !== null
-                  ? ` · ${t("settings.cleanupTotal", {
-                      values: { size: formatBytes(cleanupScan.totalBytes) },
-                      defaultValue: `Total ${formatBytes(cleanupScan.totalBytes)}`,
-                    })}`
-                  : ""}
-              </span>
+              {cleanupScan !== null ? (
+                <span className="storage-card-desc">
+                  {t("settings.cleanupTotal", {
+                    values: { size: formatBytes(cleanupScan.totalBytes) },
+                    defaultValue: `Total ${formatBytes(cleanupScan.totalBytes)}`,
+                  })}
+                </span>
+              ) : null}
             </div>
             <button
               type="button"
@@ -2271,22 +2280,26 @@ export function GeneralSettingsPanel(): React.JSX.Element {
                               defaultValue: "{{count}} selected",
                             })}
                             {` · ${cleanupAgeLabel}`}
+                            <ApiSettingsHintIcon
+                              hint={t("settings.cleanupSelectHint", {
+                                defaultValue:
+                                  "Select the categories you want to clean up.",
+                              })}
+                            />
                           </span>
-                          <span className="settings-item-description">
-                            {cleanupSelected.length > 0 && cleanupPlan.files > 0
-                              ? t("settings.cleanupWillFree", {
-                                  values: {
-                                    files: cleanupPlan.files,
-                                    size: formatBytes(cleanupPlan.bytes),
-                                  },
-                                  defaultValue:
-                                    "Will delete {{files}} file(s) and free {{size}}",
-                                })
-                              : t("settings.cleanupSelectHint", {
-                                  defaultValue:
-                                    "Select the categories you want to clean up.",
-                                })}
-                          </span>
+                          {cleanupSelected.length > 0 &&
+                          cleanupPlan.files > 0 ? (
+                            <span className="settings-item-description">
+                              {t("settings.cleanupWillFree", {
+                                values: {
+                                  files: cleanupPlan.files,
+                                  size: formatBytes(cleanupPlan.bytes),
+                                },
+                                defaultValue:
+                                  "Will delete {{files}} file(s) and free {{size}}",
+                              })}
+                            </span>
+                          ) : null}
                         </div>
                       </div>
                       <div className="general-storage-actions">
@@ -2400,12 +2413,12 @@ export function GeneralSettingsPanel(): React.JSX.Element {
                 {t("settings.orphanTitle", {
                   defaultValue: "Removed project data",
                 })}
-              </span>
-              <span className="storage-card-desc">
-                {t("settings.orphanInfo", {
-                  defaultValue:
-                    "Find chats, archives, snapshots and other data left behind by projects removed from the project list.",
-                })}
+                <ApiSettingsHintIcon
+                  hint={t("settings.orphanInfo", {
+                    defaultValue:
+                      "Find chats, archives, snapshots and other data left behind by projects removed from the project list.",
+                  })}
+                />
               </span>
             </div>
             <button
@@ -2433,13 +2446,13 @@ export function GeneralSettingsPanel(): React.JSX.Element {
               {t("settings.teamCollaboration", {
                 defaultValue: "团队协作",
               })}
+              <ApiSettingsHintIcon
+                hint={t("settings.teamCollaborationInfo", {
+                  defaultValue:
+                    "团队数据保存在本机数据库：创建团队后本机成为队长并承载实时通讯服务，队员凭邀请链接加入；任务、评审与笔记实时同步。默认关闭。",
+                })}
+              />
             </strong>
-            <span>
-              {t("settings.teamCollaborationInfo", {
-                defaultValue:
-                  "团队数据保存在本机数据库：创建团队后本机成为队长并承载实时通讯服务，队员凭邀请链接加入；任务、评审与笔记实时同步。默认关闭。",
-              })}
-            </span>
           </div>
 
           <div className="api-settings-form-body">
@@ -2479,12 +2492,12 @@ export function GeneralSettingsPanel(): React.JSX.Element {
                 {t("settings.storageLocations", {
                   defaultValue: "Storage locations",
                 })}
-              </span>
-              <span className="storage-card-desc">
-                {t("settings.storageLocationsInfo", {
-                  defaultValue:
-                    "Where Snow App stores its database, checkpoints and uploaded images.",
-                })}
+                <ApiSettingsHintIcon
+                  hint={t("settings.storageLocationsInfo", {
+                    defaultValue:
+                      "Where Snow App stores its database, checkpoints and uploaded images.",
+                  })}
+                />
               </span>
             </div>
             <button
@@ -2794,12 +2807,12 @@ export function GeneralSettingsPanel(): React.JSX.Element {
                 {t("settings.storageMaintenance", {
                   defaultValue: "Optimization & cache",
                 })}
-              </span>
-              <span className="storage-card-desc">
-                {t("settings.storageMaintenanceInfo", {
-                  defaultValue:
-                    "Rebuild database files to reclaim disk space, compact process memory and clear the app cache.",
-                })}
+                <ApiSettingsHintIcon
+                  hint={t("settings.storageMaintenanceInfo", {
+                    defaultValue:
+                      "Rebuild database files to reclaim disk space, compact process memory and clear the app cache.",
+                  })}
+                />
               </span>
             </div>
             <button
@@ -2829,12 +2842,12 @@ export function GeneralSettingsPanel(): React.JSX.Element {
                         {t("settings.resourceOptimize", {
                           defaultValue: "Optimize disk usage",
                         })}
-                      </span>
-                      <span className="settings-item-description">
-                        {t("settings.resourceOptimizeInfo", {
-                          defaultValue:
-                            "Rebuild database files to reclaim disk space and compact process memory.",
-                        })}
+                        <ApiSettingsHintIcon
+                          hint={t("settings.resourceOptimizeInfo", {
+                            defaultValue:
+                              "Rebuild database files to reclaim disk space and compact process memory.",
+                          })}
+                        />
                       </span>
                     </div>
                   </div>
@@ -2892,12 +2905,12 @@ export function GeneralSettingsPanel(): React.JSX.Element {
                         {t("settings.resourceClearCache", {
                           defaultValue: "Clear app cache",
                         })}
-                      </span>
-                      <span className="settings-item-description">
-                        {t("settings.resourceClearCacheInfo", {
-                          defaultValue:
-                            "Clear cached app resources and reload the interface. Sign-in state and local data are kept.",
-                        })}
+                        <ApiSettingsHintIcon
+                          hint={t("settings.resourceClearCacheInfo", {
+                            defaultValue:
+                              "Clear cached app resources and reload the interface. Sign-in state and local data are kept.",
+                          })}
+                        />
                       </span>
                     </div>
                   </div>
@@ -2956,13 +2969,13 @@ export function GeneralSettingsPanel(): React.JSX.Element {
               {t("settings.sessionSectionTitle", {
                 defaultValue: "会话",
               })}
+              <ApiSettingsHintIcon
+                hint={t("settings.sessionSectionInfo", {
+                  defaultValue:
+                    "会话消息缓存的保活时长、会话上下文注入预算、检查点启停与检查点快照保留时长。",
+                })}
+              />
             </strong>
-            <span>
-              {t("settings.sessionSectionInfo", {
-                defaultValue:
-                  "会话消息缓存的保活时长、会话上下文注入预算、检查点启停与检查点快照保留时长。",
-              })}
-            </span>
           </div>
 
           <div className="api-settings-form-body">
@@ -2972,14 +2985,14 @@ export function GeneralSettingsPanel(): React.JSX.Element {
                   {t("settings.checkpointEnabledTitle", {
                     defaultValue: "检查点",
                   })}
+                  <ApiSettingsHintIcon
+                    hint={t("settings.checkpointEnabledInfo", {
+                      defaultValue:
+                        "会话开始时为工作目录创建文件快照，回滚时可据此复原被 AI 修改的文件。默认启用。",
+                    })}
+                  />
                 </span>
               </div>
-              <span className="settings-item-description">
-                {t("settings.checkpointEnabledInfo", {
-                  defaultValue:
-                    "会话开始时为工作目录创建文件快照，回滚时可据此复原被 AI 修改的文件。默认启用。",
-                })}
-              </span>
               <div className="settings-about-row">
                 <span className="settings-item-description">
                   {t("settings.checkpointEnabledLabel", {
@@ -3019,14 +3032,14 @@ export function GeneralSettingsPanel(): React.JSX.Element {
                   {t("settings.attachContextTitle", {
                     defaultValue: "会话上下文注入",
                   })}
+                  <ApiSettingsHintIcon
+                    hint={t("settings.attachContextInfo", {
+                      defaultValue:
+                        "拖拽历史会话到输入框，可将其注入为当前会话的开头上下文。注入前会自动清洗（剔除思考链与工具执行细节）并按预算裁剪，保护上下文窗口。",
+                    })}
+                  />
                 </span>
               </div>
-              <span className="settings-item-description">
-                {t("settings.attachContextInfo", {
-                  defaultValue:
-                    "拖拽历史会话到输入框，可将其注入为当前会话的开头上下文。注入前会自动清洗（剔除思考链与工具执行细节）并按预算裁剪，保护上下文窗口。",
-                })}
-              </span>
               <div className="settings-about-row">
                 <span className="settings-item-description">
                   {t("settings.attachContextSingleBudget", {
@@ -3103,14 +3116,14 @@ export function GeneralSettingsPanel(): React.JSX.Element {
                   {t("settings.sessionCacheTtlTitle", {
                     defaultValue: "TTL",
                   })}
+                  <ApiSettingsHintIcon
+                    hint={t("settings.sessionCacheTtlInfo", {
+                      defaultValue:
+                        "自最后一次查看起算，超过该时长未再查看的会话会从内存缓存中释放；正在查看或运行中的会话不受影响。",
+                    })}
+                  />
                 </span>
               </div>
-              <span className="settings-item-description">
-                {t("settings.sessionCacheTtlInfo", {
-                  defaultValue:
-                    "自最后一次查看起算，超过该时长未再查看的会话会从内存缓存中释放；正在查看或运行中的会话不受影响。",
-                })}
-              </span>
               <div className="settings-about-row">
                 <span className="settings-item-description">
                   {t("settings.sessionCacheTtlLabel", {
@@ -3157,14 +3170,14 @@ export function GeneralSettingsPanel(): React.JSX.Element {
                   {t("settings.checkpointRetentionTitle", {
                     defaultValue: "Checkpoint snapshot retention",
                   })}
+                  <ApiSettingsHintIcon
+                    hint={t("settings.checkpointRetentionInfo", {
+                      defaultValue:
+                        "Snapshots of deleted conversations are removed right away. On startup, unreferenced snapshot content older than this is cleaned up; recent content is kept as a cache to speed up terminal commands.",
+                    })}
+                  />
                 </span>
               </div>
-              <span className="settings-item-description">
-                {t("settings.checkpointRetentionInfo", {
-                  defaultValue:
-                    "Snapshots of deleted conversations are removed right away. On startup, unreferenced snapshot content older than this is cleaned up; recent content is kept as a cache to speed up terminal commands.",
-                })}
-              </span>
               <div className="settings-about-row">
                 <span className="settings-item-description">
                   {t("settings.checkpointRetentionLabel", {
@@ -3215,14 +3228,14 @@ export function GeneralSettingsPanel(): React.JSX.Element {
                   {t("settings.checkpointRemoteScanTimeoutTitle", {
                     defaultValue: "Remote checkpoint scan timeout",
                   })}
+                  <ApiSettingsHintIcon
+                    hint={t("settings.checkpointRemoteScanTimeoutInfo", {
+                      defaultValue:
+                        "Timeout for creating checkpoints on SSH projects. If a scan exceeds it, the scan is aborted and this invocation loses rollback protection.",
+                    })}
+                  />
                 </span>
               </div>
-              <span className="settings-item-description">
-                {t("settings.checkpointRemoteScanTimeoutInfo", {
-                  defaultValue:
-                    "Timeout for creating checkpoints on SSH projects. If a scan exceeds it, the scan is aborted and this invocation loses rollback protection.",
-                })}
-              </span>
               <div className="settings-about-row">
                 <span className="settings-item-description">
                   {t("settings.checkpointRemoteScanTimeoutLabel", {
@@ -3274,12 +3287,14 @@ export function GeneralSettingsPanel(): React.JSX.Element {
       {activeTab === "about" && (
         <div className="api-settings-manual-form">
           <div className="api-settings-manual-header">
-            <strong>{t("settings.about", { defaultValue: "About" })}</strong>
-            <span>
-              {t("settings.aboutInfo", {
-                defaultValue: "Version and update management for Snow App.",
-              })}
-            </span>
+            <strong>
+              {t("settings.about", { defaultValue: "About" })}
+              <ApiSettingsHintIcon
+                hint={t("settings.aboutInfo", {
+                  defaultValue: "Version and update management for Snow App.",
+                })}
+              />
+            </strong>
           </div>
 
           <div className="api-settings-form-body">
@@ -3395,12 +3410,12 @@ export function GeneralSettingsPanel(): React.JSX.Element {
               <div className="api-settings-manual-header">
                 <strong>
                   {t("settings.aboutLicense", { defaultValue: "开源协议" })}
+                  <ApiSettingsHintIcon
+                    hint={t("settings.aboutLicenseInfo", {
+                      defaultValue: "Snow App 以 MIT 许可发布。",
+                    })}
+                  />
                 </strong>
-                <span>
-                  {t("settings.aboutLicenseInfo", {
-                    defaultValue: "Snow App 以 MIT 许可发布。",
-                  })}
-                </span>
               </div>
 
               <div className="general-storage-row">
@@ -3438,12 +3453,12 @@ export function GeneralSettingsPanel(): React.JSX.Element {
               <div className="api-settings-manual-header">
                 <strong>
                   {t("settings.aboutPrivacy", { defaultValue: "隐私说明" })}
+                  <ApiSettingsHintIcon
+                    hint={t("settings.aboutPrivacyInfo", {
+                      defaultValue: "Snow App 在本机如何处理你的数据。",
+                    })}
+                  />
                 </strong>
-                <span>
-                  {t("settings.aboutPrivacyInfo", {
-                    defaultValue: "Snow App 在本机如何处理你的数据。",
-                  })}
-                </span>
               </div>
 
               {ABOUT_PRIVACY_ITEMS.map(({ icon: Icon, titleKey, bodyKey }) => (
@@ -3458,9 +3473,7 @@ export function GeneralSettingsPanel(): React.JSX.Element {
                     <div className="general-storage-text">
                       <span className="general-storage-label">
                         {t(titleKey)}
-                      </span>
-                      <span className="settings-item-description">
-                        {t(bodyKey)}
+                        <ApiSettingsHintIcon hint={t(bodyKey)} />
                       </span>
                     </div>
                   </div>
@@ -3472,13 +3485,13 @@ export function GeneralSettingsPanel(): React.JSX.Element {
               <div className="api-settings-manual-header">
                 <strong>
                   {t("settings.aboutDisclaimer", { defaultValue: "免责声明" })}
+                  <ApiSettingsHintIcon
+                    hint={t("settings.aboutDisclaimerInfo", {
+                      defaultValue:
+                        "Snow App 按「原样」提供，请在理解风险的前提下使用。",
+                    })}
+                  />
                 </strong>
-                <span>
-                  {t("settings.aboutDisclaimerInfo", {
-                    defaultValue:
-                      "Snow App 按「原样」提供，请在理解风险的前提下使用。",
-                  })}
-                </span>
               </div>
 
               {ABOUT_DISCLAIMER_ITEMS.map(
@@ -3494,9 +3507,7 @@ export function GeneralSettingsPanel(): React.JSX.Element {
                       <div className="general-storage-text">
                         <span className="general-storage-label">
                           {t(titleKey)}
-                        </span>
-                        <span className="settings-item-description">
-                          {t(bodyKey)}
+                          <ApiSettingsHintIcon hint={t(bodyKey)} />
                         </span>
                       </div>
                     </div>
@@ -3517,12 +3528,12 @@ export function GeneralSettingsPanel(): React.JSX.Element {
                       {t("settings.aboutAgreement", {
                         defaultValue: "使用即同意",
                       })}
-                    </span>
-                    <span className="settings-item-description">
-                      {t("settings.aboutAgreementInfo", {
-                        defaultValue:
-                          "继续使用 Snow App，即表示你已阅读并同意上述开源协议、隐私说明与免责声明。",
-                      })}
+                      <ApiSettingsHintIcon
+                        hint={t("settings.aboutAgreementInfo", {
+                          defaultValue:
+                            "继续使用 Snow App，即表示你已阅读并同意上述开源协议、隐私说明与免责声明。",
+                        })}
+                      />
                     </span>
                   </div>
                 </div>

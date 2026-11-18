@@ -8,6 +8,7 @@ import {
 import { ChevronDown, Eye, EyeOff } from "lucide-react";
 import { useI18n } from "../../../i18n";
 import { ApiModelCombobox } from "./ApiModelCombobox";
+import { ApiSettingsFieldLabel } from "./ApiSettingsFieldLabel";
 import { CustomSelect } from "../../common/CustomSelect";
 import { RangeSlider } from "../../common/RangeSlider";
 import { RequestMethodIcon } from "./RequestMethodIcon";
@@ -450,11 +451,16 @@ export function ApiSettingsFormFields({
           {(data.requestMethod === "gemini" ||
             data.requestMethod === "interactions") && (
             <div className="api-settings-field">
-              <span>
+              <ApiSettingsFieldLabel
+                hint={t("settings.apiGoogleSearchHint", {
+                  defaultValue:
+                    "When enabled, Gemini chat requests inject the Google Search tool for real-time web grounding.",
+                })}
+              >
                 {t("settings.apiGoogleSearch", {
                   defaultValue: "Google search",
                 })}
-              </span>
+              </ApiSettingsFieldLabel>
               <label className="toggle-switch">
                 <input
                   type="checkbox"
@@ -472,18 +478,16 @@ export function ApiSettingsFormFields({
                   )}
                 </span>
               </label>
-              <small className="api-settings-hint-text">
-                {t("settings.apiGoogleSearchHint", {
-                  defaultValue:
-                    "When enabled, Gemini chat requests inject the Google Search tool for real-time web grounding.",
-                })}
-              </small>
             </div>
           )}
           {data.requestMethod === "responses" && (
             <>
               <label className="api-settings-field">
-                <span>{t("settings.apiResponsesVerbosity")}</span>
+                <ApiSettingsFieldLabel
+                  hint={t("settings.apiResponsesVerbosityHint")}
+                >
+                  {t("settings.apiResponsesVerbosity")}
+                </ApiSettingsFieldLabel>
                 <CustomSelect
                   value={data.responsesVerbosity}
                   options={[
@@ -498,12 +502,13 @@ export function ApiSettingsFormFields({
                   onChange={(value) => onChange("responsesVerbosity", value)}
                   disabled={disabled}
                 />
-                <small className="api-settings-hint-text">
-                  {t("settings.apiResponsesVerbosityHint")}
-                </small>
               </label>
               <label className="api-settings-field">
-                <span>{t("settings.apiResponsesFastMode")}</span>
+                <ApiSettingsFieldLabel
+                  hint={t("settings.apiResponsesFastModeHint")}
+                >
+                  {t("settings.apiResponsesFastMode")}
+                </ApiSettingsFieldLabel>
                 <CustomSelect
                   value={data.responsesServiceTier}
                   options={[
@@ -523,12 +528,13 @@ export function ApiSettingsFormFields({
                   onChange={(value) => onChange("responsesServiceTier", value)}
                   disabled={disabled}
                 />
-                <small className="api-settings-hint-text">
-                  {t("settings.apiResponsesFastModeHint")}
-                </small>
               </label>
               <div className="api-settings-field">
-                <span>{t("settings.apiResponsesWebSocket")}</span>
+                <ApiSettingsFieldLabel
+                  hint={t("settings.apiResponsesWebSocketHint")}
+                >
+                  {t("settings.apiResponsesWebSocket")}
+                </ApiSettingsFieldLabel>
                 <label className="toggle-switch">
                   <input
                     type="checkbox"
@@ -546,9 +552,6 @@ export function ApiSettingsFormFields({
                     )}
                   </span>
                 </label>
-                <small className="api-settings-hint-text">
-                  {t("settings.apiResponsesWebSocketHint")}
-                </small>
               </div>
             </>
           )}
@@ -563,23 +566,22 @@ export function ApiSettingsFormFields({
         </strong>
         <div className="api-settings-form-grid">
           <div className="api-settings-field">
-            <span>
+            <ApiSettingsFieldLabel
+              hint={t("settings.apiSystemPromptsHint", {
+                defaultValue:
+                  "Leave empty to inherit global active profile setting.",
+              })}
+            >
               {t("settings.apiSystemPrompts", {
                 defaultValue: "System prompts",
               })}
-            </span>
+            </ApiSettingsFieldLabel>
             <SystemPromptSelect
               value={data.systemPromptIdsJson}
               prompts={systemPrompts}
               onChange={(value) => onChange("systemPromptIdsJson", value)}
               disabled={disabled}
             />
-            <small className="api-settings-hint-text">
-              {t("settings.apiSystemPromptsHint", {
-                defaultValue:
-                  "Leave empty to inherit global active profile setting.",
-              })}
-            </small>
           </div>
           <label className="api-settings-field">
             <span>
@@ -633,11 +635,16 @@ export function ApiSettingsFormFields({
           )}
           {data.requestMethod === "anthropic" && (
             <div className="api-settings-field">
-              <span>
+              <ApiSettingsFieldLabel
+                hint={t("settings.apiOneMContextHint", {
+                  defaultValue:
+                    "When enabled, all Anthropic requests send the context-1m beta header to declare 1M-token context support (for Anthropic and compatible gateways/proxies).",
+                })}
+              >
                 {t("settings.apiOneMContext", {
                   defaultValue: "1M context",
                 })}
-              </span>
+              </ApiSettingsFieldLabel>
               <label className="toggle-switch">
                 <input
                   type="checkbox"
@@ -655,21 +662,20 @@ export function ApiSettingsFormFields({
                   )}
                 </span>
               </label>
-              <small className="api-settings-hint-text">
-                {t("settings.apiOneMContextHint", {
-                  defaultValue:
-                    "When enabled, all Anthropic requests send the context-1m beta header to declare 1M-token context support (for Anthropic and compatible gateways/proxies).",
-                })}
-              </small>
             </div>
           )}
           {data.requestMethod === "anthropic" && (
             <label className="api-settings-field">
-              <span>
+              <ApiSettingsFieldLabel
+                hint={t("settings.apiAnthropicCacheTtlHint", {
+                  defaultValue:
+                    "TTL of cache_control breakpoints. 1 hour costs more on cache writes but suits long idle gaps between turns.",
+                })}
+              >
                 {t("settings.apiAnthropicCacheTtl", {
                   defaultValue: "Prompt cache TTL",
                 })}
-              </span>
+              </ApiSettingsFieldLabel>
               <CustomSelect
                 value={data.anthropicCacheTtl}
                 options={[
@@ -689,17 +695,15 @@ export function ApiSettingsFormFields({
                 onChange={(value) => onChange("anthropicCacheTtl", value)}
                 disabled={disabled}
               />
-              <small className="api-settings-hint-text">
-                {t("settings.apiAnthropicCacheTtlHint", {
-                  defaultValue:
-                    "TTL of cache_control breakpoints. 1 hour costs more on cache writes but suits long idle gaps between turns.",
-                })}
-              </small>
             </label>
           )}
           {data.requestMethod === "anthropic" && (
             <label className="api-settings-field">
-              <span>{t("settings.apiAnthropicFastMode")}</span>
+              <ApiSettingsFieldLabel
+                hint={t("settings.apiAnthropicFastModeHint")}
+              >
+                {t("settings.apiAnthropicFastMode")}
+              </ApiSettingsFieldLabel>
               <CustomSelect
                 value={data.responsesServiceTier ? "fast" : ""}
                 options={[
@@ -712,17 +716,19 @@ export function ApiSettingsFormFields({
                 onChange={(value) => onChange("responsesServiceTier", value)}
                 disabled={disabled}
               />
-              <small className="api-settings-hint-text">
-                {t("settings.apiAnthropicFastModeHint")}
-              </small>
             </label>
           )}
           <label className="api-settings-field">
-            <span>
+            <ApiSettingsFieldLabel
+              hint={t("settings.apiTokenPresetsHint", {
+                defaultValue:
+                  "Choose a common preset from the input suggestions, or enter a custom value.",
+              })}
+            >
               {t("settings.apiMaxContext", {
                 defaultValue: "Max context (tokens)",
               })}
-            </span>
+            </ApiSettingsFieldLabel>
             <TokenPresetInput
               value={data.maxContextTokens}
               presets={CONTEXT_TOKEN_PRESETS}
@@ -733,17 +739,16 @@ export function ApiSettingsFormFields({
               })}
               onChange={(value) => onChange("maxContextTokens", value)}
             />
-            <small className="api-settings-hint-text">
-              {t("settings.apiTokenPresetsHint", {
-                defaultValue:
-                  "Choose a common preset from the input suggestions, or enter a custom value.",
-              })}
-            </small>
           </label>
           <label className="api-settings-field">
-            <span>
+            <ApiSettingsFieldLabel
+              hint={t("settings.apiMaxTokensHint", {
+                defaultValue:
+                  "Leave empty to omit this parameter from requests.",
+              })}
+            >
               {t("settings.apiMaxTokens", { defaultValue: "Max tokens" })}
-            </span>
+            </ApiSettingsFieldLabel>
             <TokenPresetInput
               value={data.maxTokens}
               presets={OUTPUT_TOKEN_PRESETS}
@@ -754,12 +759,6 @@ export function ApiSettingsFormFields({
               })}
               onChange={(value) => onChange("maxTokens", value)}
             />
-            <small className="api-settings-hint-text">
-              {t("settings.apiMaxTokensHint", {
-                defaultValue:
-                  "Leave empty to omit this parameter from requests.",
-              })}
-            </small>
           </label>
         </div>
       </div>
@@ -853,11 +852,16 @@ export function ApiSettingsFormFields({
             </label>
             {data.visionRequestMethod === "gemini" && (
               <div className="api-settings-field">
-                <span>
+                <ApiSettingsFieldLabel
+                  hint={t("settings.apiGoogleSearchHint", {
+                    defaultValue:
+                      "When enabled, Gemini requests inject the Google Search tool (native Gemini grounding) for real-time web information.",
+                  })}
+                >
                   {t("settings.apiGoogleSearch", {
                     defaultValue: "Google search",
                   })}
-                </span>
+                </ApiSettingsFieldLabel>
                 <label className="toggle-switch">
                   <input
                     type="checkbox"
@@ -875,20 +879,19 @@ export function ApiSettingsFormFields({
                     )}
                   </span>
                 </label>
-                <small className="api-settings-hint-text">
-                  {t("settings.apiGoogleSearchHint", {
-                    defaultValue:
-                      "When enabled, Gemini requests inject the Google Search tool (native Gemini grounding) for real-time web information.",
-                  })}
-                </small>
               </div>
             )}
             <div className="api-settings-field">
-              <span>
+              <ApiSettingsFieldLabel
+                hint={t("settings.apiVisionThinkingHint", {
+                  defaultValue:
+                    "Disabled by default for speed. When disabled, Gemini requests explicitly set thinking budget to 0; Anthropic is always non-thinking.",
+                })}
+              >
                 {t("settings.apiVisionThinking", {
                   defaultValue: "Thinking",
                 })}
-              </span>
+              </ApiSettingsFieldLabel>
               <label className="toggle-switch">
                 <input
                   type="checkbox"
@@ -906,12 +909,6 @@ export function ApiSettingsFormFields({
                   )}
                 </span>
               </label>
-              <small className="api-settings-hint-text">
-                {t("settings.apiVisionThinkingHint", {
-                  defaultValue:
-                    "Disabled by default for speed. When disabled, Gemini requests explicitly set thinking budget to 0; Anthropic is always non-thinking.",
-                })}
-              </small>
             </div>
             {data.visionThinkingEnabled &&
               (data.visionRequestMethod === "chat" ||
@@ -943,11 +940,16 @@ export function ApiSettingsFormFields({
                 </label>
               )}
             <label className="api-settings-field">
-              <span>
+              <ApiSettingsFieldLabel
+                hint={t("settings.apiVisionMaxTokensHint", {
+                  defaultValue:
+                    "Maximum output tokens for image descriptions. Defaults to 4096 when empty.",
+                })}
+              >
                 {t("settings.apiVisionMaxTokens", {
                   defaultValue: "Max output tokens",
                 })}
-              </span>
+              </ApiSettingsFieldLabel>
               <input
                 value={data.visionMaxTokens}
                 onChange={changeField("visionMaxTokens")}
@@ -956,19 +958,18 @@ export function ApiSettingsFormFields({
                 min={256}
                 disabled={disabled}
               />
-              <small className="api-settings-hint-text">
-                {t("settings.apiVisionMaxTokensHint", {
-                  defaultValue:
-                    "Maximum output tokens for image descriptions. Defaults to 4096 when empty.",
-                })}
-              </small>
             </label>
             <label className="api-settings-field">
-              <span>
+              <ApiSettingsFieldLabel
+                hint={t("settings.apiVisionMaxConcurrencyHint", {
+                  defaultValue:
+                    "Maximum number of images analyzed in parallel when describing attachments. Defaults to 8 when empty (1-8).",
+                })}
+              >
                 {t("settings.apiVisionMaxConcurrency", {
                   defaultValue: "Max concurrent analyses",
                 })}
-              </span>
+              </ApiSettingsFieldLabel>
               <input
                 value={data.visionMaxConcurrency}
                 onChange={changeField("visionMaxConcurrency")}
@@ -978,12 +979,6 @@ export function ApiSettingsFormFields({
                 max={8}
                 disabled={disabled}
               />
-              <small className="api-settings-hint-text">
-                {t("settings.apiVisionMaxConcurrencyHint", {
-                  defaultValue:
-                    "Maximum number of images analyzed in parallel when describing attachments. Defaults to 8 when empty (1-8).",
-                })}
-              </small>
             </label>
           </div>
         )}
@@ -1026,11 +1021,16 @@ export function ApiSettingsFormFields({
             />
           </label>
           <label className="api-settings-field">
-            <span>
+            <ApiSettingsFieldLabel
+              hint={t("settings.apiRetryBaseDelayMsHint", {
+                defaultValue:
+                  "Set 0 for exponential backoff; above 0 waits a fixed interval",
+              })}
+            >
               {t("settings.apiRetryBaseDelayMs", {
                 defaultValue: "Retry delay (ms)",
               })}
-            </span>
+            </ApiSettingsFieldLabel>
             <input
               value={data.retryBaseDelayMs}
               onChange={changeField("retryBaseDelayMs")}
@@ -1040,12 +1040,6 @@ export function ApiSettingsFormFields({
               max={60000}
               disabled={disabled}
             />
-            <small className="api-settings-hint-text">
-              {t("settings.apiRetryBaseDelayMsHint", {
-                defaultValue:
-                  "Set 0 for exponential backoff; above 0 waits a fixed interval",
-              })}
-            </small>
           </label>
           <label className="api-settings-field">
             <span>
@@ -1064,9 +1058,18 @@ export function ApiSettingsFormFields({
           </label>
           <div className="api-settings-field api-settings-auto-compress-field">
             <RangeSlider
-              label={t("settings.apiToolResultTokenLimit", {
-                defaultValue: "Tool result limit",
-              })}
+              label={
+                <ApiSettingsFieldLabel
+                  hint={t("settings.apiToolResultTokenLimitHint", {
+                    defaultValue:
+                      "Limits each text tool result to this percentage of the model context. Image results and image reads are not limited.",
+                  })}
+                >
+                  {t("settings.apiToolResultTokenLimit", {
+                    defaultValue: "Tool result limit",
+                  })}
+                </ApiSettingsFieldLabel>
+              }
               value={toolResultLimitPercent}
               min={TOOL_RESULT_LIMIT_MIN_PERCENT}
               max={TOOL_RESULT_LIMIT_MAX_PERCENT}
@@ -1077,18 +1080,30 @@ export function ApiSettingsFormFields({
                 onChange("toolResultTokenLimit", String(value))
               }
             />
-            <small className="api-settings-threshold-hint">
-              {t("settings.apiToolResultTokenLimitHint", {
-                defaultValue:
-                  "Limits each text tool result to this percentage of the model context. Image results and image reads are not limited.",
-              })}
-            </small>
           </div>
           <div className="api-settings-field api-settings-auto-compress-field">
             <RangeSlider
-              label={t("settings.apiAutoCompressThreshold", {
-                defaultValue: "Auto compress threshold",
-              })}
+              label={
+                <ApiSettingsFieldLabel
+                  hint={
+                    autoCompressThresholdTokens == null
+                      ? t("settings.apiAutoCompressThresholdNeedMaxContext", {
+                          defaultValue:
+                            "Set max context first to calculate the token threshold.",
+                        })
+                      : t("settings.apiAutoCompressThresholdCalculated", {
+                          defaultValue: "Calculated threshold: {tokens} tokens",
+                        }).replace(
+                          "{tokens}",
+                          String(autoCompressThresholdTokens),
+                        )
+                  }
+                >
+                  {t("settings.apiAutoCompressThreshold", {
+                    defaultValue: "Auto compress threshold",
+                  })}
+                </ApiSettingsFieldLabel>
+              }
               headerAside={
                 <label className="toggle-switch">
                   <input
@@ -1120,25 +1135,20 @@ export function ApiSettingsFormFields({
                 onChange("autoCompressThreshold", String(value))
               }
             />
-            <span className="api-settings-threshold-hint">
-              {autoCompressThresholdTokens == null
-                ? t("settings.apiAutoCompressThresholdNeedMaxContext", {
-                    defaultValue:
-                      "Set max context first to calculate the token threshold.",
-                  })
-                : t("settings.apiAutoCompressThresholdCalculated", {
-                    defaultValue: "Calculated threshold: {tokens} tokens",
-                  }).replace("{tokens}", String(autoCompressThresholdTokens))}
-            </span>
           </div>
           {autoCompressThresholdPercent <=
           ASYNC_COMPRESS_MAX_THRESHOLD_PERCENT ? (
             <div className="api-settings-field">
-              <span>
+              <ApiSettingsFieldLabel
+                hint={t("settings.apiAsyncCompressHint", {
+                  defaultValue:
+                    "Compaction runs in the background while the AI keeps working; the request switches to the compacted context once it finishes.",
+                })}
+              >
                 {t("settings.apiAsyncCompress", {
                   defaultValue: "Async compress",
                 })}
-              </span>
+              </ApiSettingsFieldLabel>
               <label className="toggle-switch">
                 <input
                   type="checkbox"
@@ -1158,12 +1168,6 @@ export function ApiSettingsFormFields({
                       })}
                 </span>
               </label>
-              <small className="api-settings-threshold-hint">
-                {t("settings.apiAsyncCompressHint", {
-                  defaultValue:
-                    "Compaction runs in the background while the AI keeps working; the request switches to the compacted context once it finishes.",
-                })}
-              </small>
             </div>
           ) : null}
           <label className="api-settings-field">

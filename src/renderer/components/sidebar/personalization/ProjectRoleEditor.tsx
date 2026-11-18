@@ -22,6 +22,7 @@ import {
   buildSshConnectParams,
   type ProjectDirectoryInfo,
 } from "./roleFileUtils";
+import { ApiSettingsHintIcon } from "../apiSettings/ApiSettingsFieldLabel";
 import { RoleSwitchRow } from "./RoleSwitchRow";
 
 type ProjectRoleEditorProps = {
@@ -328,13 +329,16 @@ export const ProjectRoleEditor = ({
             {t("personalization.projectTitle", {
               defaultValue: "Project rules",
             })}
+            <ApiSettingsHintIcon
+              hint={`${t("personalization.projectInfo", {
+                defaultValue:
+                  "Project-specific rules are added after the global rules.",
+              })} ${t("personalization.projectScopeNote", {
+                defaultValue:
+                  "Project rules are appended after global rules and take priority when instructions conflict.",
+              })}`}
+            />
           </strong>
-          <span>
-            {t("personalization.projectInfo", {
-              defaultValue:
-                "Project-specific rules are added after the global rules.",
-            })}
-          </span>
         </div>
       </div>
 
@@ -407,12 +411,6 @@ export const ProjectRoleEditor = ({
             <div className="personalization-toolbar-main">
               <FileCode2 size={14} />
               <div className="personalization-toolbar-info">
-                <span>
-                  {t("personalization.projectScopeNote", {
-                    defaultValue:
-                      "Project rules are appended after global rules and take priority when instructions conflict.",
-                  })}
-                </span>
                 {roleFilePath ? (
                   <small className="project-skills-path" title={roleFilePath}>
                     {roleFilePath}

@@ -35,6 +35,10 @@ import {
   type DecisionModelProvider,
 } from "../../../constants/decisionModels";
 import { AutoDismissNotice } from "../../AutoDismissNotice";
+import {
+  ApiSettingsFieldLabel,
+  ApiSettingsHintIcon,
+} from "./ApiSettingsFieldLabel";
 import { ConfirmDialog } from "../../common/ConfirmDialog";
 import { CustomSelect } from "../../common/CustomSelect";
 import { Modal } from "../../common/Modal";
@@ -476,20 +480,20 @@ export function DecisionModelsPanel(): React.JSX.Element {
           {t("settings.decisionModelsTitle", {
             defaultValue: "Decision models",
           })}
+          <ApiSettingsHintIcon
+            hint={t("settings.decisionModelsInfo", {
+              defaultValue:
+                "Decision models judge each result on its own instead of generating text. Configure them once here and select one wherever a decision model is needed (for example codebase agent review).",
+            })}
+          />
         </strong>
-        <span>
-          {t("settings.decisionModelsInfo", {
-            defaultValue:
-              "Decision models judge each result on its own instead of generating text. Configure them once here and select one wherever a decision model is needed (for example codebase agent review).",
-          })}
-        </span>
       </div>
 
       <div className="api-settings-table-panel">
         <div className="api-settings-table-toolbar decision-model-toolbar">
           <div className="decision-model-tool-default">
-            <span
-              title={t("settings.decisionToolModelHint", {
+            <ApiSettingsFieldLabel
+              hint={t("settings.decisionToolModelHint", {
                 defaultValue:
                   "Used by the decision-evaluate tool when the call does not name a model.",
               })}
@@ -497,7 +501,7 @@ export function DecisionModelsPanel(): React.JSX.Element {
               {t("settings.decisionToolModel", {
                 defaultValue: "Default model for the decision tool",
               })}
-            </span>
+            </ApiSettingsFieldLabel>
             <CustomSelect
               value={toolModelId}
               options={toolModelOptions}
@@ -749,7 +753,7 @@ export function DecisionModelsPanel(): React.JSX.Element {
                 defaultValue: "Edit decision model",
               })
         }
-        description={t("settings.decisionModelEditorInfo", {
+        titleHint={t("settings.decisionModelEditorInfo", {
           defaultValue:
             "The API key is stored locally and never leaves your machine except when calling this endpoint.",
         })}
@@ -884,11 +888,16 @@ export function DecisionModelsPanel(): React.JSX.Element {
               />
             </label>
             <label className="api-settings-field wide">
-              <span>
+              <ApiSettingsFieldLabel
+                hint={t("settings.decisionModelEndpointHint", {
+                  values: { url: resolveDecisionModelEndpoint(draft) },
+                  defaultValue: "Requests are sent to {{url}}.",
+                })}
+              >
                 {t("settings.decisionModelBaseUrl", {
                   defaultValue: "Base URL",
                 })}
-              </span>
+              </ApiSettingsFieldLabel>
               <input
                 value={draft.baseUrl}
                 onChange={(event) => updateDraft("baseUrl", event.target.value)}
@@ -899,12 +908,6 @@ export function DecisionModelsPanel(): React.JSX.Element {
                     : decisionModelDefaultBaseUrl(draft.provider)
                 }
               />
-              <small className="api-settings-hint-text">
-                {t("settings.decisionModelEndpointHint", {
-                  values: { url: resolveDecisionModelEndpoint(draft) },
-                  defaultValue: "Requests are sent to {{url}}.",
-                })}
-              </small>
             </label>
             <label className="api-settings-field wide">
               <span>

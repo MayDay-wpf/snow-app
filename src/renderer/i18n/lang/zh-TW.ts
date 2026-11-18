@@ -5541,6 +5541,7 @@ export const zhTW = {
   "taskManager.samplingEnable": "定時記錄取樣日誌",
   "taskManager.samplingInterval": "取樣間隔（秒）",
   "taskManager.samplingIntervalHint": "5–3600 秒，預設 60 秒（1 分鐘）",
+  "taskManager.fieldRange": "可填範圍 {{min}}–{{max}}",
   "taskManager.samplingInvalid": "間隔須為 5–3600 之間的整數秒。",
   "taskManager.samplingFile": "日誌檔案",
   "taskManager.samplingHint":

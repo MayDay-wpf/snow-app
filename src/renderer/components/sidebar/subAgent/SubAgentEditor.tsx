@@ -2,6 +2,7 @@ import { AlertCircle, Loader2, Save, X } from "lucide-react";
 import type { ApiConfigRecord, Model } from "../../../../preload";
 import { CustomSelect } from "../../common/CustomSelect";
 import { useI18n } from "../../../i18n";
+import { ApiSettingsHintIcon } from "../apiSettings/ApiSettingsFieldLabel";
 import { SubAgentToolSelector } from "./SubAgentToolSelector";
 import { usesAllTools } from "./subAgentUtils";
 import type { SubAgentDraft, SubAgentToolOption } from "./types";
@@ -126,6 +127,12 @@ export function SubAgentEditor({
             {t("settings.subAgentConfigProfile", {
               defaultValue: "API and model",
             })}
+            <ApiSettingsHintIcon
+              hint={t("settings.subAgentApiProfileHint", {
+                defaultValue:
+                  "By default, the sub-agent inherits the parent conversation's API profile and model. Selecting a profile pins the API connection and lets you optionally pin a model.",
+              })}
+            />
           </span>
           <CustomSelect
             value={draft.configProfile}
@@ -143,17 +150,17 @@ export function SubAgentEditor({
               })}
             </small>
           ) : null}
-          <small className="sub-agent-field-hint">
-            {t("settings.subAgentApiProfileHint", {
-              defaultValue:
-                "By default, the sub-agent inherits the parent conversation's API profile and model. Selecting a profile pins the API connection and lets you optionally pin a model.",
-            })}
-          </small>
         </label>
         {draft.configProfile ? (
           <label className="api-settings-field">
             <span>
               {t("settings.subAgentModel", { defaultValue: "Model" })}
+              <ApiSettingsHintIcon
+                hint={t("settings.subAgentModelHint", {
+                  defaultValue:
+                    "Leave this unset to use the selected profile's advanced model.",
+                })}
+              />
             </span>
             <CustomSelect
               value={draft.model}
@@ -176,12 +183,6 @@ export function SubAgentEditor({
                 })}
               </small>
             ) : null}
-            <small className="sub-agent-field-hint">
-              {t("settings.subAgentModelHint", {
-                defaultValue:
-                  "Leave this unset to use the selected profile's advanced model.",
-              })}
-            </small>
           </label>
         ) : null}
         <label className="api-settings-field wide">
@@ -222,6 +223,19 @@ export function SubAgentEditor({
         <div className="api-settings-field wide sub-agent-tools-field">
           <span>
             {t("settings.subAgentTools", { defaultValue: "MCP tools" })}
+            <ApiSettingsHintIcon
+              hint={
+                isGlobalScope
+                  ? t("settings.subAgentToolsGlobalHint", {
+                      defaultValue:
+                        "Lists only system and global MCP server tools, independent of projects. Explicit selection bypasses project-level server or tool disables only for this sub-agent without changing project toggles; global disables, the tool blacklist, Lite mode, and execution authorization still apply.",
+                    })
+                  : t("settings.subAgentToolsHint", {
+                      defaultValue:
+                        "Includes tools disabled at the project level, whether by server or tool. Explicit selection grants access only to this sub-agent without changing project toggles; global disables, the tool blacklist, Lite mode, and execution authorization still apply.",
+                    })
+              }
+            />
           </span>
           {isToolCatalogLoading ? (
             <div className="sub-agent-tool-state">
@@ -264,17 +278,6 @@ export function SubAgentEditor({
               </span>
             </div>
           ) : null}
-          <small className="sub-agent-field-hint">
-            {isGlobalScope
-              ? t("settings.subAgentToolsGlobalHint", {
-                  defaultValue:
-                    "Lists only system and global MCP server tools, independent of projects. Explicit selection bypasses project-level server or tool disables only for this sub-agent without changing project toggles; global disables, the tool blacklist, Lite mode, and execution authorization still apply.",
-                })
-              : t("settings.subAgentToolsHint", {
-                  defaultValue:
-                    "Includes tools disabled at the project level, whether by server or tool. Explicit selection grants access only to this sub-agent without changing project toggles; global disables, the tool blacklist, Lite mode, and execution authorization still apply.",
-                })}
-          </small>
         </div>
       </div>
     </form>

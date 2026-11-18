@@ -399,7 +399,7 @@ export const MemoryPanel = ({
       className="memory-panel-modal"
       closeLabel={t("common.close", { defaultValue: "Close" })}
       closeOnEscape
-      description={t("chat.memory.description", {
+      titleHint={t("chat.memory.description", {
         defaultValue: "Memories saved by this conversation and its sub-agents.",
       })}
       footer={

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Bell } from "lucide-react";
 import { useI18n } from "../../i18n";
+import { ApiSettingsHintIcon } from "../sidebar/apiSettings/ApiSettingsFieldLabel";
 import { AutoDismissNotice } from "../AutoDismissNotice";
 import {
   advanceUsageAlerts,
@@ -177,7 +178,29 @@ export function TaskManagerAlerts({
         <section className="task-manager-card-section task-manager-alert-settings">
           <div className="task-manager-section-header">
             <Bell size={14} aria-hidden="true" />
-            <strong>{t("taskManager.alertTitle")}</strong>
+            <strong>
+              {t("taskManager.alertTitle")}
+              <ApiSettingsHintIcon
+                hint={
+                  options.enabled && configValid ? (
+                    <>
+                      <div>{t("taskManager.alertHint")}</div>
+                      <div>
+                        {t("taskManager.alertRules", {
+                          values: {
+                            cpu: options.cpuPercent,
+                            memory: options.memoryMiB,
+                            duration: options.durationSecs,
+                          },
+                        })}
+                      </div>
+                    </>
+                  ) : (
+                    t("taskManager.alertHint")
+                  )
+                }
+              />
+            </strong>
             <span className="task-manager-badge">
               {t(
                 options.enabled
@@ -207,11 +230,17 @@ export function TaskManagerAlerts({
               <span className="toggle-slider" />
               <span>{t("taskManager.alertSystemNotify")}</span>
             </label>
-            <p className="task-manager-hint">{t("taskManager.alertHint")}</p>
             <div className="task-manager-budget-fields">
               {fields.map(([key, label, min, max, step]) => (
                 <label key={key}>
-                  <span>{t(label)}</span>
+                  <span>
+                    {t(label)}
+                    <ApiSettingsHintIcon
+                      hint={t("taskManager.fieldRange", {
+                        values: { min, max },
+                      })}
+                    />
+                  </span>
                   <input
                     type="number"
                     data-alert-field={key}
@@ -228,26 +257,12 @@ export function TaskManagerAlerts({
                       })
                     }
                   />
-                  <small>
-                    {min}–{max}
-                  </small>
                 </label>
               ))}
             </div>
             {!configValid && (
               <p className="task-manager-error" role="status">
                 {t("taskManager.alertInvalid")}
-              </p>
-            )}
-            {options.enabled && configValid && (
-              <p className="task-manager-hint">
-                {t("taskManager.alertRules", {
-                  values: {
-                    cpu: options.cpuPercent,
-                    memory: options.memoryMiB,
-                    duration: options.durationSecs,
-                  },
-                })}
               </p>
             )}
             {options.enabled && (

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useI18n } from "../../../i18n";
 import { useShortcutLabel } from "../../../hooks/useShortcutLabel";
+import { ApiSettingsHintIcon } from "../apiSettings/ApiSettingsFieldLabel";
 import type { ThemeTypography } from "./types";
 import {
   CHAT_FONT_SIZE_MAX,
@@ -163,14 +164,22 @@ export function ThemeTypographySection({
           {t("settings.themeTypographyTitle", {
             defaultValue: "Typography",
           })}
+          <ApiSettingsHintIcon
+            hint={`${t("settings.themeTypographyInfo", {
+              defaultValue:
+                "Adjust the UI font size (whole-app zoom, 13px = 100%), body font weight, and chat / code typography.",
+            })} ${t("settings.themeTypographyShortcutHint", {
+              defaultValue:
+                "Shortcuts: {{zoomIn}} zoom in, {{zoomOut}} zoom out, {{zoomReset}} reset",
+              values: {
+                zoomIn: zoomInLabel,
+                zoomOut: zoomOutLabel,
+                zoomReset: zoomResetLabel,
+              },
+            })}`}
+          />
         </strong>
       </div>
-      <span className="settings-item-description">
-        {t("settings.themeTypographyInfo", {
-          defaultValue:
-            "Adjust the UI font size (whole-app zoom, 13px = 100%), body font weight, and chat / code typography.",
-        })}
-      </span>
 
       <div className="theme-typography-grid">
         <ThemeNumberField
@@ -218,18 +227,6 @@ export function ThemeTypographySection({
           onChange={(value) => update({ codeFontSize: value })}
         />
       </div>
-
-      <span className="settings-item-description theme-typography-shortcut-hint">
-        {t("settings.themeTypographyShortcutHint", {
-          defaultValue:
-            "Shortcuts: {{zoomIn}} zoom in, {{zoomOut}} zoom out, {{zoomReset}} reset",
-          values: {
-            zoomIn: zoomInLabel,
-            zoomOut: zoomOutLabel,
-            zoomReset: zoomResetLabel,
-          },
-        })}
-      </span>
     </div>
   );
 }

@@ -12,6 +12,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { AppLockTotpBinding, AppLockVerifyResult } from "../../../preload";
 import { useAppLock } from "../../hooks/useAppLock";
 import { useI18n } from "../../i18n";
+import { ApiSettingsHintIcon } from "./apiSettings/ApiSettingsFieldLabel";
 import { AutoDismissNotice } from "../AutoDismissNotice";
 import { CustomSelect } from "../common/CustomSelect";
 
@@ -516,13 +517,13 @@ export function AppLockSettingsSection(): React.JSX.Element {
         <div className="api-settings-manual-header">
           <strong>
             {t("settings.appLockTitle", { defaultValue: "App lock" })}
+            <ApiSettingsHintIcon
+              hint={t("settings.appLockInfo", {
+                defaultValue:
+                  "Lock Snow App behind a PIN. Locking only hides the interface with a frosted-glass cover - running sessions and enabled features keep working.",
+              })}
+            />
           </strong>
-          <span>
-            {t("settings.appLockInfo", {
-              defaultValue:
-                "Lock Snow App behind a PIN. Locking only hides the interface with a frosted-glass cover - running sessions and enabled features keep working.",
-            })}
-          </span>
         </div>
 
         <div className="api-settings-form-body">
@@ -584,13 +585,13 @@ export function AppLockSettingsSection(): React.JSX.Element {
             {t("settings.appLockTotpTitle", {
               defaultValue: "Google Authenticator",
             })}
+            <ApiSettingsHintIcon
+              hint={t("settings.appLockTotpInfo", {
+                defaultValue:
+                  "Google Authenticator is the fallback when the PIN is lost, so binding it is required before the app lock can be enabled.",
+              })}
+            />
           </strong>
-          <span>
-            {t("settings.appLockTotpInfo", {
-              defaultValue:
-                "Google Authenticator is the fallback when the PIN is lost, so binding it is required before the app lock can be enabled.",
-            })}
-          </span>
         </div>
 
         <div className="api-settings-form-body">
@@ -620,6 +621,12 @@ export function AppLockSettingsSection(): React.JSX.Element {
                   defaultValue:
                     "Unlock mobile remote control with the authenticator",
                 })}
+                <ApiSettingsHintIcon
+                  hint={t("settings.appLockRemoteUnlockInfo", {
+                    defaultValue:
+                      "While on, the LAN and public remote pages accept a 6-digit authenticator code in place of the pairing token; while off, only the pairing link or token works.",
+                  })}
+                />
               </span>
               <label className="toggle-switch">
                 <input
@@ -731,6 +738,12 @@ export function AppLockSettingsSection(): React.JSX.Element {
                       {t("settings.appLockUnbindVerify", {
                         defaultValue: "Unbind verification (6-digit code)",
                       })}
+                      <ApiSettingsHintIcon
+                        hint={t("settings.appLockTotpUnbindHint", {
+                          defaultValue:
+                            "Unbinding requires a code from the authenticator and also clears the PIN, so a forgotten PIN can always be reset here.",
+                        })}
+                      />
                     </span>
                     <input
                       className="app-lock-settings-input"
@@ -770,22 +783,6 @@ export function AppLockSettingsSection(): React.JSX.Element {
                   {t("settings.appLockTotpRequired", {
                     defaultValue:
                       "Bind Google Authenticator before enabling the app lock.",
-                  })}
-                </span>
-              )}
-              {totpBound && (
-                <span className="settings-item-description">
-                  {t("settings.appLockTotpUnbindHint", {
-                    defaultValue:
-                      "Unbinding requires a code from the authenticator and also clears the PIN, so a forgotten PIN can always be reset here.",
-                  })}
-                </span>
-              )}
-              {ready && totpBound && (
-                <span className="settings-item-description">
-                  {t("settings.appLockRemoteUnlockInfo", {
-                    defaultValue:
-                      "While on, the LAN and public remote pages accept a 6-digit authenticator code in place of the pairing token; while off, only the pairing link or token works.",
                   })}
                 </span>
               )}
@@ -878,13 +875,13 @@ export function AppLockSettingsSection(): React.JSX.Element {
               {t("settings.appLockManagePin", {
                 defaultValue: "Change or disable the PIN",
               })}
+              <ApiSettingsHintIcon
+                hint={t("settings.appLockManagePinInfo", {
+                  defaultValue:
+                    "Both actions accept the current PIN or a 6-digit authenticator code. Disabling the lock keeps the authenticator binding.",
+                })}
+              />
             </strong>
-            <span>
-              {t("settings.appLockManagePinInfo", {
-                defaultValue:
-                  "Both actions accept the current PIN or a 6-digit authenticator code. Disabling the lock keeps the authenticator binding.",
-              })}
-            </span>
           </div>
 
           <div className="api-settings-form-body">
@@ -1010,13 +1007,13 @@ export function AppLockSettingsSection(): React.JSX.Element {
               {t("settings.appLockEnableTitle", {
                 defaultValue: "Set a PIN and enable",
               })}
+              <ApiSettingsHintIcon
+                hint={t("settings.appLockEnableInfo", {
+                  defaultValue:
+                    "Choose a 4-8 digit PIN. The PIN is salted and hashed locally and is never stored in plain text.",
+                })}
+              />
             </strong>
-            <span>
-              {t("settings.appLockEnableInfo", {
-                defaultValue:
-                  "Choose a 4-8 digit PIN. The PIN is salted and hashed locally and is never stored in plain text.",
-              })}
-            </span>
           </div>
 
           <div className="api-settings-form-body">

@@ -5600,6 +5600,7 @@ export const zhCN = {
   "taskManager.samplingEnable": "定时记录采样日志",
   "taskManager.samplingInterval": "采样间隔（秒）",
   "taskManager.samplingIntervalHint": "5–3600 秒，默认 60 秒（1 分钟）",
+  "taskManager.fieldRange": "可填范围 {{min}}–{{max}}",
   "taskManager.samplingInvalid": "间隔须为 5–3600 之间的整数秒。",
   "taskManager.samplingFile": "日志文件",
   "taskManager.samplingHint":

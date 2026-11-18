@@ -1,4 +1,4 @@
-import { X } from "lucide-react";
+import { CircleHelp, X } from "lucide-react";
 import {
   type KeyboardEvent,
   type ReactNode,
@@ -7,11 +7,14 @@ import {
   useRef,
 } from "react";
 import { createPortal } from "react-dom";
+import { Tooltip } from "./Tooltip";
 
 type ModalProps = {
   open: boolean;
   title: string;
   description?: string;
+  /** 标题旁的说明：渲染为问号图标，悬停展开，代替标题下方常驻的一行小字。 */
+  titleHint?: string;
   closeLabel: string;
   onClose: () => void;
   children: ReactNode;
@@ -40,6 +43,7 @@ export function Modal({
   open,
   title,
   description,
+  titleHint,
   closeLabel,
   onClose,
   children,
@@ -53,6 +57,7 @@ export function Modal({
   const overlayRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
   const descriptionId = useId();
+  const titleHintId = useId();
 
   // 关闭回调写入 ref：ESC 监听器只依赖 open/closeOnEscape 注册一次，
   // 弹窗内容高频重渲染不会反复解绑。
@@ -137,7 +142,9 @@ export function Modal({
       // 据此跳过「中断会话」，避免关闭弹窗时把运行中的会话一并终止。
       <div className="app-modal-overlay" data-esc-panel ref={overlayRef}>
         <div
-          aria-describedby={description ? descriptionId : undefined}
+          aria-describedby={
+            description ? descriptionId : titleHint ? titleHintId : undefined
+          }
           aria-labelledby={titleId}
           aria-modal="true"
           className={dialogClassName}
@@ -148,8 +155,25 @@ export function Modal({
         >
           <div className="app-modal-header">
             <div className="app-modal-title-group">
-              <strong id={titleId}>{title}</strong>
+              <strong id={titleId}>
+                {title}
+                {titleHint && (
+                  <Tooltip content={titleHint}>
+                    <CircleHelp
+                      aria-hidden="true"
+                      className="api-settings-hint-icon"
+                      size={13}
+                      strokeWidth={2}
+                    />
+                  </Tooltip>
+                )}
+              </strong>
               {description && <span id={descriptionId}>{description}</span>}
+              {!description && titleHint && (
+                <span className="visually-hidden" id={titleHintId}>
+                  {titleHint}
+                </span>
+              )}
             </div>
             <button
               aria-label={closeLabel}

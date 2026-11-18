@@ -11,6 +11,7 @@ import {
 import { AutoDismissNotice } from "../../AutoDismissNotice";
 import { ConfirmDialog } from "../../common/ConfirmDialog";
 import { ModelBrandIcon } from "../../common/ModelBrandIcon";
+import { ApiSettingsHintIcon } from "../apiSettings/ApiSettingsFieldLabel";
 import { DailyTrendChart } from "./DailyTrendChart";
 import { ModelDonutChart } from "./ModelDonutChart";
 import { Sparkline } from "./Sparkline";
@@ -1160,18 +1161,20 @@ export function UsageSettingsPanel(): React.JSX.Element {
               {t("settings.usageHeatmapTitle", {
                 defaultValue: "Daily usage heatmap",
               })}
+              <ApiSettingsHintIcon
+                hint={
+                  heatmapMode === "day"
+                    ? t("settings.usageHeatmapDayInfo", {
+                        defaultValue:
+                          "Tokens per day · hover a day for its models, click it to look at it alone",
+                      })
+                    : t("settings.usageHeatmapHourInfo", {
+                        defaultValue:
+                          "Tokens by weekday and hour over the last year",
+                      })
+                }
+              />
             </strong>
-            <span className="settings-item-description">
-              {heatmapMode === "day"
-                ? t("settings.usageHeatmapDayInfo", {
-                    defaultValue:
-                      "Tokens per day · hover a day for its models, click it to look at it alone",
-                  })
-                : t("settings.usageHeatmapHourInfo", {
-                    defaultValue:
-                      "Tokens by weekday and hour over the last year",
-                  })}
-            </span>
           </div>
           <div className="segmented-tabs" role="tablist">
             {(["day", "hour"] as const).map((mode) => (
@@ -1339,12 +1342,12 @@ export function UsageSettingsPanel(): React.JSX.Element {
               {t("settings.usageModelBreakdownTitle", {
                 defaultValue: "Model usage",
               })}
+              <ApiSettingsHintIcon
+                hint={t("settings.usageModelBreakdownInfo", {
+                  defaultValue: "Token consumption grouped by model.",
+                })}
+              />
             </strong>
-            <span className="settings-item-description">
-              {t("settings.usageModelBreakdownInfo", {
-                defaultValue: "Token consumption grouped by model.",
-              })}
-            </span>
           </div>
           <div className="usage-table-wrapper">
             <table className="usage-table">
@@ -1429,13 +1432,15 @@ export function UsageSettingsPanel(): React.JSX.Element {
               {t("settings.usageClearTitle", {
                 defaultValue: "Clear usage data",
               })}
+              <ApiSettingsHintIcon
+                hint={`${t("settings.usageClearInfo", {
+                  defaultValue:
+                    "Delete usage records by date range to prevent unlimited growth.",
+                })} ${t("settings.usageClearEmptyHint", {
+                  defaultValue: "Leave blank for all dates.",
+                })}`}
+              />
             </strong>
-            <span className="settings-item-description">
-              {t("settings.usageClearInfo", {
-                defaultValue:
-                  "Delete usage records by date range to prevent unlimited growth.",
-              })}
-            </span>
           </div>
           <div className="usage-clear-bar">
             <input
@@ -1457,11 +1462,6 @@ export function UsageSettingsPanel(): React.JSX.Element {
                 defaultValue: "End date",
               })}
             />
-            <span className="usage-clear-hint">
-              {t("settings.usageClearEmptyHint", {
-                defaultValue: "Leave blank for all dates.",
-              })}
-            </span>
             <button
               className="usage-clear-btn"
               onClick={() => setPendingClear(true)}
@@ -1497,12 +1497,12 @@ export function UsageSettingsPanel(): React.JSX.Element {
                 {t("settings.usageRecordsTitle", {
                   defaultValue: "Usage records",
                 })}
+                <ApiSettingsHintIcon
+                  hint={t("settings.usageRecordsInfo", {
+                    defaultValue: "Detailed log of each API call.",
+                  })}
+                />
               </strong>
-              <span className="settings-item-description">
-                {t("settings.usageRecordsInfo", {
-                  defaultValue: "Detailed log of each API call.",
-                })}
-              </span>
             </span>
             <ChevronDown
               size={14}
