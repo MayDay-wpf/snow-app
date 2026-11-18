@@ -1,10 +1,12 @@
-export const AUTO_COMPRESS_THRESHOLD_MIN_PERCENT = 1;
+export const AUTO_COMPRESS_THRESHOLD_MIN_PERCENT = 30;
 export const AUTO_COMPRESS_THRESHOLD_MAX_PERCENT = 100;
 export const AUTO_COMPRESS_THRESHOLD_STEP_PERCENT = 1;
 export const DEFAULT_AUTO_COMPRESS_THRESHOLD_PERCENT = 80;
+/** 阈值不高于该百分比时才允许开启异步压缩（需要给压缩期间的上下文增长留余量）。 */
+export const ASYNC_COMPRESS_MAX_THRESHOLD_PERCENT = 50;
 
 const parseInteger = (
-  value: string | number | null | undefined
+  value: string | number | null | undefined,
 ): number | null => {
   if (typeof value === "number") {
     return Number.isInteger(value) ? value : null;
@@ -15,19 +17,19 @@ const parseInteger = (
 };
 
 export const normalizeAutoCompressThresholdPercent = (
-  value: string | number | null | undefined
+  value: string | number | null | undefined,
 ): number => {
   const parsed = parseInteger(value) ?? DEFAULT_AUTO_COMPRESS_THRESHOLD_PERCENT;
 
   return Math.min(
     AUTO_COMPRESS_THRESHOLD_MAX_PERCENT,
-    Math.max(AUTO_COMPRESS_THRESHOLD_MIN_PERCENT, parsed)
+    Math.max(AUTO_COMPRESS_THRESHOLD_MIN_PERCENT, parsed),
   );
 };
 
 export const calculateAutoCompressThresholdTokens = (
   maxContextTokens: string | number | null | undefined,
-  thresholdPercent: string | number | null | undefined
+  thresholdPercent: string | number | null | undefined,
 ): number | null => {
   const maxContext = parseInteger(maxContextTokens);
 
@@ -41,7 +43,7 @@ export const calculateAutoCompressThresholdTokens = (
 
 export const calculateAutoCompressThresholdPercent = (
   maxContextTokens: number | null | undefined,
-  thresholdTokens: number | null | undefined
+  thresholdTokens: number | null | undefined,
 ): string => {
   if (thresholdTokens == null || thresholdTokens <= 0) {
     return String(DEFAULT_AUTO_COMPRESS_THRESHOLD_PERCENT);
@@ -57,7 +59,7 @@ export const calculateAutoCompressThresholdPercent = (
 
   return String(
     normalizeAutoCompressThresholdPercent(
-      Math.round((thresholdTokens / maxContextTokens) * 100)
-    )
+      Math.round((thresholdTokens / maxContextTokens) * 100),
+    ),
   );
 };

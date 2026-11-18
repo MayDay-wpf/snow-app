@@ -41,6 +41,102 @@ export type AutoCompactionGateParams = {
   resumeAfterCompaction?: boolean;
   /** 压缩确定要发生、真正开始之前调用（调用方用它固化本轮消息）。 */
   beforeCompaction?: () => void;
+  /**
+   * 响应后、工具执行前的检查点：工具结果尚未产生。异步压缩不在这里发起，
+   * 而是等下一次携带工具结果的请求入口，把结果一并交给摘要。
+   */
+  pendingToolCalls?: boolean;
+};
+
+/** 自动压缩阈值下限（占最大上下文的比例）。 */
+const AUTO_COMPRESS_MIN_RATIO = 0.3;
+
+type RunningBackgroundCompaction = {
+  status: "running";
+  streamId?: string;
+  cancelled?: boolean;
+};
+
+type BackgroundCompactionState =
+  RunningBackgroundCompaction | { status: "done"; contextTokens?: number };
+
+/** 按会话记录后台压缩：进行中不重复发起，完成后由下一个请求边界消费。 */
+const backgroundCompactions = new Map<string, BackgroundCompactionState>();
+
+export const isBackgroundCompactionRunning = (
+  conversationId: string,
+): boolean => backgroundCompactions.get(conversationId)?.status === "running";
+
+/** 会话中断时停止其后台压缩；之后若会话继续，闸门会按上下文重新判断。 */
+export const abortBackgroundCompaction = (conversationId: string): void => {
+  const state = backgroundCompactions.get(conversationId);
+  if (state?.status !== "running") return;
+  state.cancelled = true;
+  backgroundCompactions.delete(conversationId);
+  if (state.streamId) void window.snow.abortResponseStream(state.streamId);
+};
+
+const readAsyncCompress = (configJson: string | undefined): boolean => {
+  try {
+    const parsed = JSON.parse(configJson || "{}") as {
+      snowcfg?: { asyncCompress?: unknown };
+    };
+    return parsed?.snowcfg?.asyncCompress === true;
+  } catch {
+    return false;
+  }
+};
+
+/** 发起后台压缩：等到压缩请求真正发出（压缩快照与边界 id 已确定）即返回。 */
+const startBackgroundCompaction = async (
+  ctx: ConversationContextValue,
+  params: AutoCompactionGateParams,
+): Promise<void> => {
+  const { conversationId } = params;
+  const state: RunningBackgroundCompaction = { status: "running" };
+  backgroundCompactions.set(conversationId, state);
+  await new Promise<void>((resolve) => {
+    void ctx.performCompactionRef
+      .current(
+        conversationId,
+        params.model,
+        true,
+        undefined,
+        params.apiProfile,
+        params.subAgentToolsJson,
+        params.subAgentSystemPrompt,
+        params.thinkingStrength ?? undefined,
+        params.responsesFastMode,
+        {
+          requestMessages: params.requestMessages.map((message) => ({
+            ...message,
+          })),
+          onStarted: resolve,
+          onStreamId: (streamId) => {
+            state.streamId = streamId;
+            if (state.cancelled) void window.snow.abortResponseStream(streamId);
+          },
+          isCancelled: () => state.cancelled === true,
+        },
+      )
+      .then((result) => {
+        if (backgroundCompactions.get(conversationId) !== state) return;
+        if (result) {
+          backgroundCompactions.set(conversationId, {
+            status: "done",
+            contextTokens: result.contextTokens,
+          });
+        } else {
+          backgroundCompactions.delete(conversationId);
+        }
+      })
+      .catch(() => {
+        if (backgroundCompactions.get(conversationId) === state) {
+          backgroundCompactions.delete(conversationId);
+        }
+      })
+      .finally(resolve);
+  });
 };
 
 /**
@@ -126,6 +222,11 @@ const loadPersistedContextUsage = async (
  * - pending 会话：没有可压缩的持久化上下文。
  * - 携带工具结果的请求：工具结果此时只在内存里、尚未落库，压缩交接看不到
  *   它们，压缩后必然丢失；这类请求由响应后的检查点（工具执行之前）压缩。
+ *
+ * 异步压缩（档案开启 asyncCompress）：压缩在后台进行，闸门恒返回 null，AI 循环
+ * 不等待。边界 id 在压缩发起时预留，完成后上下文从压缩节点切换为「交接文档 +
+ * 期间新增消息」。它反过来在携带工具结果的请求入口发起（结果随压缩交给摘要），
+ * 不在工具执行前的检查点发起。
  */
 export const runAutoCompactionGate = async (
   ctx: ConversationContextValue,
@@ -133,17 +234,48 @@ export const runAutoCompactionGate = async (
 ): Promise<CompactionResult | null> => {
   if (params.resumeAfterCompaction) return null;
   if (isPendingSessionKey(params.conversationId)) return null;
-  if (params.requestMessages.some((message) => message.role === "tool"))
+
+  // 后台压缩：进行中不重复发起；已完成则本边界消费结果。Rust 上下文视图已从
+  // 压缩节点切换，无需改写本次请求；手头用量来自切换前发出的请求，已过期，
+  // 换成压缩后的估算值并跳过本次阈值判断。
+  const background = backgroundCompactions.get(params.conversationId);
+  if (background?.status === "running") return null;
+  if (background?.status === "done") {
+    backgroundCompactions.delete(params.conversationId);
+    if (background.contextTokens != null) {
+      ctx.updateSessionField(params.conversationId, "tokenUsage", {
+        inputTokens: background.contextTokens,
+        outputTokens: 0,
+        cacheCreationInputTokens: 0,
+        cacheReadInputTokens: 0,
+      });
+    }
     return null;
+  }
+
+  const hasToolMessages = params.requestMessages.some(
+    (message) => message.role === "tool",
+  );
 
   const apiConfig = params.strictProfile
     ? await resolveStrictProfileApiConfig(params.apiProfile)
     : await ctx.getActiveApiConfig(params.apiProfile);
   if (!apiConfig?.enableAutoCompress) return null;
+  const asyncCompress = readAsyncCompress(apiConfig.configJson);
+  if (asyncCompress ? params.pendingToolCalls : hasToolMessages) return null;
   // autoCompressThreshold 存的是 token 数（保存配置时按百分比换算），
   // 直接与会话用量比较 —— 不要再走 calculateAutoCompressThresholdTokens。
-  const thresholdTokens = apiConfig.autoCompressThreshold;
-  if (thresholdTokens == null || thresholdTokens <= 0) return null;
+  // 旧配置可能低于 30% 下限，这里兜底。
+  const storedThreshold = apiConfig.autoCompressThreshold;
+  if (storedThreshold == null || storedThreshold <= 0) return null;
+  const maxContextTokens = apiConfig.maxContextTokens ?? 0;
+  const thresholdTokens =
+    maxContextTokens > 0
+      ? Math.max(
+          storedThreshold,
+          Math.ceil(maxContextTokens * AUTO_COMPRESS_MIN_RATIO),
+        )
+      : storedThreshold;
 
   const usage =
     params.tokenUsage ??
@@ -151,6 +283,11 @@ export const runAutoCompactionGate = async (
     (await loadPersistedContextUsage(params.conversationId));
   if (!usage) return null;
   if (usage.inputTokens + usage.outputTokens < thresholdTokens) return null;
+
+  if (asyncCompress) {
+    await startBackgroundCompaction(ctx, params);
+    return null;
+  }
 
   params.beforeCompaction?.();
 

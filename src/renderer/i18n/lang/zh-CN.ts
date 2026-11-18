@@ -2634,6 +2634,9 @@ export const zhCN = {
   "settings.apiAutoCompressThresholdNeedMaxContext":
     "请先填写最大上下文，用于计算 token 阈值。",
   "settings.apiAutoCompressThresholdCalculated": "计算阈值：{tokens} tokens",
+  "settings.apiAsyncCompress": "异步压缩",
+  "settings.apiAsyncCompressHint":
+    "压缩在后台进行，AI 不等待继续工作；压缩完成后，请求体从压缩节点处切换为压缩后的上下文。",
   "settings.active": "启用",
   "settings.inactive": "未启用",
   "settings.activeProfile": "已启用配置",
@@ -4998,6 +5001,7 @@ export const zhCN = {
   "chatCommand.execute": "执行",
   "chatCommand.close": "关闭",
   "chat.compactionGenerating": "正在生成上下文交接文档",
+  "chat.compactionBackground": "正在后台压缩上下文",
   "chat.compactionFailed": "上下文压缩失败",
   "chat.autoCompactionFailed": "自动压缩失败，已按原上下文继续（{{error}}）",
   "chat.compactionSummary": "上下文摘要",

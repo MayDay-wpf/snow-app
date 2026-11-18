@@ -29,6 +29,8 @@ export type ApiConfigFormData = {
   streamIdleTimeoutSec: string;
   enableAutoCompress: boolean;
   autoCompressThreshold: string;
+  /** 异步压缩（snowcfg.asyncCompress）：阈值不高于 50% 时可开启。 */
+  asyncCompress: boolean;
   toolResultTokenLimit: string;
   maxRetries: string;
   retryBaseDelayMs: string;

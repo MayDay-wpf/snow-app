@@ -14139,6 +14139,22 @@ body.is-panel-resizing * {
   flex-shrink: 0;
 }
 
+/* 后台压缩进行中：中性色 + 呼吸动画 */
+.context-compaction-notice-label--pending {
+  color: var(--text-secondary);
+  animation: context-compaction-pending-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes context-compaction-pending-pulse {
+  0%,
+  100% {
+    opacity: 0.85;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
 .context-compaction-notice-text {
   overflow: hidden;
   text-overflow: ellipsis;

@@ -110,6 +110,9 @@ pub struct ResponsesApiRequest {
     /// request's `messages` are a placeholder that must not be re-injected
     /// into the payload nor persisted as normal user messages.
     pub resume_after_compaction: Option<bool>,
+    /// 异步压缩：交接式压缩成功后紧随边界落库的消息（任务原文），
+    /// 落在压缩发起时刻的位置，压缩期间新增的消息排在其后。
+    pub compaction_tail_messages: Option<Vec<ResponsesApiMessage>>,
     /// 重试失败回合模式（子代理「重试」按钮）：该回合的请求消息已随失败回合落库，
     /// 本次请求只把它们作为上下文重发，不再重复落库；末尾的失败助手行由本次响应
     /// 原地替换，已完成工具结果的证据行原样保留。允许 messages 为空。
@@ -199,6 +202,15 @@ impl ResponsesApiRequest {
             .as_deref()
             .map(str::trim)
             .is_some_and(|value| !value.is_empty())
+    }
+
+    pub fn compaction_tail_context_messages(&self) -> Result<Vec<ChatContextMessage>> {
+        self.compaction_tail_messages
+            .as_deref()
+            .unwrap_or_default()
+            .iter()
+            .map(ResponsesApiMessage::to_context_message)
+            .collect()
     }
 }
 
@@ -383,6 +395,7 @@ async fn create_response_async(
         context_compaction: request.context_compaction.unwrap_or(false),
         context_fold: request.context_fold.unwrap_or(false),
         resume_after_compaction: request.resume_after_compaction.unwrap_or(false),
+        compaction_tail_messages: &request.compaction_tail_context_messages()?,
         retry_failed_response: request.retry_failed_response.unwrap_or(false),
         skip_context: request.skip_context.unwrap_or(false),
         goal_mode: request.goal_mode.unwrap_or(false),
@@ -668,6 +681,7 @@ async fn create_response_async(
                 directory_id: request.directory_id.as_deref().unwrap_or(""),
                 context_compaction: request.context_compaction.unwrap_or(false),
                 context_fold: prepared_request.context_fold.as_ref(),
+                compaction_boundary: prepared_request.compaction_boundary.as_ref(),
                 total_duration_ms: streamed_response.total_duration_ms,
                 retry_failed_response: request.retry_failed_response.unwrap_or(false),
             },

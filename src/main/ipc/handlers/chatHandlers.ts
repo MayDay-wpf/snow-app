@@ -24,14 +24,10 @@ const normalizeCreateResponseStreamId = (value: unknown): string => {
   return value.trim();
 };
 
-const normalizeResponsesApiRequest = (value: unknown): ResponsesApiRequest => {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new Error("Responses API request payload must be an object");
-  }
-
-  const source = value as Partial<Record<keyof ResponsesApiRequest, unknown>>;
-  const rawMessages = Array.isArray(source.messages) ? source.messages : [];
-  const messages = rawMessages
+const normalizeResponsesApiMessages = (
+  rawMessages: unknown,
+): ResponsesApiMessage[] =>
+  (Array.isArray(rawMessages) ? rawMessages : [])
     .map((item): ResponsesApiMessage | null => {
       if (typeof item !== "object" || item === null || Array.isArray(item)) {
         return null;
@@ -84,6 +80,17 @@ const normalizeResponsesApiRequest = (value: unknown): ResponsesApiRequest => {
       ),
     );
 
+const normalizeResponsesApiRequest = (value: unknown): ResponsesApiRequest => {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error("Responses API request payload must be an object");
+  }
+
+  const source = value as Partial<Record<keyof ResponsesApiRequest, unknown>>;
+  const messages = normalizeResponsesApiMessages(source.messages);
+  const compactionTailMessages = normalizeResponsesApiMessages(
+    source.compactionTailMessages,
+  );
+
   // 重试失败回合允许空消息：该回合的上下文（含已落库的工具结果）全部来自会话历史，
   // 这里只重发未落库的补充消息（通常为空）。
   const retryFailedResponse =
@@ -127,6 +134,7 @@ const normalizeResponsesApiRequest = (value: unknown): ResponsesApiRequest => {
       typeof source.resumeAfterCompaction === "boolean"
         ? source.resumeAfterCompaction
         : undefined,
+    ...(compactionTailMessages.length > 0 ? { compactionTailMessages } : {}),
     retryFailedResponse,
     subAgentToolsJson:
       typeof source.subAgentToolsJson === "string"

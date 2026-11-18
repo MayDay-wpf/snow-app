@@ -5,6 +5,8 @@ import { MarkdownBlock } from "./markdownRenderer";
 
 type CompactionStreamProps = {
   isCompacting: boolean;
+  /** 后台（异步）压缩进行中：只显示一条轻量横线提示。 */
+  isBackgroundCompacting?: boolean;
   compactionPreview: string;
   compactionError: string | null;
   onDismissError?: () => void;
@@ -12,6 +14,7 @@ type CompactionStreamProps = {
 
 export const CompactionStream = ({
   isCompacting,
+  isBackgroundCompacting = false,
   compactionPreview,
   compactionError,
   onDismissError,
@@ -26,12 +29,24 @@ export const CompactionStream = ({
     }
   }, [compactionPreview]);
 
-  if (!isCompacting && !compactionError) {
+  if (!isCompacting && !compactionError && !isBackgroundCompacting) {
     return null;
   }
 
   return (
     <>
+      {isBackgroundCompacting && !isCompacting ? (
+        <div className="context-compaction-notice" aria-live="polite">
+          <span className="context-compaction-notice-rule" aria-hidden="true" />
+          <span className="context-compaction-notice-label context-compaction-notice-label--pending">
+            <Minimize2 size={13} strokeWidth={1.8} aria-hidden="true" />
+            <span className="context-compaction-notice-text">
+              {t("chat.compactionBackground")}
+            </span>
+          </span>
+          <span className="context-compaction-notice-rule" aria-hidden="true" />
+        </div>
+      ) : null}
       {isCompacting ? (
         <section className="context-compaction-stream" aria-live="polite">
           <header className="context-compaction-stream-title">

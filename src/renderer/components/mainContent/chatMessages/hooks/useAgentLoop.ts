@@ -1450,6 +1450,7 @@ export const useAgentLoop = (params: UseAgentLoopParams) => {
               thinkingStrength: capturedOptions.thinkingStrength,
               responsesFastMode: capturedOptions.responsesFastMode,
               tokenUsage: response.tokenUsage,
+              pendingToolCalls: true,
               beforeCompaction: () =>
                 ctx.updateSessionMessages(effectiveKey, (currentMessages) =>
                   currentMessages.map((currentMessage) =>

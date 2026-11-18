@@ -380,6 +380,9 @@ export const useChatConversation = (
   const [compactingConversationId, setCompactingConversationId] = useState<
     string | null
   >(null);
+  const [backgroundCompactingIds, setBackgroundCompactingIds] = useState<
+    string[]
+  >([]);
   // 点 × 必须把 compactingConversationId 一起复位：压缩失败时该标记被故意
   // 保留在会话上让错误条持续可见（见 useCompaction 的 finally），用户主动
   // 关闭提示后残留标记会让回滚、远控快照继续引用一条已关闭的提示。
@@ -883,6 +886,7 @@ export const useChatConversation = (
     compactionError,
     isCompacting,
     compactingConversationId,
+    backgroundCompactingIds,
 
     sessionsRefData,
     activeConversationIdRef,
@@ -951,6 +955,7 @@ export const useChatConversation = (
     setCompactionError,
     setIsCompacting,
     setCompactingConversationId,
+    setBackgroundCompactingIds,
   } satisfies Partial<ConversationContextValue>);
 
   // --- 1. Conversation session management ---
@@ -1661,6 +1666,7 @@ export const useChatConversation = (
       dismissCompactionError,
       isCompacting,
       compactingConversationId,
+      backgroundCompactingIds,
       handleSelectConversation: handleSelectConversationGuarded,
       handleNewChat: conversationManagementApi.handleNewChat,
       refreshConversations: conversationManagementApi.refreshConversations,
@@ -1787,6 +1793,7 @@ export const useChatConversation = (
       dismissCompactionError,
       isCompacting,
       compactingConversationId,
+      backgroundCompactingIds,
       draftToRestore,
       rollbackWorkflowComposer,
       activeAutoSend,

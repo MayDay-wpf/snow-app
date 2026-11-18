@@ -4,6 +4,7 @@ import {
   DEFAULT_REQUEST_METHOD,
 } from "./apiSettingsConstants";
 import {
+  ASYNC_COMPRESS_MAX_THRESHOLD_PERCENT,
   DEFAULT_AUTO_COMPRESS_THRESHOLD_PERCENT,
   calculateAutoCompressThresholdPercent,
   calculateAutoCompressThresholdTokens,
@@ -63,6 +64,11 @@ export const extractToolResultTokenLimitFromConfigJson = (
     ),
   );
 };
+
+/** 读取异步压缩开关（snowcfg.asyncCompress，默认关闭） */
+export const extractAsyncCompressFromConfigJson = (
+  configJson: string,
+): boolean => readSnowcfg(configJson).asyncCompress === true;
 
 export const extractResponsesVerbosityFromConfigJson = (
   configJson: string,
@@ -297,6 +303,7 @@ export function apiConfigToForm(config: ApiConfigRecord): ApiConfigFormData {
       config.maxContextTokens,
       config.autoCompressThreshold,
     ),
+    asyncCompress: extractAsyncCompressFromConfigJson(config.configJson),
     toolResultTokenLimit: extractToolResultTokenLimitFromConfigJson(
       config.configJson,
     ),
@@ -412,6 +419,7 @@ export const emptyApiConfigForm = (
   streamIdleTimeoutSec: "",
   enableAutoCompress: true,
   autoCompressThreshold: String(DEFAULT_AUTO_COMPRESS_THRESHOLD_PERCENT),
+  asyncCompress: false,
   toolResultTokenLimit: String(DEFAULT_TOOL_RESULT_LIMIT_PERCENT),
   maxRetries: "5",
   retryBaseDelayMs: "",
@@ -487,6 +495,10 @@ export function toApiConfigPayload(
       enableAutoCompress: data.enableAutoCompress,
       autoCompressThresholdPercent,
       autoCompressThreshold: autoCompressThresholdTokens ?? undefined,
+      // 阈值高于 50% 时开关不可见，按关闭保存
+      asyncCompress:
+        data.asyncCompress &&
+        autoCompressThresholdPercent <= ASYNC_COMPRESS_MAX_THRESHOLD_PERCENT,
       toolResultTokenLimit: normalizeToolResultLimitPercent(
         data.toolResultTokenLimit,
       ),

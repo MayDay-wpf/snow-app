@@ -82,6 +82,7 @@ fn build_request(image_data_url: &str) -> ResponsesApiRequest {
         context_compaction: None,
         context_fold: None,
         resume_after_compaction: None,
+        compaction_tail_messages: None,
         retry_failed_response: None,
         // Empty tool whitelist: palette generation is a pure vision→JSON task
         // and must not carry any MCP/builtin tools in the payload.

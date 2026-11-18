@@ -3,7 +3,7 @@
 use std::path::Path;
 
 use crate::contract::McpTool;
-use snow_storage::chat_conversations::{ChatContextMessage, ContextFoldRecord};
+use snow_storage::chat_conversations::{ChatContextMessage, CompactionBoundary, ContextFoldRecord};
 
 pub struct ConversationContextRequest<'a> {
     pub database_path: &'a Path,
@@ -22,6 +22,8 @@ pub struct ConversationContextRequest<'a> {
     /// Internal auto-compaction resume mode: the persisted compaction boundary is
     /// the current context; the first caller message is a handoff placeholder.
     pub resume_after_compaction: bool,
+    /// 交接式压缩成功后紧随边界落库的消息（异步压缩的任务原文）。
+    pub compaction_tail_messages: &'a [ChatContextMessage],
     /// 重试失败回合（子代理「重试」）：该回合的上下文已在库内，允许空请求消息。
     pub retry_failed_response: bool,
     /// Skip loading conversation history and the built-in system prompt.
@@ -56,4 +58,6 @@ pub struct PreparedConversationRequest {
     pub host_system_prompts: Vec<String>,
     /// 分层增量压缩请求的折叠信息，随压缩结果落库；其它请求为 None。
     pub context_fold: Option<ContextFoldRecord>,
+    /// 交接式压缩请求的预留边界，随压缩结果落库；其它请求为 None。
+    pub compaction_boundary: Option<CompactionBoundary>,
 }

@@ -23,6 +23,7 @@ import {
   killRunningToolExecutions,
   tokenUsageFromMessageRecords,
 } from "../utils/conversationHelpers";
+import { abortBackgroundCompaction } from "../utils/autoCompaction";
 import { settleInterruptedMessages } from "../utils/messageSettlement";
 import {
   registerRunCancelReason,
@@ -1022,6 +1023,7 @@ export const useConversationManagement = (
       if (subRef.streamId) {
         void window.snow.abortResponseStream(subRef.streamId);
       }
+      abortBackgroundCompaction(subKey);
 
       for (const grandChildId of subRef.childSubAgentIds) {
         abortSubAgentTree(grandChildId);
@@ -1143,6 +1145,8 @@ export const useConversationManagement = (
       if (ref.streamId) {
         void window.snow.abortResponseStream(ref.streamId);
       }
+      // 中断同样停止后台压缩；会话继续时由闸门按上下文重新判断。
+      abortBackgroundCompaction(key);
 
       // Cancel any in-flight summary generation so its
       // update_conversation_summary write transaction is skipped. Without this,
@@ -1193,6 +1197,7 @@ export const useConversationManagement = (
         void window.snow.abortResponseStream(ref.streamId);
         ref.streamId = null;
       }
+      abortBackgroundCompaction(conversationId);
       if (ref) {
         ref.isSending = false;
       }

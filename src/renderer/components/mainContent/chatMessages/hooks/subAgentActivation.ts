@@ -42,6 +42,7 @@ import {
 } from "../utils/conversationHelpers";
 import { resolveResponseDisposition } from "../utils/responseDisposition";
 import {
+  abortBackgroundCompaction,
   buildCompactionResumeMessages,
   runAutoCompactionGate,
 } from "../utils/autoCompaction";
@@ -764,6 +765,7 @@ const createSubAgentRunLoop = (deps: SubAgentRunLoopDeps): SubAgentRunLoop => {
           thinkingStrength: runtimeConfig.effectiveThinkingStrength,
           responsesFastMode: runtimeConfig.effectiveResponsesFastMode,
           tokenUsage: subResponse.tokenUsage,
+          pendingToolCalls: true,
           beforeCompaction: () => {
             ctx.updateSessionMessages(subConvId, (currentMessages) =>
               currentMessages.map((currentMessage) =>
@@ -1999,6 +2001,7 @@ const stopSubAgentResources = async (
         ids.add(call.toolExecutionId);
     }
   }
+  abortBackgroundCompaction(conversationId);
   const results = await Promise.allSettled([
     ...(ref?.streamId ? [window.snow.abortResponseStream(ref.streamId)] : []),
     ...Array.from(ids, (id) => window.snow.abortToolExecution(id)),

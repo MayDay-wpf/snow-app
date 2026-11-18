@@ -2783,6 +2783,9 @@ export const en = {
     "Set max context first to calculate the token threshold.",
   "settings.apiAutoCompressThresholdCalculated":
     "Calculated threshold: {tokens} tokens",
+  "settings.apiAsyncCompress": "Async compress",
+  "settings.apiAsyncCompressHint":
+    "Compaction runs in the background while the AI keeps working; once it finishes, the request switches to the compacted context from the compaction point.",
   "settings.active": "Enabled",
   "settings.inactive": "Not enabled",
   "settings.activeProfile": "Enabled profile",
@@ -5341,6 +5344,7 @@ export const en = {
   "chatCommand.execute": "execute",
   "chatCommand.close": "close",
   "chat.compactionGenerating": "Generating context handoff",
+  "chat.compactionBackground": "Compacting context in the background",
   "chat.compactionFailed": "Context compaction failed",
   "chat.autoCompactionFailed":
     "Auto-compaction failed — continuing with the existing context ({{error}})",

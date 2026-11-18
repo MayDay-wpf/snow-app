@@ -1,12 +1,12 @@
 import { toIntegerOrNull } from "../utils/value";
 
-const MIN_AUTO_COMPRESS_THRESHOLD_PERCENT = 1;
+const MIN_AUTO_COMPRESS_THRESHOLD_PERCENT = 30;
 const MAX_AUTO_COMPRESS_THRESHOLD_PERCENT = 100;
 
 const clampAutoCompressThresholdPercent = (value: number): number =>
   Math.min(
     MAX_AUTO_COMPRESS_THRESHOLD_PERCENT,
-    Math.max(MIN_AUTO_COMPRESS_THRESHOLD_PERCENT, value)
+    Math.max(MIN_AUTO_COMPRESS_THRESHOLD_PERCENT, value),
   );
 
 const toPercentOrNull = (value: unknown): number | null => {
@@ -21,13 +21,13 @@ const toPercentOrNull = (value: unknown): number | null => {
 
 const calculateThresholdTokensFromPercent = (
   percent: number,
-  maxContextTokens: number
+  maxContextTokens: number,
 ): number => Math.max(1, Math.round((maxContextTokens * percent) / 100));
 
 export const resolveAutoCompressThreshold = (
   thresholdTokens: unknown,
   thresholdPercent: unknown,
-  maxContextTokens: number | null
+  maxContextTokens: number | null,
 ): number | null => {
   const explicitPercent = toPercentOrNull(thresholdPercent);
 
@@ -38,7 +38,7 @@ export const resolveAutoCompressThreshold = (
   ) {
     return calculateThresholdTokensFromPercent(
       explicitPercent,
-      maxContextTokens
+      maxContextTokens,
     );
   }
 
@@ -54,8 +54,8 @@ export const resolveAutoCompressThreshold = (
     maxContextTokens > 0
   ) {
     return calculateThresholdTokensFromPercent(
-      legacyThreshold,
-      maxContextTokens
+      clampAutoCompressThresholdPercent(legacyThreshold),
+      maxContextTokens,
     );
   }
 

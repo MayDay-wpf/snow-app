@@ -22,6 +22,7 @@ import {
 import { THINKING_OPTIONS_BY_METHOD } from "../../mainContent/chatInput/constants";
 import { ThinkingStrengthMenu } from "../../mainContent/chatInput/ThinkingStrengthMenu";
 import {
+  ASYNC_COMPRESS_MAX_THRESHOLD_PERCENT,
   AUTO_COMPRESS_THRESHOLD_MAX_PERCENT,
   AUTO_COMPRESS_THRESHOLD_MIN_PERCENT,
   AUTO_COMPRESS_THRESHOLD_STEP_PERCENT,
@@ -1130,6 +1131,41 @@ export function ApiSettingsFormFields({
                   }).replace("{tokens}", String(autoCompressThresholdTokens))}
             </span>
           </div>
+          {autoCompressThresholdPercent <=
+          ASYNC_COMPRESS_MAX_THRESHOLD_PERCENT ? (
+            <div className="api-settings-field">
+              <span>
+                {t("settings.apiAsyncCompress", {
+                  defaultValue: "Async compress",
+                })}
+              </span>
+              <label className="toggle-switch">
+                <input
+                  type="checkbox"
+                  checked={data.asyncCompress}
+                  onChange={changeField("asyncCompress")}
+                  disabled={disabled || !data.enableAutoCompress}
+                  hidden
+                />
+                <span className="toggle-slider" />
+                <span>
+                  {data.asyncCompress
+                    ? t("settings.active", {
+                        defaultValue: ENABLED_STATUS_LABEL,
+                      })
+                    : t("settings.inactive", {
+                        defaultValue: DISABLED_STATUS_LABEL,
+                      })}
+                </span>
+              </label>
+              <small className="api-settings-threshold-hint">
+                {t("settings.apiAsyncCompressHint", {
+                  defaultValue:
+                    "Compaction runs in the background while the AI keeps working; the request switches to the compacted context once it finishes.",
+                })}
+              </small>
+            </div>
+          ) : null}
           <label className="api-settings-field">
             <span>
               {t("settings.apiSetActive", { defaultValue: "Enable profile" })}

@@ -120,6 +120,7 @@ fn build_request(
         context_compaction: None,
         context_fold: None,
         resume_after_compaction: None,
+        compaction_tail_messages: None,
         retry_failed_response: None,
         sub_agent_tools_json: None,
         sub_agent_system_prompt: None,

@@ -457,6 +457,7 @@ pub async fn prepare_context_request(
             user_system_prompts,
             host_system_prompts: Vec::new(),
             context_fold: None,
+            compaction_boundary: None,
         });
     }
     // 分层增量压缩：压缩指令与历史在会话 id 解析之后按折叠规划生成。
@@ -486,7 +487,13 @@ pub async fn prepare_context_request(
         } else {
             "Create a durable context handoff for the next assistant. Output ONLY the handoff document in Markdown with these sections:\n\n## Objective\nThe user's requirements and constraints; keep exact wording where it matters.\n\n## Completed Work\nEvery change already done, with exact file paths and symbols. Judge completion from actual evidence in the conversation (applied edits, tool results, build output), NOT from TODO status: TODO items are often stale (work finished but still pending/inProgress).\n\n## Current State\nWhat builds or fails right now, plus exact commands or errors that still matter.\n\n## Remaining Work\nONLY work that is genuinely not done yet, in order. Never repeat completed work here and never ask the next assistant to re-check or re-verify it.\n\n## TODO Sync\nEvery TODO item (id if visible in the latest TODO result, plus content) whose work is done but status is not completed. The next assistant must mark them completed immediately without re-investigating. Write \"None\" if all statuses are accurate.\n\n## Key Context\nDecisions, architecture constraints, relevant files and symbols, edge cases.\n\n## Next Steps\nThe concrete next 1-3 actions.\n\nRules: be concise but do not omit information required to continue correctly. Do not call tools and do not address the user conversationally."
         };
-        vec![ChatContextMessage {
+        // 异步压缩：占位之后是尚未落库的本轮消息（如工具结果），一并交给摘要，
+        // 避免它们在边界之后成为孤儿被配对守卫剔除而丢失。
+        let mut messages: Vec<ChatContextMessage> = normalize_messages(request.messages)
+            .into_iter()
+            .skip(1)
+            .collect();
+        messages.push(ChatContextMessage {
             role: "user".to_string(),
             origin: crate::storage::services::chat_conversations::ORIGIN_INTERNAL.to_string(),
             content: handoff_prompt.to_string(),
@@ -494,7 +501,8 @@ pub async fn prepare_context_request(
             tool_results_json: None,
             thinking: None,
             thinking_blocks_json: None,
-        }]
+        });
+        messages
     } else {
         normalize_messages(request.messages)
     };
@@ -531,6 +539,7 @@ pub async fn prepare_context_request(
             user_system_prompts: Vec::new(),
             host_system_prompts: Vec::new(),
             context_fold: None,
+            compaction_boundary: None,
         });
     }
 
@@ -555,6 +564,21 @@ pub async fn prepare_context_request(
         request.previous_response_id,
     )?;
     let mut context_fold = None;
+    // 交接式压缩先预留边界 id，再读取历史。
+    let compaction_boundary = if request.context_compaction && !fold_compaction {
+        Some(
+            crate::storage::services::chat_conversations::reserve_compaction_boundary(
+                request.database_path,
+                &conversation_id,
+                normalize_messages(request.compaction_tail_messages)
+                    .into_iter()
+                    .filter(|message| message.role == "user")
+                    .collect(),
+            )?,
+        )
+    } else {
+        None
+    };
     let mut messages = if fold_compaction {
         let plan = super::context_fold::plan_context_fold(request.database_path, &conversation_id)?;
         current_messages.push(plan.instruction);
@@ -723,6 +747,7 @@ pub async fn prepare_context_request(
         user_system_prompts,
         host_system_prompts,
         context_fold,
+        compaction_boundary,
     })
 }
 

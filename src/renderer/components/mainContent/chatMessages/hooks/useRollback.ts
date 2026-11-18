@@ -26,6 +26,7 @@ import {
   resolveConversationWorkspacePath,
   tokenUsageFromMessageRecords,
 } from "../utils/conversationHelpers";
+import { abortBackgroundCompaction } from "../utils/autoCompaction";
 import {
   collectWorkflowFlowIdsFromMessages,
   collectWorkflowFlowIdsFromRecords,
@@ -96,6 +97,7 @@ export const useRollback = (ctx: ConversationContextValue) => {
         void window.snow.abortResponseStream(ref.streamId);
         ref.streamId = null;
       }
+      abortBackgroundCompaction(key);
       if (ref) {
         ref.isSending = false;
         ref.runId += 1;

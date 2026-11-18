@@ -562,6 +562,25 @@ export type CompactionResult = {
     content: string;
     origin?: "user" | "internal" | "unknown";
   }[];
+  /** 后台压缩：压缩后上下文的估算 token（交接文档长度）。 */
+  contextTokens?: number;
+};
+
+/** 后台（异步）压缩参数：压缩不占用会话流，AI 循环不等待。 */
+export type BackgroundCompactionOptions = {
+  /** 本轮尚未落库的请求消息：工具结果交给摘要，并用于任务原文去重与卡片定位。 */
+  requestMessages: {
+    role: "user" | "assistant" | "system" | "developer" | "tool";
+    content: string;
+    origin?: "user" | "internal" | "unknown";
+    toolResultsJson?: string;
+  }[];
+  /** 压缩请求已发出（或提前结束）时回调。 */
+  onStarted: () => void;
+  /** 压缩流 id 就绪：中断会话时据此停止压缩。 */
+  onStreamId: (streamId: string) => void;
+  /** 会话已中断：压缩静默作废，不提示失败。 */
+  isCancelled: () => boolean;
 };
 
 export type RollbackPreview = {
@@ -861,6 +880,8 @@ export type ConversationContextValue = {
    *  compaction preview/error UI is only shown for this conversation so it
    *  does not bleed into other conversations after a switch. */
   compactingConversationId: string | null;
+  /** 正在后台（异步）压缩的会话。 */
+  backgroundCompactingIds: string[];
 
   // Refs
   sessionsRefData: RefValue<Map<string, ConversationSessionRef>>;
@@ -916,6 +937,7 @@ export type ConversationContextValue = {
       subAgentSystemPrompt?: string,
       thinkingStrength?: string,
       responsesFastMode?: string | null,
+      background?: BackgroundCompactionOptions,
     ) => Promise<CompactionResult | null>
   >;
   yoloModeRef: RefValue<boolean>;
@@ -991,6 +1013,7 @@ export type ConversationContextValue = {
   setCompactionError: Dispatch<SetStateAction<string | null>>;
   setIsCompacting: Dispatch<SetStateAction<boolean>>;
   setCompactingConversationId: Dispatch<SetStateAction<string | null>>;
+  setBackgroundCompactingIds: Dispatch<SetStateAction<string[]>>;
 
   // Basic session callbacks
   /** opts.preserveViewKey：pending 会话迁移为真实 ID 时保持 sessionViewKey
@@ -1177,6 +1200,7 @@ export type UseChatConversationResult = {
   dismissCompactionError: () => void;
   isCompacting: boolean;
   compactingConversationId: string | null;
+  backgroundCompactingIds: string[];
   handleSelectConversation: (
     conversationId: string,
     title?: string,

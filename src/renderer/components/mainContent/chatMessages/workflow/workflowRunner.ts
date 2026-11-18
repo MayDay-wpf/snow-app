@@ -2243,6 +2243,7 @@ export function createWorkflowRunner(
               thinkingStrength,
               responsesFastMode,
               tokenUsage: response.tokenUsage,
+              pendingToolCalls: true,
               // 固化跨阈值轮次的消息，其工具调用被压缩交接放弃。
               beforeCompaction: () =>
                 finalizeMessage(assistantMessageId, {

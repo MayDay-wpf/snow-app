@@ -114,6 +114,7 @@ const ChatContentBody = ({
     dismissCompactionError,
     isCompacting,
     compactingConversationId,
+    backgroundCompactingIds,
     yoloMode,
     isUpdatingYoloMode,
     setYoloMode,
@@ -250,6 +251,9 @@ const ChatContentBody = ({
   const activeCompactionError = isCompactionForActiveConversation
     ? compactionError
     : null;
+  const isBackgroundCompactingActive =
+    activeConversationId != null &&
+    backgroundCompactingIds.includes(activeConversationId);
 
   const [activeConversationMeta, setActiveConversationMeta] = useState<{
     conversationType: string;
@@ -688,6 +692,7 @@ const ChatContentBody = ({
                 />
                 <CompactionStream
                   isCompacting={isCompactingActive}
+                  isBackgroundCompacting={isBackgroundCompactingActive}
                   compactionPreview={compactionPreview}
                   compactionError={activeCompactionError}
                   onDismissError={dismissCompactionError}

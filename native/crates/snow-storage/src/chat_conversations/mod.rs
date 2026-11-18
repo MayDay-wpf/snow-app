@@ -88,6 +88,58 @@ pub struct ChatTokenUsage {
     pub cache_read_input_tokens: i64,
 }
 
+/// 交接式压缩边界：压缩发起时预留行 id，成功后边界落在发起时刻的位置，
+/// 压缩期间新落库的消息排在边界之后原样保留（异步压缩依赖此语义）。
+#[derive(Clone, Debug)]
+pub struct CompactionBoundary {
+    /// ids[0] 为边界行，其余依次给尾随消息。
+    pub ids: Vec<String>,
+    /// 发起时会话的最后一行；落库时已不存在说明期间发生了回滚，压缩作废。
+    pub anchor_id: Option<String>,
+    /// 紧随边界落库的消息（异步压缩的任务原文）。
+    pub tail_messages: Vec<ChatContextMessage>,
+}
+
+/// 预留压缩边界 id：先生成 id 再读锚点，保证之后写入的行都排在边界之后。
+pub fn reserve_compaction_boundary(
+    database_path: &Path,
+    conversation_id: &str,
+    tail_messages: Vec<ChatContextMessage>,
+) -> Result<CompactionBoundary> {
+    let ids = (0..=tail_messages.len())
+        .map(|_| database::create_snowflake_id())
+        .collect::<Vec<_>>();
+    let anchor_id = database::open_connection(database_path)
+        .and_then(|connection| {
+            connection.query_row(
+                "SELECT MAX(id) FROM chat_messages WHERE conversation_id = ?1",
+                params![conversation_id],
+                |row| row.get::<_, Option<String>>(0),
+            )
+        })
+        .map_err(|error| {
+            database::database_error(database_path, "reserve compaction boundary", error)
+        })?;
+    Ok(CompactionBoundary {
+        ids,
+        anchor_id,
+        tail_messages,
+    })
+}
+
+/// 把刚插入的行改用预留 id。
+fn assign_reserved_id(
+    transaction: &rusqlite::Transaction<'_>,
+    current_id: &str,
+    reserved_id: &str,
+) -> rusqlite::Result<()> {
+    transaction.execute(
+        "UPDATE chat_messages SET id = ?2 WHERE id = ?1",
+        params![current_id, reserved_id],
+    )?;
+    Ok(())
+}
+
 pub struct StoreChatExchangeInput<'a> {
     pub conversation_id: &'a str,
     pub request_messages: &'a [ChatContextMessage],
@@ -124,6 +176,8 @@ pub struct StoreChatExchangeInput<'a> {
     pub context_compaction: bool,
     /// 分层增量压缩：成功时把摘要落成折叠行（携带折叠区间），不再是交接边界。
     pub context_fold: Option<&'a ContextFoldRecord>,
+    /// 交接式压缩的预留边界（含尾随消息）；其它请求为 None。
+    pub compaction_boundary: Option<&'a CompactionBoundary>,
     pub total_duration_ms: i64,
     /// 重试失败回合（子代理「重试」）：该回合的请求消息已随失败回合落库，本次不再
     /// 重复写入；末尾的失败助手行由本次响应替换，已完成工具结果的证据行原样保留。
@@ -502,7 +556,22 @@ pub fn store_chat_exchange(
                 ],
             )?;
 
-            if successful_context_compaction {
+            // 交接式压缩的预留边界；锚点行已被删除（压缩期间发生回滚）则整体作废。
+            let compaction_boundary = input
+                .compaction_boundary
+                .filter(|_| input.context_fold.is_none());
+            let stale_boundary = match compaction_boundary.and_then(|b| b.anchor_id.as_deref()) {
+                Some(anchor) => {
+                    transaction.query_row(
+                        "SELECT COUNT(*) FROM chat_messages WHERE id = ?1",
+                        params![anchor],
+                        |row| row.get::<_, i64>(0),
+                    )? == 0
+                }
+                None => false,
+            };
+
+            if successful_context_compaction && !stale_boundary {
                 // 交接式压缩即上下文重建：删除会话级提示词冻结快照，下一轮请求按最新
                 // 配置重新解析（ROLE.md / API 档案系统提示词 / Project Memory 章节）。
                 // 折叠压缩只替换被折叠的区间，保留快照，系统提示词前缀继续命中缓存。
@@ -548,6 +617,43 @@ pub fn store_chat_exchange(
                     "",
                     ORIGIN_INTERNAL,
                 )?;
+                let message_id = match compaction_boundary {
+                    Some(boundary) => {
+                        let reserved = &boundary.ids[0];
+                        assign_reserved_id(&transaction, &message_id, reserved)?;
+                        for (index, message) in boundary.tail_messages.iter().enumerate() {
+                            let Some(reserved_tail) = boundary.ids.get(index + 1) else {
+                                break;
+                            };
+                            let tail_id = insert_message(
+                                &transaction,
+                                input.conversation_id,
+                                "user",
+                                &message.content,
+                                "",
+                                input.checkpoint_id,
+                                input.model,
+                                "sent",
+                                None,
+                                None,
+                                "{}",
+                                "",
+                                "[]",
+                                0,
+                                0,
+                                "[]",
+                                None,
+                                index,
+                                0,
+                                "",
+                                &message.origin,
+                            )?;
+                            assign_reserved_id(&transaction, &tail_id, reserved_tail)?;
+                        }
+                        reserved.clone()
+                    }
+                    None => message_id,
+                };
                 persisted_user_message_ids.push(message_id);
             } else if !input.context_compaction {
                 // Unsuccessful compactions must not create a boundary or a
@@ -863,6 +969,7 @@ pub fn store_failed_chat_exchange(
             directory_id,
             context_compaction: false,
             context_fold: None,
+            compaction_boundary: None,
             total_duration_ms: 0,
             retry_failed_response,
         },
