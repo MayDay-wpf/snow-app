@@ -678,10 +678,17 @@ export const useChatInputController = ({
     : "off";
   // Do not use truthy fallback here: an explicit conversation override must
   // remain distinct from `null` (inherit profile default).
-  const responsesFastMode =
+  const rawResponsesFastMode =
     responsesFastModeOverride !== null
       ? responsesFastModeOverride
       : profileResponsesFastMode;
+  // anthropic 仅有 fast 一档，ultrafast 归一为 fast。
+  const supportsFastMode =
+    requestMethod === "responses" || requestMethod === "anthropic";
+  const responsesFastMode =
+    requestMethod === "anthropic" && rawResponsesFastMode === "ultrafast"
+      ? "fast"
+      : rawResponsesFastMode;
 
   const handleSend = useCallback(
     (deliveryMode?: BusySendBehavior, origin: "user" | "internal" = "user") => {
@@ -712,8 +719,7 @@ export const useChatInputController = ({
         // exact settings used by this turn. The snapshot is separate: null means
         // the conversation follows the current profile default.
         thinkingStrength: effectiveThinkingValue,
-        responsesFastMode:
-          requestMethod === "responses" ? responsesFastMode : null,
+        responsesFastMode: supportsFastMode ? responsesFastMode : null,
         conversationRuntimeConfigOverride: {
           thinkingStrength: thinkingOverride === "" ? null : thinkingOverride,
           responsesFastMode: responsesFastModeOverride,
@@ -744,7 +750,7 @@ export const useChatInputController = ({
       isAborting,
       runtimeApiConfig,
       onSend,
-      requestMethod,
+      supportsFastMode,
       responsesFastMode,
       responsesFastModeOverride,
       selectedApiProfile,
@@ -1013,7 +1019,7 @@ export const useChatInputController = ({
     (tier: string): void => {
       if (
         !runtimeApiConfig ||
-        requestMethod !== "responses" ||
+        !supportsFastMode ||
         isStreaming ||
         isSubAgentConversation
       ) {
@@ -1026,7 +1032,7 @@ export const useChatInputController = ({
       setFastModeError(null);
       setIsModelMenuOpen(false);
     },
-    [isStreaming, isSubAgentConversation, requestMethod, runtimeApiConfig],
+    [isStreaming, isSubAgentConversation, supportsFastMode, runtimeApiConfig],
   );
 
   useLayoutEffect(() => {

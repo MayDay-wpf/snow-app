@@ -139,6 +139,9 @@ async fn create_anthropic_response_async(
         &prepared_request.conversation_id,
     );
     crate::api::oauth::provider::apply_request_headers(&api_config, &mut custom_headers);
+    if payload::config_json_enables_fast_mode(&api_config.config_json) {
+        payload::merge_anthropic_beta(&mut custom_headers, payload::ANTHROPIC_FAST_MODE_BETA);
+    }
 
     let client = crate::api::http_client::build_proxied_client()
         .await

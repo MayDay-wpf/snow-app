@@ -1,5 +1,6 @@
 //! Anthropic payload construction and endpoint resolution.
 
+use std::collections::HashMap;
 use std::path::Path;
 
 use napi::bindgen_prelude::*;
@@ -84,6 +85,45 @@ pub fn config_json_cache_ttl(config_json: &str) -> &'static str {
     match ttl.as_deref().map(str::trim) {
         Some("1h") => "1h",
         _ => "5m",
+    }
+}
+
+/// Fast Mode beta 头（Opus 5 / 4.8 必需，GA 模型携带无副作用）。
+pub const ANTHROPIC_FAST_MODE_BETA: &str = "fast-mode-2026-02-01";
+
+/// 读取 Fast Mode 开关，与 Responses 共用 snowcfg.responsesFastMode。
+pub fn config_json_enables_fast_mode(config_json: &str) -> bool {
+    let Ok(parsed) = serde_json::from_str::<Value>(config_json) else {
+        return false;
+    };
+    match parsed
+        .get("snowcfg")
+        .and_then(|value| value.get("responsesFastMode"))
+    {
+        Some(Value::Bool(enabled)) => *enabled,
+        Some(Value::String(text)) => matches!(text.trim(), "fast" | "ultrafast"),
+        _ => false,
+    }
+}
+
+/// 把 beta 值逗号合并进自定义 anthropic-beta 头（已存在则跳过）。
+pub fn merge_anthropic_beta(headers: &mut HashMap<String, String>, beta: &str) {
+    let existing_key = headers
+        .keys()
+        .find(|key| key.trim().eq_ignore_ascii_case("anthropic-beta"))
+        .cloned();
+    let Some(value) = existing_key.and_then(|key| headers.get_mut(&key)) else {
+        headers.insert("anthropic-beta".to_string(), beta.to_string());
+        return;
+    };
+    if value.split(',').any(|item| item.trim() == beta) {
+        return;
+    }
+    if value.trim().is_empty() {
+        *value = beta.to_string();
+    } else {
+        value.push(',');
+        value.push_str(beta);
     }
 }
 
@@ -419,6 +459,11 @@ pub(super) fn build_anthropic_payload(
         if tools.as_array().is_some_and(|items| !items.is_empty()) {
             payload["tools"] = tools;
         }
+    }
+
+    // Fast Mode：beta 头由调用方（mod.rs）合并注入。
+    if config_json_enables_fast_mode(&api_config.config_json) {
+        payload["speed"] = json!("fast");
     }
 
     // Add cache_control to the last user message's last content block.

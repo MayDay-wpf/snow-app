@@ -83,13 +83,19 @@ const listHtml = (): string => {
   }
   if (view === "fastMode") {
     const active = input.responsesFastMode ?? "off";
-    return FAST_MODE_OPTIONS.map((option) =>
-      itemHtml(
-        t(option.labelKey),
-        `data-fast-mode="${option.value}"`,
-        option.value === active,
-      ),
-    ).join("");
+    // anthropic 仅支持 off / fast。
+    const isAnthropic = input.requestMethod === "anthropic";
+    return FAST_MODE_OPTIONS.filter(
+      (option) => !isAnthropic || option.value !== "ultrafast",
+    )
+      .map((option) =>
+        itemHtml(
+          t(option.labelKey),
+          `data-fast-mode="${option.value}"`,
+          option.value === active,
+        ),
+      )
+      .join("");
   }
   if (view === "apiProfile") {
     const names = input.apiProfileNames || [];
@@ -155,7 +161,10 @@ const rootHtml = (): string => {
       `<span class="model-menu-value"><span class="model-menu-value-text">${escapeHtml(effectiveThinkingLabel(input))}</span>${iconMarkup("chevron-right")}</span>` +
       `</button>`,
   ];
-  if (input?.requestMethod === "responses") {
+  if (
+    input?.requestMethod === "responses" ||
+    input?.requestMethod === "anthropic"
+  ) {
     rows.push(
       `<button class="model-menu-row" type="button" data-model-view="fastMode">` +
         `<span class="model-menu-label">${t("remote.model.fastMode")}</span>` +

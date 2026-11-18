@@ -903,6 +903,8 @@ export const zhCN = {
   "chat.fastModeActive": "Fast Mode：{{tier}}",
   "chat.fastModeHint":
     "使用 OpenAI 服务层级降低延迟（Fast=priority，UltraFast=ultrafast）",
+  "chat.fastModeHintAnthropic":
+    "Anthropic 快速推理（speed: fast），输出速度最高约 2.5 倍，按溢价计费",
   "chat.fastModeOff": "关闭",
   "chat.fastModeFast": "Fast",
   "chat.fastModeUltrafast": "UltraFast",
@@ -2591,6 +2593,11 @@ export const zhCN = {
   "settings.apiAnthropicCacheTtl1h": "1 小时",
   "settings.apiAnthropicCacheTtlHint":
     "cache_control 断点的缓存存活时间。1 小时的缓存写入单价更高，适合轮次间隔较长的会话。",
+  "settings.apiAnthropicFastMode": "Anthropic Fast Mode",
+  "settings.apiAnthropicFastModeOff": "关闭（不发送）",
+  "settings.apiAnthropicFastModeFast": "Fast（speed: fast）",
+  "settings.apiAnthropicFastModeHint":
+    "开启后请求携带 speed: fast 与 fast-mode beta 头，输出速度最高约 2.5 倍，按溢价计费；仅 Opus 5.5 / Fable 5.2 / Mythos 5.2 等支持的模型可用。",
   "settings.apiTokenPresetsHint":
     "可选择常见 token 规格，也可直接填写自定义值。",
   "settings.apiMaxTokens": "最大输出 tokens",

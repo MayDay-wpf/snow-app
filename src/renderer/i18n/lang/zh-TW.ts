@@ -904,6 +904,8 @@ export const zhTW = {
   "chat.fastModeActive": "Fast Mode：{{tier}}",
   "chat.fastModeHint":
     "使用 OpenAI 服務層級降低延遲（Fast=priority，UltraFast=ultrafast）",
+  "chat.fastModeHintAnthropic":
+    "Anthropic 快速推理（speed: fast），輸出速度最高約 2.5 倍，按溢價計費",
   "chat.fastModeOff": "關閉",
   "chat.fastModeFast": "Fast",
   "chat.fastModeUltrafast": "UltraFast",
@@ -2592,6 +2594,11 @@ export const zhTW = {
   "settings.apiAnthropicCacheTtl1h": "1 小時",
   "settings.apiAnthropicCacheTtlHint":
     "cache_control 斷點的快取存活時間。1 小時的快取寫入單價較高，適合輪次間隔較長的對話。",
+  "settings.apiAnthropicFastMode": "Anthropic Fast Mode",
+  "settings.apiAnthropicFastModeOff": "關閉（不傳送）",
+  "settings.apiAnthropicFastModeFast": "Fast（speed: fast）",
+  "settings.apiAnthropicFastModeHint":
+    "開啟後請求攜帶 speed: fast 與 fast-mode beta 標頭，輸出速度最高約 2.5 倍，按溢價計費；僅 Opus 5.5 / Fable 5.2 / Mythos 5.2 等支援的模型可用。",
   "settings.apiTokenPresetsHint": "可選擇常見 token 規格，也可直接填寫自訂值。",
   "settings.apiMaxTokens": "最大輸出 tokens",
   "settings.apiMaxTokensHint": "留空則請求時不傳該參數。",

@@ -411,23 +411,47 @@ export const ModelSelector = ({
     filteredApiConfigs,
   ]);
 
+  // anthropic 仅支持 off / fast。
+  const isAnthropicFastMode = requestMethod === "anthropic";
+  const supportsFastMode = requestMethod === "responses" || isAnthropicFastMode;
   const fastModeOptions = useMemo(
     () => [
       { value: "off", label: t("chat.fastModeOff"), icon: CircleOff },
       { value: "fast", label: t("chat.fastModeFast"), icon: Zap },
-      {
-        value: "ultrafast",
-        label: t("chat.fastModeUltrafast"),
-        icon: DoubleZapIcon,
-      },
+      ...(isAnthropicFastMode
+        ? []
+        : [
+            {
+              value: "ultrafast",
+              label: t("chat.fastModeUltrafast"),
+              icon: DoubleZapIcon,
+            },
+          ]),
     ],
-    [t],
+    [isAnthropicFastMode, t],
   );
+  const fastModeHint = isAnthropicFastMode
+    ? t("chat.fastModeHintAnthropic")
+    : t("chat.fastModeHint");
   const activeFastModeOption = fastModeOptions.find(
     (option) => option.value === responsesFastMode,
   );
   const activeFastModeLabel = activeFastModeOption?.label ?? responsesFastMode;
   const ActiveFastModeIcon = activeFastModeOption?.icon ?? Zap;
+
+  // 快捷图标：直接打开对应子菜单，再次点击同一图标则收起
+  const handleOpenMenuView = (view: "thinking" | "fastMode"): void => {
+    if (isModelMenuOpen) {
+      if (modelMenuView === view) {
+        handleToggleModelMenu();
+      } else {
+        setModelMenuView(view);
+      }
+      return;
+    }
+    setModelMenuView(view);
+    handleToggleModelMenu();
+  };
 
   return (
     <div className="model-selector" ref={dropdownRef}>
@@ -461,10 +485,9 @@ export const ModelSelector = ({
         <span className="model-name" title={displayModel}>
           {displayModel}
         </span>
-        <span
-          className="model-trigger-thinking"
-          style={thinkingTintStyle}
-          title={
+        {/* 仅图标，点击直达子菜单；阻止冒泡避免触发外层按钮；title="" 屏蔽外层原生 title */}
+        <Tooltip
+          content={
             thinkingError ??
             (isLoadingApiConfig
               ? t("chat.loadingApiConfig")
@@ -473,35 +496,58 @@ export const ModelSelector = ({
                 }))
           }
         >
-          {isLoadingApiConfig ? (
-            <Loader2 size={12} className="spin" />
-          ) : thinkingError ? (
-            <AlertCircle size={12} />
-          ) : (
-            <ActiveThinkingIcon size={12} />
-          )}
           <span
-            className={`model-trigger-thinking-label${
-              thinkingLabelStyle ? " thinking-grad-text" : ""
-            }`}
-            style={thinkingLabelStyle}
+            className="model-trigger-thinking"
+            style={thinkingTintStyle}
+            title=""
+            role="button"
+            aria-label={t("chat.thinkingStrength")}
+            onClick={(event) => {
+              event.stopPropagation();
+              if (!isLoadingApiConfig) {
+                handleOpenMenuView("thinking");
+              }
+            }}
           >
-            {thinkingLabel}
+            {isLoadingApiConfig ? (
+              <Loader2 size={12} className="spin" />
+            ) : thinkingError ? (
+              <AlertCircle size={12} />
+            ) : (
+              <ActiveThinkingIcon size={12} />
+            )}
           </span>
-        </span>
-        {requestMethod === "responses" && responsesFastMode !== "off" && (
-          <span
-            className="model-trigger-fast"
-            title={
+        </Tooltip>
+        {supportsFastMode && (
+          <Tooltip
+            content={
               fastModeError ??
               t("chat.fastModeActive", {
                 values: { tier: activeFastModeLabel },
               })
             }
           >
-            <ActiveFastModeIcon size={12} />
-            <span>{activeFastModeLabel}</span>
-          </span>
+            <span
+              className={`model-trigger-fast${
+                responsesFastMode === "off" ? " is-off" : ""
+              }`}
+              title=""
+              role="button"
+              aria-label={t("chat.fastMode")}
+              onClick={(event) => {
+                event.stopPropagation();
+                if (!isLoadingApiConfig) {
+                  handleOpenMenuView("fastMode");
+                }
+              }}
+            >
+              {responsesFastMode === "off" ? (
+                <Zap size={12} />
+              ) : (
+                <ActiveFastModeIcon size={12} />
+              )}
+            </span>
+          </Tooltip>
         )}
         <ChevronDown size={12} />
       </button>
@@ -558,7 +604,7 @@ export const ModelSelector = ({
                   <ChevronRight size={12} />
                 </span>
               </button>
-              {requestMethod === "responses" && (
+              {supportsFastMode && (
                 <button
                   className="model-dropdown-item"
                   disabled={
@@ -569,7 +615,7 @@ export const ModelSelector = ({
                   }
                   onClick={() => setModelMenuView("fastMode")}
                   type="button"
-                  title={fastModeError ?? t("chat.fastModeHint")}
+                  title={fastModeError ?? fastModeHint}
                 >
                   <span className="model-dropdown-item-name with-icon">
                     <Zap size={14} className="thinking-option-icon" />

@@ -961,6 +961,8 @@ export const en = {
   "chat.fastModeActive": "Fast Mode: {{tier}}",
   "chat.fastModeHint":
     "Use the OpenAI service tier for lower latency (Fast=priority, UltraFast=ultrafast)",
+  "chat.fastModeHintAnthropic":
+    "Anthropic fast inference (speed: fast): up to 2.5x output speed at premium pricing",
   "chat.fastModeOff": "Off",
   "chat.fastModeFast": "Fast",
   "chat.fastModeUltrafast": "UltraFast",
@@ -2738,6 +2740,11 @@ export const en = {
   "settings.apiAnthropicCacheTtl1h": "1 hour",
   "settings.apiAnthropicCacheTtlHint":
     "TTL of cache_control breakpoints. 1 hour costs more on cache writes but suits long idle gaps between turns.",
+  "settings.apiAnthropicFastMode": "Anthropic Fast Mode",
+  "settings.apiAnthropicFastModeOff": "Off (omit)",
+  "settings.apiAnthropicFastModeFast": "Fast (speed: fast)",
+  "settings.apiAnthropicFastModeHint":
+    "Sends speed: fast with the fast-mode beta header for up to 2.5x output speed at premium pricing. Only supported models such as Opus 5.5 / Fable 5.2 / Mythos 5.2.",
   "settings.apiTokenPresetsHint":
     "Choose a common token limit or enter a custom value.",
   "settings.apiMaxTokens": "Max tokens",

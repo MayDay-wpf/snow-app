@@ -31461,21 +31461,24 @@ button.user-message-source:hover {
   flex-shrink: 1;
 }
 
-.model-trigger-thinking {
+.model-trigger-thinking,
+.model-trigger-fast {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
   min-width: 0;
   padding-left: 6px;
   border-left: 1px solid var(--border-subtle);
+  transition: opacity 0.12s;
+}
+
+.model-trigger-thinking {
   color: var(--text-secondary);
 }
 
-.model-trigger-thinking-label {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 72px;
+/* 可单独点击的图标：仅用透明度提示悬停，不改尺寸 */
+.model-trigger-thinking:hover,
+.model-trigger-fast:hover {
+  opacity: 0.7;
 }
 
 /* 思考档位渐变文字，背景由内联 backgroundImage 提供 */
@@ -31487,19 +31490,21 @@ button.user-message-source:hover {
 }
 
 .model-trigger-fast {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  min-width: 0;
-  padding-left: 6px;
-  border-left: 1px solid var(--border-subtle);
   color: var(--text-link, #3b82f6);
-  font-weight: 600;
 }
 
 .model-trigger-fast svg {
   flex-shrink: 0;
   fill: currentColor;
+}
+
+/* Fast 关闭：灰色描边闪电 */
+.model-trigger-fast.is-off {
+  color: var(--text-tertiary);
+}
+
+.model-trigger-fast.is-off svg {
+  fill: none;
 }
 
 .toolbar-btn.model.model-error {
@@ -31516,12 +31521,8 @@ button.user-message-source:hover {
 }
 
 /* 极窄输入框下渐进缩略 ModelSelector：
-   先藏思考强度文字，再藏思考强度区，最后只留品牌图标与箭头。 */
+   先缩模型名，再藏思考强度区，最后只留品牌图标与箭头。 */
 @container (max-width: 420px) {
-  .model-trigger-thinking-label {
-    display: none;
-  }
-
   .model-name {
     max-width: 120px;
   }
@@ -31539,10 +31540,6 @@ button.user-message-source:hover {
 
 @container (max-width: 250px) {
   .model-name {
-    display: none;
-  }
-
-  .model-trigger-fast span {
     display: none;
   }
 }

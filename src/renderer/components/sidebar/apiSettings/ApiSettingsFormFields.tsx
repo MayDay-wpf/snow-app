@@ -696,6 +696,26 @@ export function ApiSettingsFormFields({
               </small>
             </label>
           )}
+          {data.requestMethod === "anthropic" && (
+            <label className="api-settings-field">
+              <span>{t("settings.apiAnthropicFastMode")}</span>
+              <CustomSelect
+                value={data.responsesServiceTier ? "fast" : ""}
+                options={[
+                  { value: "", label: t("settings.apiAnthropicFastModeOff") },
+                  {
+                    value: "fast",
+                    label: t("settings.apiAnthropicFastModeFast"),
+                  },
+                ]}
+                onChange={(value) => onChange("responsesServiceTier", value)}
+                disabled={disabled}
+              />
+              <small className="api-settings-hint-text">
+                {t("settings.apiAnthropicFastModeHint")}
+              </small>
+            </label>
+          )}
           <label className="api-settings-field">
             <span>
               {t("settings.apiMaxContext", {

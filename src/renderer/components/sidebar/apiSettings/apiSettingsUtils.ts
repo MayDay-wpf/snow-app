@@ -459,6 +459,8 @@ export function toApiConfigPayload(
   // 后端 upsert 对 config_json 深合并，省略的键会保留旧值；
   // 因此 responses 渠道的「默认/关闭」档位必须显式写入，不能省略键。
   const isResponses = normalizeRequestMethod(requestMethod) === "responses";
+  // anthropic 共用 responsesFastMode 键，仅支持 off / fast。
+  const isAnthropic = normalizeRequestMethod(requestMethod) === "anthropic";
   const autoCompressThresholdPercent = normalizeAutoCompressThresholdPercent(
     data.autoCompressThreshold,
   );
@@ -493,7 +495,11 @@ export function toApiConfigPayload(
         : undefined,
       responsesFastMode: isResponses
         ? data.responsesServiceTier || "off"
-        : undefined,
+        : isAnthropic
+          ? data.responsesServiceTier
+            ? "fast"
+            : "off"
+          : undefined,
       responsesWebSocket: data.responsesWebSocket,
       googleSearch: data.googleSearch,
       enable1mContext: data.oneMContext,

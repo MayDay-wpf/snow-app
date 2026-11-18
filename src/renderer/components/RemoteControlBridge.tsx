@@ -2475,7 +2475,10 @@ export const RemoteControlBridge = ({
           sendOptions.apiProfile = chatInput.selectedApiProfile || undefined;
           sendOptions.thinkingStrength =
             chatInput.effectiveThinkingValue || undefined;
-          if (chatInput.requestMethod === "responses") {
+          if (
+            chatInput.requestMethod === "responses" ||
+            chatInput.requestMethod === "anthropic"
+          ) {
             sendOptions.responsesFastMode = chatInput.responsesFastMode;
           }
           sendOptions.conversationRuntimeConfigOverride = {
@@ -2686,12 +2689,16 @@ export const RemoteControlBridge = ({
       // desired 与当前档位一致时做幂等处理，避免手机端与桌面端并发点击。
       toggleResponsesFastMode: async (desired): Promise<{ ok: true }> => {
         const publication = await ensureChatInputForMutation();
-        if (publication.requestMethod !== "responses") {
-          throw new Error("当前请求方式不支持 Responses Fast Mode");
+        const isAnthropic = publication.requestMethod === "anthropic";
+        if (publication.requestMethod !== "responses" && !isAnthropic) {
+          throw new Error("当前请求方式不支持 Fast Mode");
         }
         const tier = typeof desired === "string" ? desired.trim() : "";
         if (tier !== "off" && tier !== "fast" && tier !== "ultrafast") {
           throw new Error("Fast Mode 档位必须是 off / fast / ultrafast");
+        }
+        if (isAnthropic && tier === "ultrafast") {
+          throw new Error("Anthropic Fast Mode 仅支持 off / fast");
         }
         if (tier === publication.responsesFastMode) {
           return { ok: true };
