@@ -2,6 +2,8 @@ import {
   ArrowUpRight,
   ChevronDown,
   ChevronRight,
+  FolderClosed,
+  Globe,
   Loader2,
   Star,
   Trash2,
@@ -108,12 +110,14 @@ export const MemoryPanel = ({
   onClose,
 }: MemoryPanelProps): React.JSX.Element => {
   const { t } = useI18n();
-  const { activeConversationId } = useChatConversationContext();
+  const { activeConversationId, conversationDirectoryId } =
+    useChatConversationContext();
   const [entries, setEntries] = useState<ConversationMemoryEntry[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set());
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [scopeBusyId, setScopeBusyId] = useState<string | null>(null);
   const requestIdRef = useRef(0);
 
   const load = useCallback(async () => {
@@ -222,6 +226,31 @@ export const MemoryPanel = ({
     requestProjectMemoryPanel(title);
   }, []);
 
+  /** 在本项目与跨项目之间切换作用域，成功后就地替换该条记录。 */
+  const handleToggleScope = async (
+    entry: ConversationMemoryEntry,
+  ): Promise<void> => {
+    if (scopeBusyId !== null) return;
+    const toGlobal = entry.scope !== "global";
+    const targetDirectoryId = toGlobal ? "" : (conversationDirectoryId ?? "");
+    if (!toGlobal && !targetDirectoryId) return;
+    setScopeBusyId(entry.memoryId);
+    try {
+      const updated = await window.snow.updateProjectMemory(entry.memoryId, {
+        directoryId: targetDirectoryId,
+      });
+      setEntries((prev) =>
+        prev.map((item) =>
+          item.memoryId === entry.memoryId ? { ...item, ...updated } : item,
+        ),
+      );
+    } catch {
+      // Ignore
+    } finally {
+      setScopeBusyId(null);
+    }
+  };
+
   const confirmDelete = async (): Promise<void> => {
     setIsDeleteConfirmOpen(false);
     const memoryIds = entries.map((entry) => entry.memoryId);
@@ -259,6 +288,11 @@ export const MemoryPanel = ({
           <span className={`memory-kind-badge ${entry.kind}`}>
             {kindLabel(entry.kind)}
           </span>
+          {entry.scope === "global" && (
+            <span className="memory-kind-badge scope-global">
+              {t("memory.scopeGlobal", { defaultValue: "Cross-project" })}
+            </span>
+          )}
           <span className="memory-panel-row-title" title={entry.title}>
             {entry.title}
           </span>
@@ -300,16 +334,42 @@ export const MemoryPanel = ({
                 ))}
               </div>
             )}
-            <button
-              className="memory-panel-locate-btn"
-              onClick={() => handleLocateInLibrary(entry.title)}
-              type="button"
-            >
-              <ArrowUpRight size={12} strokeWidth={2.2} />
-              {t("chat.memory.locateInLibrary", {
-                defaultValue: "Locate in project memory",
-              })}
-            </button>
+            <div className="memory-panel-row-actions">
+              <button
+                className="memory-panel-locate-btn"
+                onClick={() => handleLocateInLibrary(entry.title)}
+                type="button"
+              >
+                <ArrowUpRight size={12} strokeWidth={2.2} />
+                {t("chat.memory.locateInLibrary", {
+                  defaultValue: "Locate in project memory",
+                })}
+              </button>
+              <button
+                className="memory-panel-locate-btn"
+                disabled={
+                  scopeBusyId !== null ||
+                  (entry.scope === "global" && !conversationDirectoryId)
+                }
+                onClick={() => void handleToggleScope(entry)}
+                type="button"
+              >
+                {scopeBusyId === entry.memoryId ? (
+                  <Loader2 className="spin" size={12} />
+                ) : entry.scope === "global" ? (
+                  <FolderClosed size={12} strokeWidth={2.2} />
+                ) : (
+                  <Globe size={12} strokeWidth={2.2} />
+                )}
+                {entry.scope === "global"
+                  ? t("chat.memory.moveToProject", {
+                      defaultValue: "Move back to this project",
+                    })
+                  : t("chat.memory.moveToGlobal", {
+                      defaultValue: "Make cross-project",
+                    })}
+              </button>
+            </div>
           </div>
         )}
       </li>

@@ -83,6 +83,7 @@ pub async fn update_project_memory(
     importance: Option<i32>,
     status: Option<String>,
     tags: Option<Vec<String>>,
+    directory_id: Option<String>,
 ) -> napi::Result<MemoryRecord> {
     tokio::task::spawn_blocking(move || {
         let patch = crate::storage::services::project_memories::MemoryUpdatePatch {
@@ -92,6 +93,7 @@ pub async fn update_project_memory(
             importance,
             status,
             tags,
+            directory_id,
         };
         crate::storage::update_project_memory(memory_id, patch)
     })

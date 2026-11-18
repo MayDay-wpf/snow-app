@@ -65,6 +65,8 @@ type MemoryDraft = {
   importance: number;
   status: MemoryStatus;
   tags: string;
+  /** 跨项目（scope=global）记忆。 */
+  isGlobal: boolean;
 };
 
 type ProjectMemoryPanelProps = {
@@ -226,6 +228,7 @@ const draftFromRecord = (record: MemoryRecord): MemoryDraft => ({
   importance: record.importance,
   status: (record.status as MemoryStatus) ?? "active",
   tags: record.tags.join(", "),
+  isGlobal: record.scope === "global",
 });
 
 const emptyDraft = (): MemoryDraft => ({
@@ -235,6 +238,7 @@ const emptyDraft = (): MemoryDraft => ({
   importance: 2,
   status: "active",
   tags: "",
+  isGlobal: false,
 });
 
 /** 当前正在编辑/查看的条目（来自列表）。 */
@@ -542,8 +546,10 @@ export function ProjectMemoryPanel({
           content,
           draft.importance,
           tags,
+          draft.isGlobal,
         );
       } else if (selection.mode === "edit") {
+        const wasGlobal = selection.record.scope === "global";
         await window.snow.updateProjectMemory(selection.record.memoryId, {
           kind: draft.kind,
           title,
@@ -551,6 +557,13 @@ export function ProjectMemoryPanel({
           importance: draft.importance,
           status: draft.status,
           tags,
+          // 仅作用域变化时迁移
+          directoryId:
+            draft.isGlobal === wasGlobal
+              ? undefined
+              : draft.isGlobal
+                ? ""
+                : directoryId,
         });
       }
       setSelection({ mode: "none" });
@@ -1251,6 +1264,28 @@ export function ProjectMemoryPanel({
             portal
             title={t("memory.statusLabel", { defaultValue: "Status" })}
             value={draft.status}
+          />
+          <CustomSelect
+            onChange={(value) =>
+              setDraft((prev) => ({ ...prev, isGlobal: value === "global" }))
+            }
+            options={[
+              {
+                label: t("memory.scopeProject", {
+                  defaultValue: "This project",
+                }),
+                value: "project",
+              },
+              {
+                label: t("memory.scopeGlobal", {
+                  defaultValue: "Cross-project",
+                }),
+                value: "global",
+              },
+            ]}
+            portal
+            title={t("memory.scopeLabel", { defaultValue: "Scope" })}
+            value={draft.isGlobal ? "global" : "project"}
           />
         </div>
 

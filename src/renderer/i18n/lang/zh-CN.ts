@@ -696,6 +696,8 @@ export const zhCN = {
   "memory.new": "新建",
   "memory.clearAll": "清空",
   "memory.scopeGlobal": "跨项目",
+  "memory.scopeProject": "本项目",
+  "memory.scopeLabel": "作用域",
   "memory.scopeGlobalHint": "以跨项目用户偏好保存：会注入所有项目的新会话。",
   "memory.delete": "删除",
   "memory.save": "保存",
@@ -5028,6 +5030,8 @@ export const zhCN = {
   "chat.memory.agentMainName": "主代理",
   "chat.memory.agentSubName": "子代理 / WorkFlow 节点",
   "chat.memory.locateInLibrary": "在项目记忆中定位",
+  "chat.memory.moveToGlobal": "设为跨项目",
+  "chat.memory.moveToProject": "改回本项目",
   "chat.memory.deleteAll": "删除本次对话的记忆",
   "chat.memory.deleteAllConfirm":
     "确定永久删除本会话（含子代理）保存的 {{count}} 条记忆吗？此操作不可撤销。",

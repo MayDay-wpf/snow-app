@@ -3975,6 +3975,7 @@ export type NativeBridge = ImageGenerationNativeApi & {
     importance?: number,
     status?: string,
     tags?: string[],
+    directoryId?: string,
   ) => Promise<MemoryRecord>;
   deleteProjectMemory: (memoryId: string) => Promise<boolean>;
   clearProjectMemories: (directoryId: string) => Promise<number>;

@@ -51,6 +51,7 @@ export const memoryApi = {
     content: string,
     importance?: number,
     tags?: string[],
+    isGlobal?: boolean,
   ): Promise<MemoryRecord> =>
     ipcRenderer.invoke(
       "memories:create",
@@ -60,6 +61,7 @@ export const memoryApi = {
       content,
       importance,
       tags,
+      isGlobal,
     ),
 
   updateProjectMemory: (
@@ -71,6 +73,8 @@ export const memoryApi = {
       importance?: number;
       status?: MemoryStatus;
       tags?: string[];
+      /** 作用域迁移："" = 跨项目，项目 ID = 归入该项目。 */
+      directoryId?: string;
     },
   ): Promise<MemoryRecord> =>
     ipcRenderer.invoke(
@@ -82,6 +86,7 @@ export const memoryApi = {
       updates.importance,
       updates.status,
       updates.tags,
+      updates.directoryId,
     ),
 
   deleteProjectMemory: (memoryId: string): Promise<boolean> =>

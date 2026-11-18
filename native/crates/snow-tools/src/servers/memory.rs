@@ -251,6 +251,7 @@ impl MemoryService {
             status: optional_string(args, "status"),
             // tags 字段存在时替换（空数组 = 清空标签），缺省保持不变。
             tags: args.get("tags").map(|_| optional_string_array(args, "tags")),
+            directory_id: None,
         };
         if patch.kind.is_none()
             && patch.title.is_none()

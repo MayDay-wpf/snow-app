@@ -738,6 +738,8 @@ export const en = {
   "memory.new": "New",
   "memory.clearAll": "Clear all",
   "memory.scopeGlobal": "Cross-project",
+  "memory.scopeProject": "This project",
+  "memory.scopeLabel": "Scope",
   "memory.scopeGlobalHint":
     "Saved with scope=user: injected into every project's new conversations.",
   "memory.delete": "Delete",
@@ -5375,6 +5377,8 @@ export const en = {
   "chat.memory.agentMainName": "Main agent",
   "chat.memory.agentSubName": "Sub-agents / WorkFlow nodes",
   "chat.memory.locateInLibrary": "Locate in project memory",
+  "chat.memory.moveToGlobal": "Make cross-project",
+  "chat.memory.moveToProject": "Move back to this project",
   "chat.memory.deleteAll": "Delete memories from this conversation",
   "chat.memory.deleteAllConfirm":
     "Permanently delete the {{count}} memories saved by this conversation and its sub-agents? This cannot be undone.",

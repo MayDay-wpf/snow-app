@@ -126,6 +126,7 @@ export const registerMemoryHandlers = (native: NativeBridge): void => {
       content: unknown,
       importance: unknown,
       tags: unknown,
+      isGlobal: unknown,
     ) => {
       if (typeof title !== "string" || !title.trim()) {
         throw new Error("Memory title is required");
@@ -134,7 +135,8 @@ export const registerMemoryHandlers = (native: NativeBridge): void => {
         throw new Error("Memory content is required");
       }
       return native.upsertProjectMemory(
-        requireDirectoryId(directoryId),
+        // 跨项目记忆以空 directory_id 存储
+        isGlobal === true ? "" : requireDirectoryId(directoryId),
         optionalKind(kind) ?? "fact",
         title,
         content,
@@ -158,6 +160,7 @@ export const registerMemoryHandlers = (native: NativeBridge): void => {
       importance: unknown,
       status: unknown,
       tags: unknown,
+      directoryId: unknown,
     ) => {
       return native.updateProjectMemory(
         requireMemoryId(memoryId),
@@ -167,6 +170,8 @@ export const registerMemoryHandlers = (native: NativeBridge): void => {
         optionalImportance(importance),
         optionalStatus(status),
         optionalTags(tags),
+        // "" = 迁为跨项目，非空 = 归入该项目
+        typeof directoryId === "string" ? directoryId.trim() : undefined,
       );
     },
   );

@@ -697,6 +697,8 @@ export const zhTW = {
   "memory.new": "新增",
   "memory.clearAll": "清空",
   "memory.scopeGlobal": "跨專案",
+  "memory.scopeProject": "本專案",
+  "memory.scopeLabel": "作用範圍",
   "memory.scopeGlobalHint": "以跨專案使用者偏好儲存：會注入所有專案的新會話。",
   "memory.delete": "刪除",
   "memory.save": "儲存",
@@ -4970,6 +4972,8 @@ export const zhTW = {
   "chat.memory.agentMainName": "主代理",
   "chat.memory.agentSubName": "子代理 / WorkFlow 節點",
   "chat.memory.locateInLibrary": "在專案記憶中定位",
+  "chat.memory.moveToGlobal": "設為跨專案",
+  "chat.memory.moveToProject": "改回本專案",
   "chat.memory.deleteAll": "刪除本次對話的記憶",
   "chat.memory.deleteAllConfirm":
     "確定永久刪除本會話（含子代理）儲存的 {{count}} 條記憶嗎？此操作無法復原。",

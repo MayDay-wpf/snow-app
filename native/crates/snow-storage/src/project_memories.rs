@@ -62,6 +62,8 @@ pub struct MemoryUpdatePatch {
     pub importance: Option<i32>,
     pub status: Option<String>,
     pub tags: Option<Vec<String>>,
+    /// 作用域迁移：Some("") = 跨项目，Some(id) = 归入该项目。
+    pub directory_id: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -390,10 +392,11 @@ fn apply_memory_patch(
         && patch.content.is_none()
         && patch.importance.is_none()
         && patch.tags.is_none()
+        && patch.directory_id.is_none()
     {
         return Err(Error::new(
             Status::InvalidArg,
-            "At least one field to update must be provided (title / content / kind / importance / status / tags)".to_string(),
+            "At least one field to update must be provided (title / content / kind / importance / status / tags / scope)".to_string(),
         ));
     }
 
@@ -407,6 +410,7 @@ fn apply_memory_patch(
                importance = COALESCE(?5, importance),
                status = COALESCE(?6, status),
                tags_json = COALESCE(?7, tags_json),
+               directory_id = COALESCE(?8, directory_id),
                updated_at = datetime('now', 'localtime')
              WHERE memory_id = ?1",
             params![
@@ -417,6 +421,7 @@ fn apply_memory_patch(
                 patch.importance.map(clamp_importance),
                 status,
                 patch.tags.as_ref().map(|tags| serialize_tags(tags)),
+                patch.directory_id.as_deref().map(str::trim),
             ],
         )
         .map_err(|error| database::database_error(database_path, "update memory", error))?;

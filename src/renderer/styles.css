@@ -12249,6 +12249,18 @@ body.is-panel-resizing * {
   color: var(--text-primary);
 }
 
+.memory-panel-locate-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.memory-panel-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
 .memory-panel-delete-btn {
   display: inline-flex;
   align-items: center;
