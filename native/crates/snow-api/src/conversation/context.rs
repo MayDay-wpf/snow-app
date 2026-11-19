@@ -292,6 +292,22 @@ pub(crate) async fn build_builtin_system_prompt(
             &sub_agents_section,
         )
     };
+    // IM 角色卡（2026-11-19）：启用 IM 聊天风格且已生成角色卡时注入人物设定。
+    // 模式提示词（目标 / 工作流 / 工作树）与子代理不注入，避免干扰任务执行。
+    let character_card_section = if request.goal_mode
+        || request.workflow_mode
+        || request.worktree_mode
+        || request.is_sub_agent
+    {
+        String::new()
+    } else {
+        crate::prompt::character_card::build_character_card_section()
+    };
+    let system_prompt = if character_card_section.is_empty() {
+        system_prompt
+    } else {
+        format!("{system_prompt}\n\n{character_card_section}")
+    };
     // 关联项目组章节（2026-10-02，仿 imagegen / Project Memory 方案 B）：
     // 项目属于「关联项目组」（合集收纳的 ≥ 2 个本地目录）时，注入组名与全部
     // 根目录，声明 grep / 文件搜索把组内目录当成同一个统一项目。WorkTree 模式

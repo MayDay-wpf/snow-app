@@ -112,17 +112,18 @@ fn build_request(image_data_url: &str) -> ResponsesApiRequest {
 }
 
 /// Read an image file from disk and encode it as a base64 data URL.
-fn read_image_as_data_url(image_path: &str) -> Result<String> {
+/// Shared with the character-card generation flow.
+pub(crate) fn read_image_as_data_url(image_path: &str) -> Result<String> {
     let path = Path::new(image_path);
     let bytes = fs::read(path).map_err(|error| {
         Error::from_reason(format!(
-            "Failed to read background image '{}': {}",
+            "Failed to read image '{}': {}",
             path.display(),
             error
         ))
     })?;
     if bytes.is_empty() {
-        return Err(Error::from_reason("Background image file is empty."));
+        return Err(Error::from_reason("Image file is empty."));
     }
 
     let media_type = extension_to_media_type(path);

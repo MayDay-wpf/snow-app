@@ -3756,6 +3756,13 @@ export type NativeBridge = ImageGenerationNativeApi & {
     onChunk: (chunk: ResponsesApiStreamChunk) => void,
     streamId: string,
   ) => Promise<ResponsesApiResult>;
+  generateCharacterCard: (
+    imagePath: string,
+    profileName: string,
+    language: string,
+    onChunk: (chunk: ResponsesApiStreamChunk) => void,
+    streamId: string,
+  ) => Promise<ResponsesApiResult>;
   createCheckpoint: (workDir: string) => Promise<string>;
   restoreCheckpoint: (checkpointId: string, workDir: string) => Promise<void>;
   restoreCheckpoints: (

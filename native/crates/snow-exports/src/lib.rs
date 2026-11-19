@@ -36,7 +36,7 @@ pub mod window_frame;
 // 兼容外观：沿用搬迁前的 `crate::api::*` / `crate::mcp::*` / `crate::storage::*` 等路径。
 pub(crate) mod core_compat {
     pub use snow_api::{
-        commit_message, conversation, ephemeral, file_search_agent, prompt_context,
+        character_card, commit_message, conversation, ephemeral, file_search_agent, prompt_context,
         prompt_optimization, reply_prediction, repo_wiki, summary, theme_palette, tool_correction,
     };
     pub use snow_ai::{config, models, oauth};

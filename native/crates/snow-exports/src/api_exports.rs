@@ -17,6 +17,7 @@ use crate::api::models::{
 use crate::api::request_proxy::{self, ProxySession, RequestProxyCallback};
 use crate::api::responses::{ResponsesApiRequest, ResponsesApiResult, ResponsesApiStreamCallback};
 use crate::api::summary::generate_conversation_summary as generate_summary;
+use crate::api::character_card::generate_character_card_stream;
 use crate::api::theme_palette::generate_theme_palette_stream;
 use crate::api::tool_correction::{
     correct_tool_call as correct_tool_call_impl, ToolCorrectionRequest, ToolCorrectionResponse,
@@ -214,6 +215,44 @@ pub async fn generate_theme_palette(
     // 2. Stream theme palette generation
     let result =
         generate_theme_palette_stream(image_path, profile_name, on_chunk, cancel_token).await;
+
+    // 3. Unregister stream
+    crate::api::cancel::unregister_stream(&stream_id);
+
+    result
+}
+
+/// Generate an IM-mode character card JSON from an image using the selected
+/// API config's **advanced model** (must support vision). Dispatches to
+/// whichever provider (chat / responses / anthropic / gemini / interactions)
+/// the config specifies.
+///
+/// - `imagePath`: absolute path to the character image
+/// - `profileName`: API config profile name. Empty string means "use the
+///   active profile".
+/// - `language`: human-readable language for the generated fields
+/// - `onChunk`: streaming callback receiving `ResponsesApiStreamChunk`
+/// - `streamId`: unique stream id for cancellation support
+///
+/// Returns the full `ResponsesApiResult` (`.content` holds the JSON card).
+#[napi(
+    ts_args_type = "imagePath: string, profileName: string, language: string, onChunk: (chunk: ResponsesApiStreamChunk) => void, streamId: string",
+    ts_return_type = "Promise<ResponsesApiResult>"
+)]
+pub async fn generate_character_card(
+    image_path: String,
+    profile_name: String,
+    language: String,
+    on_chunk: ResponsesApiStreamCallback,
+    stream_id: String,
+) -> napi::Result<ResponsesApiResult> {
+    // 1. Register cancellation token
+    let cancel_token = crate::api::cancel::create_and_register(&stream_id);
+
+    // 2. Stream character-card generation
+    let result =
+        generate_character_card_stream(image_path, profile_name, language, on_chunk, cancel_token)
+            .await;
 
     // 3. Unregister stream
     crate::api::cancel::unregister_stream(&stream_id);

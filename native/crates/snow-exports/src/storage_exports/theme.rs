@@ -252,10 +252,47 @@ impl From<ThemeTypographyNapi> for ThemeTypography {
 }
 
 #[napi(object)]
+pub struct ThemeCharacterCardNapi {
+    pub name: String,
+    pub tagline: String,
+    pub personality: String,
+    pub speaking_style: String,
+    pub background: String,
+    pub greeting: String,
+}
+
+impl From<ThemeCharacterCard> for ThemeCharacterCardNapi {
+    fn from(c: ThemeCharacterCard) -> Self {
+        ThemeCharacterCardNapi {
+            name: c.name,
+            tagline: c.tagline,
+            personality: c.personality,
+            speaking_style: c.speaking_style,
+            background: c.background,
+            greeting: c.greeting,
+        }
+    }
+}
+
+impl From<ThemeCharacterCardNapi> for ThemeCharacterCard {
+    fn from(c: ThemeCharacterCardNapi) -> Self {
+        ThemeCharacterCard {
+            name: c.name,
+            tagline: c.tagline,
+            personality: c.personality,
+            speaking_style: c.speaking_style,
+            background: c.background,
+            greeting: c.greeting,
+        }
+    }
+}
+
+#[napi(object)]
 pub struct ThemeChatStyleNapi {
     pub im_mode: bool,
     pub ai_avatar_path: String,
     pub user_avatar_path: String,
+    pub character_card: Option<ThemeCharacterCardNapi>,
 }
 
 impl From<ThemeChatStyle> for ThemeChatStyleNapi {
@@ -264,6 +301,7 @@ impl From<ThemeChatStyle> for ThemeChatStyleNapi {
             im_mode: c.im_mode,
             ai_avatar_path: c.ai_avatar_path,
             user_avatar_path: c.user_avatar_path,
+            character_card: Some(c.character_card.into()),
         }
     }
 }
@@ -274,6 +312,7 @@ impl From<ThemeChatStyleNapi> for ThemeChatStyle {
             im_mode: c.im_mode,
             ai_avatar_path: c.ai_avatar_path,
             user_avatar_path: c.user_avatar_path,
+            character_card: c.character_card.map(Into::into).unwrap_or_default(),
         }
     }
 }

@@ -19,6 +19,7 @@ import {
   applyThemeModeToDocument,
   applyTypographyToDocument,
   DEFAULT_THEME_SETTINGS,
+  EMPTY_CHARACTER_CARD,
   normalizeThemeSettings,
   readThemeCache,
   resolveActivePalette,
@@ -29,6 +30,7 @@ import {
 } from "./themeSettings/themeSettingsUtils";
 import type {
   ThemeBackground,
+  ThemeCharacterCard,
   ThemeLayoutStyle,
   ThemeMode,
   ThemePalette,
@@ -41,6 +43,7 @@ import { THEME_BG_PREVIEW_EVENT } from "../pet/ThemeBackgroundPetLayer";
 import { ThemeAiColorModal } from "./themeSettings/ThemeAiColorModal";
 import { ThemeBackgroundHistoryModal } from "./themeSettings/ThemeBackgroundHistoryModal";
 import { ThemeBackgroundSection } from "./themeSettings/ThemeBackgroundSection";
+import { ThemeCharacterCardModal } from "./themeSettings/ThemeCharacterCardModal";
 import { ThemeColorEditor } from "./themeSettings/ThemeColorEditor";
 import { ThemeFontSection } from "./themeSettings/ThemeFontSection";
 import { ThemeTypographySection } from "./themeSettings/ThemeTypographySection";
@@ -123,6 +126,7 @@ export function ThemeSettingsPanel(): React.JSX.Element {
   const [editorOpen, setEditorOpen] = useState(false);
   const [aiColorOpen, setAiColorOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [characterCardOpen, setCharacterCardOpen] = useState(false);
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
   const isMountedRef = useRef(true);
@@ -501,6 +505,40 @@ export function ThemeSettingsPanel(): React.JSX.Element {
       chatStyle: { ...previous.chatStyle, [key]: "" },
     }));
     await window.snow.deleteThemeChatAvatar(previousPath).catch(() => {});
+  };
+
+  const handleApplyCharacterCard = (card: ThemeCharacterCard): void => {
+    const nextSettings: ThemeSettings = {
+      ...formRef.current,
+      chatStyle: { ...formRef.current.chatStyle, characterCard: card },
+    };
+    setForm(nextSettings);
+    setCharacterCardOpen(false);
+    setStatus(
+      t("settings.themeCharacterCardApplied", {
+        defaultValue:
+          "Character card applied and injected into the system prompt.",
+      }),
+    );
+    // 生成是一次完整操作，立即持久化，避免 debounce 窗口内切换页面导致丢失。
+    void saveSettings(nextSettings);
+  };
+
+  const handleRemoveCharacterCard = (): void => {
+    const nextSettings: ThemeSettings = {
+      ...formRef.current,
+      chatStyle: {
+        ...formRef.current.chatStyle,
+        characterCard: EMPTY_CHARACTER_CARD,
+      },
+    };
+    setForm(nextSettings);
+    setStatus(
+      t("settings.themeCharacterCardRemoved", {
+        defaultValue: "Character card removed. It is no longer injected.",
+      }),
+    );
+    void saveSettings(nextSettings);
   };
 
   const handleSelectCursorAsset = async (
@@ -1031,6 +1069,8 @@ export function ThemeSettingsPanel(): React.JSX.Element {
             onToggle={handleChatStyleToggle}
             onSelectAvatar={handleSelectChatAvatar}
             onResetAvatar={handleResetChatAvatar}
+            onGenerateCharacterCard={() => setCharacterCardOpen(true)}
+            onRemoveCharacterCard={handleRemoveCharacterCard}
           />
 
           <div className="api-settings-form-section">
@@ -1112,6 +1152,13 @@ export function ThemeSettingsPanel(): React.JSX.Element {
         onClose={() => setHistoryOpen(false)}
         onAdd={handleAddFromHistory}
         onDelete={handleDeleteHistoryImage}
+      />
+
+      <ThemeCharacterCardModal
+        open={characterCardOpen}
+        avatarPath={form.chatStyle.aiAvatarPath}
+        onClose={() => setCharacterCardOpen(false)}
+        onApply={handleApplyCharacterCard}
       />
     </div>
   );

@@ -205,11 +205,22 @@ export type ThemeTypography = {
   codeFontSize: number;
 };
 
-/** 聊天窗口风格：IM 模式 + 头像（空路径为默认头像）。 */
+/** IM 风格角色卡：AI 根据图片生成的角色设定（注入系统提示词）。 */
+export type ThemeCharacterCard = {
+  name: string;
+  tagline: string;
+  personality: string;
+  speakingStyle: string;
+  background: string;
+  greeting: string;
+};
+
+/** 聊天窗口风格：IM 模式 + 头像（空路径为默认头像）+ 角色卡。 */
 export type ThemeChatStyle = {
   imMode: boolean;
   aiAvatarPath: string;
   userAvatarPath: string;
+  characterCard: ThemeCharacterCard;
 };
 
 export type ThemeSettings = {

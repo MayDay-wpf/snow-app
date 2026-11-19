@@ -9,6 +9,14 @@ export const DEFAULT_CHAT_STYLE: ThemeChatStyle = {
   imMode: false,
   aiAvatarPath: "",
   userAvatarPath: "",
+  characterCard: {
+    name: "",
+    tagline: "",
+    personality: "",
+    speakingStyle: "",
+    background: "",
+    greeting: "",
+  },
 };
 
 let activeChatStyle: ThemeChatStyle = DEFAULT_CHAT_STYLE;
@@ -29,7 +37,9 @@ export const setActiveChatStyle = (chatStyle: ThemeChatStyle): void => {
   if (
     current.imMode === chatStyle.imMode &&
     current.aiAvatarPath === chatStyle.aiAvatarPath &&
-    current.userAvatarPath === chatStyle.userAvatarPath
+    current.userAvatarPath === chatStyle.userAvatarPath &&
+    JSON.stringify(current.characterCard) ===
+      JSON.stringify(chatStyle.characterCard)
   ) {
     return;
   }

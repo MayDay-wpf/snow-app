@@ -1,3 +1,4 @@
+pub mod character_card;
 pub mod common;
 pub mod goal_mode_system_prompt;
 pub mod linked_projects;

@@ -4419,6 +4419,49 @@ export const en = {
   "settings.themeChatStyleResetAvatar": "Reset",
   "settings.themeChatStyleSelectAvatarTitle": "Select avatar image",
   "settings.themeChatStyleSaveAvatarError": "Failed to save avatar",
+  "settings.themeCharacterCardTitle": "Character card",
+  "settings.themeCharacterCardInfo":
+    "Generate a character card from the AI avatar and inject it into the system prompt so the AI chats in that persona. Only applies while IM style is enabled.",
+  "settings.themeCharacterCardGenerate": "AI character card",
+  "settings.themeCharacterCardRegenerate": "Regenerate",
+  "settings.themeCharacterCardRemove": "Remove",
+  "settings.themeCharacterCardEmpty":
+    "No character card yet. Generate one from the AI avatar to give the AI a persona.",
+  "settings.themeCharacterCardPersonality": "Personality",
+  "settings.themeCharacterCardSpeakingStyle": "Speaking style",
+  "settings.themeCharacterCardBackground": "Background",
+  "settings.themeCharacterCardGreeting": "Opening line",
+  "settings.themeCharacterCardApplied":
+    "Character card applied and injected into the system prompt.",
+  "settings.themeCharacterCardRemoved":
+    "Character card removed. It is no longer injected.",
+  "settings.themeCharacterCardModalTitle": "AI character card",
+  "settings.themeCharacterCardModalDescription":
+    "Generate a character card from your AI avatar. The card is injected into the system prompt so the AI chats in that persona while IM style is enabled.",
+  "settings.themeCharacterCardModalClose": "Close AI character card",
+  "settings.themeCharacterCardModalGenerate": "Generate",
+  "settings.themeCharacterCardGenerating": "Generating...",
+  "settings.themeCharacterCardCancel": "Cancel",
+  "settings.themeCharacterCardAvatarLabel": "AI avatar",
+  "settings.themeCharacterCardAvatarHint":
+    "The card is generated from this avatar. Regenerate after changing it.",
+  "settings.themeCharacterCardDefaultAvatarHint":
+    "No custom avatar; the default avatar (built-in pet) is used.",
+  "settings.themeCharacterCardAvatarLoading": "Preparing the default avatar...",
+  "settings.themeCharacterCardVisionHint":
+    'Character card generation requires the selected profile\'s advanced model to support vision. Make sure "Supports vision" is enabled in API settings.',
+  "settings.themeCharacterCardNoAvatarError":
+    "The avatar is not ready yet. Please try again in a moment.",
+  "settings.themeCharacterCardNoProfileError":
+    "Please select an API configuration.",
+  "settings.themeCharacterCardLoadConfigsError":
+    "Failed to load API configurations.",
+  "settings.themeCharacterCardParseError":
+    "Failed to parse the AI-generated character card. Please try again.",
+  "settings.themeCharacterCardGenerateError":
+    "Failed to generate the character card.",
+  "settings.themeCharacterCardSuccess":
+    "AI character card generated and applied.",
   "settings.themeStreamCursorTitle": "Streaming indicator",
   "settings.themeStreamCursorInfo":
     "Customize the indicator shown while the AI is generating a response.",

@@ -49,6 +49,9 @@ const createResponseStreamId = (): string => `response-${crypto.randomUUID()}`;
 const createThemePaletteStreamId = (): string =>
   `theme-palette-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
+const createCharacterCardStreamId = (): string =>
+  `character-card-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
 const normalizeResponseStreamChunk = (
   value: unknown,
 ): ResponsesApiStreamChunk | null => {
@@ -483,6 +486,46 @@ export const apiConfigApi = {
       });
   },
   abortThemePalette: (streamId: string): Promise<boolean> =>
+    ipcRenderer.invoke("chat:abort-response-stream", streamId),
+  generateCharacterCard: (
+    imagePath: string,
+    profileName: string,
+    language: string,
+    onChunk?: (chunk: ResponsesApiStreamChunk) => void,
+    onStreamId?: (streamId: string) => void,
+  ): Promise<ResponsesApiResult> => {
+    const streamId = createCharacterCardStreamId();
+    onStreamId?.(streamId);
+
+    const handleChunk = (_event: IpcRendererEvent, payload: unknown): void => {
+      if (!isRecord(payload) || payload.streamId !== streamId) {
+        return;
+      }
+
+      const chunk = normalizeResponseStreamChunk(payload.chunk);
+      if (chunk) {
+        onChunk?.(chunk);
+      }
+    };
+
+    ipcRenderer.on("theme:generate-character-card:chunk", handleChunk);
+
+    return ipcRenderer
+      .invoke(
+        "theme:generate-character-card",
+        imagePath,
+        profileName,
+        language,
+        streamId,
+      )
+      .finally(() => {
+        ipcRenderer.removeListener(
+          "theme:generate-character-card:chunk",
+          handleChunk,
+        );
+      });
+  },
+  abortCharacterCard: (streamId: string): Promise<boolean> =>
     ipcRenderer.invoke("chat:abort-response-stream", streamId),
   listUsageRecords: (
     conversationId: string,

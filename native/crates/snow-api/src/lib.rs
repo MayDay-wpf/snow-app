@@ -3,6 +3,7 @@ pub mod codebase_state_port;
 pub use snow_providers::anthropic;
 pub mod browser_import;
 pub mod browser_history;
+pub mod character_card;
 pub use snow_runtime::cancel;
 pub use snow_providers::chat;
 pub use snow_mcp::codebase_review;

@@ -3,6 +3,7 @@ import type {
   ThemeBackground,
   ThemeBackgroundSource,
   ThemeCarouselOrder,
+  ThemeCharacterCard,
   ThemeChatStyle,
   ThemeLayoutStyle,
   ThemePalette,
@@ -561,12 +562,37 @@ export function normalizeThemeTypography(value: unknown): ThemeTypography {
   };
 }
 
+/** 空角色卡：角色名为空即视为未生成，不注入系统提示词。 */
+export const EMPTY_CHARACTER_CARD: ThemeCharacterCard = {
+  name: "",
+  tagline: "",
+  personality: "",
+  speakingStyle: "",
+  background: "",
+  greeting: "",
+};
+
+export function normalizeThemeCharacterCard(
+  value: unknown,
+): ThemeCharacterCard {
+  const source = isRecord(value) ? value : {};
+  return {
+    name: toText(source.name).trim(),
+    tagline: toText(source.tagline).trim(),
+    personality: toText(source.personality).trim(),
+    speakingStyle: toText(source.speakingStyle).trim(),
+    background: toText(source.background).trim(),
+    greeting: toText(source.greeting).trim(),
+  };
+}
+
 export function normalizeThemeChatStyle(value: unknown): ThemeChatStyle {
   const source = isRecord(value) ? value : {};
   return {
     imMode: source.imMode === true,
     aiAvatarPath: toText(source.aiAvatarPath).trim(),
     userAvatarPath: toText(source.userAvatarPath).trim(),
+    characterCard: normalizeThemeCharacterCard(source.characterCard),
   };
 }
 

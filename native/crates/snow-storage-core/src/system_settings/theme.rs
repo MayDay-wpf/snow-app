@@ -350,19 +350,49 @@ impl ThemeTypography {
     }
 }
 
-/// 聊天窗口风格：IM 模式开关 + AI / 用户头像（空路径表示使用默认头像）。
+/// IM 风格角色卡：AI 根据图片生成的角色设定，注入系统提示词。
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct ThemeCharacterCard {
+    pub name: String,
+    pub tagline: String,
+    pub personality: String,
+    pub speaking_style: String,
+    pub background: String,
+    pub greeting: String,
+}
+
+impl ThemeCharacterCard {
+    fn normalize(&mut self) {
+        self.name = self.name.trim().to_string();
+        self.tagline = self.tagline.trim().to_string();
+        self.personality = self.personality.trim().to_string();
+        self.speaking_style = self.speaking_style.trim().to_string();
+        self.background = self.background.trim().to_string();
+        self.greeting = self.greeting.trim().to_string();
+    }
+
+    /// 角色名为空视为未生成，此时不注入提示词、也不显示卡片。
+    pub fn is_active(&self) -> bool {
+        !self.name.is_empty()
+    }
+}
+
+/// 聊天窗口风格：IM 模式开关 + AI / 用户头像（空路径表示使用默认头像）+ 角色卡。
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct ThemeChatStyle {
     pub im_mode: bool,
     pub ai_avatar_path: String,
     pub user_avatar_path: String,
+    pub character_card: ThemeCharacterCard,
 }
 
 impl ThemeChatStyle {
     fn normalize(&mut self) {
         self.ai_avatar_path = self.ai_avatar_path.trim().to_string();
         self.user_avatar_path = self.user_avatar_path.trim().to_string();
+        self.character_card.normalize();
     }
 }
 

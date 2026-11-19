@@ -492,4 +492,42 @@ export const registerApiConfigHandlers = (native: NativeBridge): void => {
       );
     },
   );
+
+  // ===== AI character card generation (IM chat style) =====
+  ipcMain.handle(
+    "theme:generate-character-card",
+    async (
+      event,
+      imagePath: unknown,
+      profileName: unknown,
+      language: unknown,
+      streamId: unknown,
+    ) => {
+      if (typeof imagePath !== "string" || !imagePath.trim()) {
+        throw new Error("Image path is required");
+      }
+      if (typeof streamId !== "string" || !streamId.trim()) {
+        throw new Error("Stream ID is required");
+      }
+
+      const normalizedStreamId = streamId.trim();
+      const normalizedProfileName =
+        typeof profileName === "string" ? profileName.trim() : "";
+      const normalizedLanguage =
+        typeof language === "string" ? language.trim() : "";
+
+      return await native.generateCharacterCard(
+        imagePath.trim(),
+        normalizedProfileName,
+        normalizedLanguage,
+        (chunk: ResponsesApiStreamChunk) => {
+          safeSend(event.sender, "theme:generate-character-card:chunk", {
+            streamId: normalizedStreamId,
+            chunk,
+          });
+        },
+        normalizedStreamId,
+      );
+    },
+  );
 };

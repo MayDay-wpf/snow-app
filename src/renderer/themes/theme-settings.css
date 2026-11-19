@@ -696,6 +696,113 @@
   line-height: 1.6;
 }
 
+/* ===== IM character card ===== */
+.theme-character-card {
+  display: flex;
+  max-width: 640px;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  background: var(--bg-primary);
+}
+
+.theme-character-card-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.theme-character-card-identity {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.theme-character-card-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.theme-character-card-tagline {
+  color: var(--text-tertiary);
+  font-size: 12px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.theme-character-card-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.theme-character-card-actions .api-settings-form-btn {
+  gap: 6px;
+  padding: 7px 12px;
+}
+
+.theme-character-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.theme-character-card-name {
+  color: var(--text-primary);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.theme-character-card-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+}
+
+.theme-character-card-field {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr);
+  gap: 8px;
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+.theme-character-card-field dt {
+  margin: 0;
+  color: var(--text-tertiary);
+}
+
+.theme-character-card-field dd {
+  margin: 0;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.theme-character-card-empty {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.theme-character-card-image-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
 /* ===== Theme Font Section ===== */
 .theme-font-input-row {
   display: flex;
