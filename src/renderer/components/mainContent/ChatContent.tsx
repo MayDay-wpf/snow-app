@@ -6,6 +6,7 @@ import {
   CheckCircle2,
   MessageSquareQuote,
   RotateCcw,
+  Workflow,
   X,
   XCircle,
 } from "lucide-react";
@@ -405,15 +406,22 @@ const ChatContentBody = ({
     summary: string;
   } | null>(null);
 
+  // 信息头适用于子代理与 workflow 节点会话，二者都有发起它的主会话。
+  const infoHeaderParentConversationId = isSubAgentConversation
+    ? subAgentParentConversationId
+    : isWorkflowNodeConversation
+      ? workflowNodeParentConversationId
+      : "";
+
   useEffect(() => {
-    if (!subAgentParentConversationId) {
+    if (!infoHeaderParentConversationId) {
       setSubAgentParentMeta(null);
       return;
     }
 
     let cancelled = false;
     void window.snow
-      .getChatConversation(subAgentParentConversationId)
+      .getChatConversation(infoHeaderParentConversationId)
       .then((record) => {
         if (cancelled || !record) {
           return;
@@ -430,20 +438,20 @@ const ChatContentBody = ({
     return () => {
       cancelled = true;
     };
-  }, [subAgentParentConversationId]);
+  }, [infoHeaderParentConversationId]);
 
   useEffect(() => {
     const record = upsertedConversation?.record;
     if (
       !record ||
-      !subAgentParentConversationId ||
-      record.conversationId !== subAgentParentConversationId ||
+      !infoHeaderParentConversationId ||
+      record.conversationId !== infoHeaderParentConversationId ||
       !record.summary
     ) {
       return;
     }
     setSubAgentParentMeta({ title: record.title, summary: record.summary });
-  }, [upsertedConversation, subAgentParentConversationId]);
+  }, [upsertedConversation, infoHeaderParentConversationId]);
 
   // 当前会话被 upsert 时跟随刷新摘要：悬浮头部运行中显示 AI 摘要，
   // 而非首条用户消息（title）。
@@ -461,11 +469,20 @@ const ChatContentBody = ({
     );
   }, [upsertedConversation, activeConversationId]);
 
-  const subAgentName =
-    liveSubAgentEvent?.agentName ?? activeConversationMeta?.subAgentName ?? "";
+  const showInfoHeader = isSubAgentConversation || isWorkflowNodeConversation;
+  const subAgentName = isSubAgentConversation
+    ? (liveSubAgentEvent?.agentName ??
+      activeConversationMeta?.subAgentName ??
+      "")
+    : t("chat.workflowNodeInfo.badge", { defaultValue: "WorkFlow Node" });
   const subAgentSessionTitle = activeConversationMeta?.title ?? "";
-  const subAgentPrompt =
-    messages.find((message) => message.role === "user")?.content ?? "";
+  const subAgentPromptMessage = messages.find(
+    (message) => message.role === "user",
+  );
+  const subAgentPrompt = subAgentPromptMessage?.content ?? "";
+  // 已加载到首页时，首条用户消息即启动提示词：由信息头代为展示并承接定位。
+  const subAgentPromptMessageId =
+    showInfoHeader && !hasMoreMessages ? subAgentPromptMessage?.id : undefined;
 
   // 视图重建 key 用 sessionViewKey（而非 activeConversationId）：pending 会话
   // 首轮结束迁移为真实 ID 时它保持不变，chat-area / ChatInput 不重建——
@@ -667,8 +684,11 @@ const ChatContentBody = ({
               <ChatHistorySkeleton />
             ) : hasMessages ? (
               <>
-                {isSubAgentConversation ? (
+                {showInfoHeader ? (
                   <SubAgentInfoHeader
+                    kind={
+                      isSubAgentConversation ? "sub_agent" : "workflow_node"
+                    }
                     agentName={subAgentName}
                     sessionTitle={subAgentSessionTitle}
                     prompt={subAgentPrompt}
@@ -677,8 +697,9 @@ const ChatContentBody = ({
                       subAgentParentMeta?.title ||
                       ""
                     }
-                    parentConversationId={subAgentParentConversationId}
+                    parentConversationId={infoHeaderParentConversationId}
                     onBackToParent={handleSelectConversation}
+                    promptMessageId={subAgentPromptMessageId}
                   />
                 ) : null}
                 <ChatMessageList
@@ -689,6 +710,7 @@ const ChatContentBody = ({
                   canRollback={!isSubAgentConversation}
                   scrollContainerRef={scrollRef}
                   streamViewportRef={streamViewportRef}
+                  hiddenMessageId={subAgentPromptMessageId}
                 />
                 <CompactionStream
                   isCompacting={isCompactingActive}
@@ -893,19 +915,24 @@ const ChatContentBody = ({
 };
 
 const SubAgentInfoHeader = ({
+  kind,
   agentName,
   sessionTitle,
   prompt,
   parentTitle,
   parentConversationId,
   onBackToParent,
+  promptMessageId,
 }: {
+  kind: "sub_agent" | "workflow_node";
   agentName: string;
   sessionTitle: string;
   prompt: string;
   parentTitle: string;
   parentConversationId: string;
   onBackToParent: (conversationId: string) => Promise<void> | void;
+  /** 被隐藏的首条用户消息 id：挂到信息头上，供用户消息导航定位。 */
+  promptMessageId?: string;
 }): React.JSX.Element => {
   const { t } = useI18n();
 
@@ -915,11 +942,15 @@ const SubAgentInfoHeader = ({
     agentName;
 
   return (
-    <div className="sub-agent-info-header">
+    <div className="sub-agent-info-header" data-message-id={promptMessageId}>
       <div className="sub-agent-info-header-top">
         {agentName ? (
           <span className="sub-agent-info-agent" title={agentName}>
-            <Bot size={13} strokeWidth={1.8} aria-hidden="true" />
+            {kind === "workflow_node" ? (
+              <Workflow size={13} strokeWidth={1.8} aria-hidden="true" />
+            ) : (
+              <Bot size={13} strokeWidth={1.8} aria-hidden="true" />
+            )}
             <span>{agentName}</span>
           </span>
         ) : null}

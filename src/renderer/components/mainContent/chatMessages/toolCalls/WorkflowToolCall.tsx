@@ -302,6 +302,21 @@ const WorkflowToolCallInner = ({
   edgesRef.current = edges;
   // 画布容器（右键菜单/编辑浮层的定位基准）。
   const canvasWrapRef = useRef<HTMLDivElement | null>(null);
+  // 画布需点击聚焦后才接管滚轮缩放，悬停时滚轮交还消息列表。
+  const [canvasFocused, setCanvasFocused] = useState(false);
+  useEffect(() => {
+    if (!canvasFocused) return;
+    const onPointerDown = (event: PointerEvent): void => {
+      const wrap = canvasWrapRef.current;
+      if (wrap && event.target instanceof Node && wrap.contains(event.target)) {
+        return;
+      }
+      setCanvasFocused(false);
+    };
+    document.addEventListener("pointerdown", onPointerDown, true);
+    return () =>
+      document.removeEventListener("pointerdown", onPointerDown, true);
+  }, [canvasFocused]);
   // 画布右键菜单与节点编辑浮层锚点（相对画布容器）。
   const [contextMenu, setContextMenu] = useState<CanvasContextMenu | null>(
     null,
@@ -1473,7 +1488,11 @@ const WorkflowToolCallInner = ({
           </div>
         )}
         {hasCanvas && !canvasCollapsed && (
-          <div className="workflow-canvas-wrap" ref={canvasWrapRef}>
+          <div
+            className={`workflow-canvas-wrap${canvasFocused ? " is-focused" : ""}`}
+            ref={canvasWrapRef}
+            onPointerDown={() => setCanvasFocused(true)}
+          >
             <div className="workflow-canvas">
               {/* 仅挂起且未运行时开放连线，与右键编辑同一可编辑性口径。 */}
               <ReactFlow
@@ -1493,6 +1512,9 @@ const WorkflowToolCallInner = ({
                 onConnect={handleConnect}
                 isValidConnection={handleIsValidConnection}
                 fitView
+                zoomOnScroll={canvasFocused}
+                zoomOnPinch={canvasFocused}
+                preventScrolling={canvasFocused}
                 nodesConnectable={canEditCanvas}
                 nodesDraggable={!isResumeMode}
                 proOptions={{ hideAttribution: true }}

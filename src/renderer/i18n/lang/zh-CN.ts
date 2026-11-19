@@ -837,6 +837,7 @@ export const zhCN = {
   "chat.workflowNodeFinished.backToParent": "返回主会话",
   "chat.subAgentInfo.launchedBy": "由主会话「{{title}}」启动",
   "chat.subAgentInfo.prompt": "提示词",
+  "chat.workflowNodeInfo.badge": "WorkFlow 节点",
   "chat.quickActionAddProject": "添加一个项目",
   "chat.worktreeSelectedHint": "已预选工作树，发送消息将在此工作树下执行",
   "chat.selectWorktreeHint": "选择工作树开启独立会话，或直接在输入框提问",

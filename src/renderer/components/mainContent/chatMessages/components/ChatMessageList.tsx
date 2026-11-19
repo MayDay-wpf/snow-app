@@ -36,6 +36,8 @@ type ChatMessageListProps = {
   scrollContainerRef: React.RefObject<HTMLDivElement | null>;
   /** 平滑增长视口的回调 ref（由滚动跟随控制器持有平滑器）。 */
   streamViewportRef: (node: HTMLDivElement | null) => void;
+  /** 不渲染的消息 id（子代理首条提示词已由信息头展示）。 */
+  hiddenMessageId?: string;
 };
 
 // 初始可见窗口大小:挂载时(切换会话)只渲染「顶部几条 + 底部窗口」的
@@ -77,6 +79,7 @@ export const ChatMessageList = ({
   canRollback,
   scrollContainerRef,
   streamViewportRef,
+  hiddenMessageId,
 }: ChatMessageListProps): React.JSX.Element => {
   const { locale, t } = useI18n();
   const {
@@ -656,6 +659,9 @@ export const ChatMessageList = ({
     index: number,
   ): React.JSX.Element | null => {
     const renderKey = renderKeyOf(message.id);
+    if (hiddenMessageId && message.id === hiddenMessageId) {
+      return null;
+    }
     // 极简模式：无正文的响应已并入相邻的工具集合，不再单独占位。
     if (minimalLayout?.hidden.has(renderKey)) {
       return null;

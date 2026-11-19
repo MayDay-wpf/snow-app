@@ -891,6 +891,7 @@ export const en = {
   "chat.workflowNodeFinished.backToParent": "Back to parent conversation",
   "chat.subAgentInfo.launchedBy": 'Launched by parent "{{title}}"',
   "chat.subAgentInfo.prompt": "Prompt",
+  "chat.workflowNodeInfo.badge": "WorkFlow Node",
   "chat.quickActionAddProject": "Add a project",
   "chat.worktreeSelectedHint":
     "Worktree preselected; messages will execute within this worktree",

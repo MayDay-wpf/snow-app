@@ -17075,6 +17075,12 @@ img.tcg-plugin-icon {
   border-radius: var(--radius-sm);
   background: var(--bg-primary);
   overflow: hidden;
+  transition: border-color 0.15s ease;
+}
+
+/* 点击聚焦后画布才接管滚轮缩放，边框提示当前状态。 */
+.workflow-canvas-wrap.is-focused .workflow-canvas {
+  border-color: var(--accent-color);
 }
 
 /* React Flow 主题化：@xyflow/react 默认样式写死浅色（控制面板白底、

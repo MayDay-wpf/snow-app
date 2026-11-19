@@ -838,6 +838,7 @@ export const zhTW = {
   "chat.workflowNodeFinished.backToParent": "返回主會話",
   "chat.subAgentInfo.launchedBy": "由主會話「{{title}}」啟動",
   "chat.subAgentInfo.prompt": "提示詞",
+  "chat.workflowNodeInfo.badge": "WorkFlow 節點",
   "chat.quickActionAddProject": "新增一個專案",
   "chat.worktreeSelectedHint": "已預選工作樹，發送訊息將在此工作樹下執行",
   "chat.selectWorktreeHint": "選擇工作樹開啟獨立會話，或直接在輸入框提問",
