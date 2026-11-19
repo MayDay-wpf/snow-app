@@ -89,6 +89,11 @@
     "typescript": "^5.9.2",
     "vite": "^7.3.5"
   },
+  "overrides": {
+    "@emoji-mart/react": {
+      "react": "$react"
+    }
+  },
   "build": {
     "appId": "com.snow.app",
     "productName": "Snow App",

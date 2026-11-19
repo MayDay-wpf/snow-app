@@ -20,6 +20,7 @@ import {
   applyTypographyToDocument,
   DEFAULT_THEME_SETTINGS,
   EMPTY_CHARACTER_CARD,
+  normalizeThemeCharacterCard,
   normalizeThemeSettings,
   readThemeCache,
   resolveActivePalette,
@@ -507,21 +508,43 @@ export function ThemeSettingsPanel(): React.JSX.Element {
     await window.snow.deleteThemeChatAvatar(previousPath).catch(() => {});
   };
 
-  const handleApplyCharacterCard = (card: ThemeCharacterCard): void => {
+  // 角色卡写入表单并立即持久化：生成与手动编辑共用，避免 debounce 窗口内切换页面导致丢失。
+  const persistCharacterCard = (
+    card: ThemeCharacterCard,
+    statusMessage: string,
+  ): void => {
     const nextSettings: ThemeSettings = {
       ...formRef.current,
       chatStyle: { ...formRef.current.chatStyle, characterCard: card },
     };
     setForm(nextSettings);
+    setStatus(statusMessage);
+    void saveSettings(nextSettings);
+  };
+
+  const handleApplyCharacterCard = (card: ThemeCharacterCard): void => {
     setCharacterCardOpen(false);
-    setStatus(
+    persistCharacterCard(
+      card,
       t("settings.themeCharacterCardApplied", {
         defaultValue:
           "Character card applied and injected into the system prompt.",
       }),
     );
-    // 生成是一次完整操作，立即持久化，避免 debounce 窗口内切换页面导致丢失。
-    void saveSettings(nextSettings);
+  };
+
+  // 手动编辑保存：字段留空会被规范化裁剪，角色名为空则视为未生成角色卡。
+  const handleSaveCharacterCard = (card: ThemeCharacterCard): void => {
+    const normalized = normalizeThemeCharacterCard(card);
+    if (!normalized.name) {
+      return;
+    }
+    persistCharacterCard(
+      normalized,
+      t("settings.themeCharacterCardSaved", {
+        defaultValue: "Character card saved.",
+      }),
+    );
   };
 
   const handleRemoveCharacterCard = (): void => {
@@ -1070,6 +1093,7 @@ export function ThemeSettingsPanel(): React.JSX.Element {
             onSelectAvatar={handleSelectChatAvatar}
             onResetAvatar={handleResetChatAvatar}
             onGenerateCharacterCard={() => setCharacterCardOpen(true)}
+            onSaveCharacterCard={handleSaveCharacterCard}
             onRemoveCharacterCard={handleRemoveCharacterCard}
           />
 
