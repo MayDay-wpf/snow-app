@@ -5,7 +5,6 @@ import type {
   SubAgentCancelReceipt,
   SubAgentRunRecord,
 } from "../../../../../shared/subAgentRuns";
-import { isSubAgentTerminal } from "../../../../../shared/subAgentRuns";
 import {
   requestSubAgentRunCancel,
   useSubAgentRuns,
@@ -18,7 +17,6 @@ import {
   CheckCircle2,
   CircleDot,
   Hourglass,
-  RotateCcw,
   XCircle,
 } from "lucide-react";
 import { useI18n } from "../../../../i18n";
@@ -26,10 +24,6 @@ import {
   useChatConversationContext,
   useChatConversationSessions,
 } from "../components/ChatConversationContext";
-import {
-  resolveSubAgentFailureDecision,
-  useSubAgentFailurePending,
-} from "../hooks/subAgentRunControl";
 import type { ToolCallInfo } from "../utils/conversationTypes";
 import {
   subAgentRunActivity,
@@ -311,11 +305,7 @@ export const SubAgentToolCall = ({
   );
   const isEmptyResultError =
     parsedResult.type === "empty" && toolCall.status === "error";
-  // Run controls must not attribute a later continuation's state to this card.
-  const activeRunConversationId =
-    run && !isSubAgentTerminal(run.status) ? run.conversationId : undefined;
   const isQueued = run?.status === "queued";
-  const isFailurePending = useSubAgentFailurePending(activeRunConversationId);
   const queryStatus = parsedResult.runId
     ? runsError
       ? "subAgentRun.queryFailed"
@@ -564,38 +554,6 @@ export const SubAgentToolCall = ({
           </div>
         ) : null}
 
-        {/* 请求失败挂起：等待用户重试或放弃 */}
-        {isFailurePending && subConversationId ? (
-          <div className="tool-call-sub-agent-retry">
-            <span className="tool-call-sub-agent-retry-text">
-              <AlertCircle size={12} aria-hidden="true" />
-              {t("toolCall.subAgent.failurePending")}
-            </span>
-            <span className="tool-call-sub-agent-retry-actions">
-              <button
-                type="button"
-                className="tool-call-sub-agent-jump"
-                onClick={() =>
-                  resolveSubAgentFailureDecision(subConversationId, "abandon")
-                }
-              >
-                <XCircle size={12} aria-hidden="true" />
-                {t("toolCall.subAgent.abandon")}
-              </button>
-              <button
-                type="button"
-                className="tool-call-sub-agent-jump is-primary"
-                onClick={() =>
-                  resolveSubAgentFailureDecision(subConversationId, "retry")
-                }
-              >
-                <RotateCcw size={12} aria-hidden="true" />
-                {t("toolCall.subAgent.retry")}
-              </button>
-            </span>
-          </div>
-        ) : null}
-
         {/* Queued notice (continue 目标仍在运行：消息已进入 Pending 队列） */}
         {parsedResult.type === "receipt" &&
         parsedResult.kind === "message_queued" ? (
@@ -723,7 +681,7 @@ export const SubAgentRunActions = ({
   };
   return (
     <>
-      <div className="tool-call-sub-agent-retry-actions">
+      <div className="tool-call-sub-agent-actions">
         <button
           type="button"
           className={`tool-call-sub-agent-jump ${activeConversationId === run.conversationId ? "active" : ""}`}

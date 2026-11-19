@@ -285,6 +285,7 @@ export const ChatInputToolbar = ({
           isLoading={isLoadingApiConfig}
         />
         <ChatInputActionButtons
+          sessionKey={sessionKey ?? ""}
           value={value}
           isStreaming={isStreaming}
           isAborting={isAborting}

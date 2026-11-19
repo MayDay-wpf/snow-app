@@ -350,6 +350,7 @@ export const FilesystemCopyToolCall = ({
         <>
           {getFileTypeIcon(fileName, false, false, {
             size: 13,
+            className: "tcn-file-icon",
             "aria-hidden": true,
           })}
           {fileName}

@@ -410,6 +410,7 @@ export const FilesystemReadToolCall = ({
               false,
               {
                 size: 13,
+                className: "tcn-file-icon",
                 "aria-hidden": true,
               },
             )}

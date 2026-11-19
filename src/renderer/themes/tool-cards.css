@@ -374,7 +374,7 @@
   > .tool-call-sub-agent-acceptance,
 .tool-call-sub-agent-run
   .tool-call-sub-agent-observation
-  > .tool-call-sub-agent-retry-actions {
+  > .tool-call-sub-agent-actions {
   margin-top: 8px;
 }
 

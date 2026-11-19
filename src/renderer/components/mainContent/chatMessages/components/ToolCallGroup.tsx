@@ -1,5 +1,5 @@
 import { ChevronRight, CircleAlert } from "lucide-react";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useI18n } from "../../../../i18n";
 import { resolveLocalized } from "../../../../plugins/manifest";
 import { usePluginStore } from "../../../../plugins/pluginStore";
@@ -8,6 +8,12 @@ import type { ToolCallInfo } from "../utils/conversationTypes";
 import { describeToolRunHeader } from "../utils/toolActivitySummary";
 import { useToolCardStyle } from "../../../../utils/toolCardStyle";
 import { MessageTimestamp } from "./MessageTimestamp";
+import {
+  ENTER_MS,
+  EntranceProvider,
+  useEntrance,
+  type EntranceClock,
+} from "./EntranceScope";
 
 type ToolCallGroupProps = {
   /** Number of tool calls in this group. */
@@ -27,6 +33,8 @@ type ToolCallGroupProps = {
 
 /** 与 .tcg-collapse 的 grid 过渡时长一致。 */
 const COLLAPSE_MS = 220;
+/** 手动展开时逐个浮现的总时长（最大延迟 200ms + 入场 180ms）。 */
+const STAGGER_MS = 400;
 
 export const ToolCallGroup = ({
   count,
@@ -61,6 +69,34 @@ export const ToolCallGroup = ({
     return () => window.clearTimeout(timer);
   }, [wantBody, bodyMounted]);
 
+  // 与所在消息同批挂载时整组不再单独播入场。
+  const { suppressed: skipEnter, clock } = useEntrance();
+  // 手动展开：经典/简洁逐个浮现；极简由列表整体淡入，卡片不再单独入场。
+  const [expandClock, setExpandClock] = useState<EntranceClock | null>(null);
+  const [staggering, setStaggering] = useState(false);
+  const staggerTimerRef = useRef<number | undefined>(undefined);
+  useEffect(() => () => window.clearTimeout(staggerTimerRef.current), []);
+
+  const handleToggle = (): void => {
+    const next = !isOpen;
+    setUserOpen(next);
+    if (!next || bodyMounted) {
+      return;
+    }
+    if (isMinimal) {
+      setExpandClock({ until: performance.now() + ENTER_MS });
+      return;
+    }
+    setStaggering(true);
+    window.clearTimeout(staggerTimerRef.current);
+    staggerTimerRef.current = window.setTimeout(
+      () => setStaggering(false),
+      STAGGER_MS,
+    );
+  };
+
+  const childClock =
+    expandClock && expandClock.until > clock.until ? expandClock : clock;
   const toolNames = useMemo(
     () => toolCalls?.map((tc) => tc.name) ?? [],
     [toolCalls],
@@ -95,11 +131,15 @@ export const ToolCallGroup = ({
 
   // 标题文案就地更新（摘要常驻），不做淡入淡出，避免更新时整行像消失一下。
   return (
-    <div className={`tcg${hasError ? " tcg--has-error" : ""}`}>
+    <div
+      className={`tcg${hasError ? " tcg--has-error" : ""}${
+        skipEnter ? " tcg--no-enter" : ""
+      }${staggering ? " is-staggering" : ""}`}
+    >
       <button
         type="button"
         className="tcg-toggle"
-        onClick={() => setUserOpen(!isOpen)}
+        onClick={handleToggle}
         aria-expanded={isOpen}
       >
         <span className="tcg-label" title={label}>
@@ -144,7 +184,9 @@ export const ToolCallGroup = ({
       {/* 收起态不挂载工具卡（见 bodyMounted）；展开/收起仍走 grid-rows 过渡。 */}
       <div className={`tcg-collapse${isOpen ? " is-open" : ""}`}>
         <div className="tcg-list">
-          {bodyMounted || isOpen ? children : null}
+          <EntranceProvider value={childClock}>
+            {bodyMounted || isOpen ? children : null}
+          </EntranceProvider>
         </div>
       </div>
     </div>

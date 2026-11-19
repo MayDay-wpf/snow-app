@@ -46,6 +46,7 @@ import { useAppControl } from "./hooks/useAppControl";
 import { setActiveSshWorkspace } from "./ssh/sshConnectionStore";
 import { CONVERSATION_SELECTED_EVENT } from "./components/mainContent/chatMessages/hooks/useConversationManagement";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
+import { requestEscapeAbort } from "./components/mainContent/chatInput/escapeAbortGuard";
 import { useI18n } from "./i18n";
 import { useTheme } from "./hooks/useTheme";
 import {
@@ -226,7 +227,7 @@ const getMaxPanelWidth = (
  */
 const ShortcutHandlerBridge = (): React.JSX.Element => {
   const { registerHandler } = useKeyboardShortcutsSettings();
-  const { handleAbort, streamingConversationIds } =
+  const { handleAbort, streamingConversationIds, isStreaming, sessionViewKey } =
     useChatConversationContext();
 
   // 使用 ref 持有最新的 handleAbort，避免每次渲染都重新注册 handler
@@ -234,6 +235,8 @@ const ShortcutHandlerBridge = (): React.JSX.Element => {
   useEffect(() => {
     handleAbortRef.current = handleAbort;
   }, [handleAbort]);
+  const abortStateRef = useRef({ isStreaming, sessionViewKey });
+  abortStateRef.current = { isStreaming, sessionViewKey };
 
   // 同步"进行中会话"数量到主进程托盘 tooltip（渲染层是流式状态的唯一持有者）。
   useEffect(() => {
@@ -245,7 +248,12 @@ const ShortcutHandlerBridge = (): React.JSX.Element => {
   useEffect(() => installToolCardStyleShortcut(), []);
   useEffect(() => {
     const unsubCancel = registerHandler("cancelSession", () => {
-      handleAbortRef.current();
+      // ESC 防误触：运行中需在窗口期内二次按下
+      requestEscapeAbort({
+        sessionKey: abortStateRef.current.sessionViewKey,
+        isStreaming: abortStateRef.current.isStreaming,
+        abort: () => handleAbortRef.current(),
+      });
     });
     const unsubStopGeneration = registerHandler("stopGeneration", () => {
       handleAbortRef.current();

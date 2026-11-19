@@ -2707,26 +2707,3 @@
   background: var(--compact-accent-bg);
   color: var(--text-primary);
 }
-
-:root[data-theme-preset="compact"]
-  :is(
-    .sub-agent-finished-bar-back.is-primary,
-    .tool-call-sub-agent-retry-actions .tool-call-sub-agent-jump.is-primary
-  ) {
-  border: 1px solid transparent;
-  border-radius: var(--radius-md);
-  background: var(--compact-button-bg);
-  color: #ffffff;
-  box-shadow: none;
-}
-
-:root[data-theme-preset="compact"]
-  :is(
-    .sub-agent-finished-bar-back.is-primary,
-    .tool-call-sub-agent-retry-actions .tool-call-sub-agent-jump.is-primary
-  ):hover:not(:disabled) {
-  background: var(--compact-button-hover);
-  color: #ffffff;
-  opacity: 1;
-  box-shadow: none;
-}

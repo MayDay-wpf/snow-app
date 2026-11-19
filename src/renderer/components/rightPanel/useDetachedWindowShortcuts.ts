@@ -4,6 +4,7 @@ import { useKeyboardShortcutsSettings } from "../KeyboardShortcutsProvider";
 import { shortcutEvents } from "../shortcutEvents";
 import { useChatConversationContext } from "../mainContent/chatMessages";
 import { adjustUiFontSize, resetUiFontSize } from "../../utils/uiZoom";
+import { requestEscapeAbort } from "../mainContent/chatInput/escapeAbortGuard";
 
 /**
  * 独立面板窗口的快捷键处理器。
@@ -18,15 +19,22 @@ export const useDetachedWindowShortcuts = (createTabRef: {
   current: (() => void) | null;
 }): void => {
   const { registerHandler } = useKeyboardShortcutsSettings();
-  const { handleAbort } = useChatConversationContext();
+  const { handleAbort, isStreaming, sessionViewKey } =
+    useChatConversationContext();
 
   const handleAbortRef = useRef(handleAbort);
   handleAbortRef.current = handleAbort;
+  const abortStateRef = useRef({ isStreaming, sessionViewKey });
+  abortStateRef.current = { isStreaming, sessionViewKey };
 
   useEffect(() => {
     const unsubscribers = [
       registerHandler("cancelSession", () => {
-        handleAbortRef.current();
+        requestEscapeAbort({
+          sessionKey: abortStateRef.current.sessionViewKey,
+          isStreaming: abortStateRef.current.isStreaming,
+          abort: () => handleAbortRef.current(),
+        });
       }),
       registerHandler("stopGeneration", () => {
         handleAbortRef.current();

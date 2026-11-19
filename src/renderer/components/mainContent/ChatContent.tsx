@@ -5,7 +5,6 @@ import {
   Bot,
   CheckCircle2,
   MessageSquareQuote,
-  RotateCcw,
   Workflow,
   X,
   XCircle,
@@ -46,11 +45,6 @@ import {
   setToolCorrectionPreference,
 } from "./chatMessages/utils/toolCorrectionPreference";
 import { registerSessionDraftSaver } from "./chatInput/chatInputDraftBridge";
-import {
-  resolveSubAgentFailureDecision,
-  useSubAgentFailureAbandoned,
-  useSubAgentFailurePending,
-} from "./chatMessages/hooks/subAgentRunControl";
 
 type ChatContentProps = {
   activeDirectory?: WorkspaceDirectoryRecord | null;
@@ -352,15 +346,6 @@ const ChatContentBody = ({
   const isRunActive =
     (isSubAgentConversation && !isSubAgentFinished) ||
     (isWorkflowNodeConversation && !isWorkflowNodeFinished);
-  const isSubAgentFailurePending =
-    useSubAgentFailurePending(activeConversationId ?? undefined) &&
-    isSubAgentConversation &&
-    !isSubAgentFinished;
-  // 放弃后运行仍要收尾才落终态：期间直接展示失败收尾栏，输入框不再闪现。
-  const isSubAgentAbandoning =
-    useSubAgentFailureAbandoned(activeConversationId ?? undefined) &&
-    isSubAgentConversation &&
-    !isSubAgentFinished;
 
   // 节点状态落盘（updateWorkflowNodeSession）不触发会话 upsert，runner 每次状态
   // 变化都会 bump conversationTreeVersion：观看中的节点会话据此重查元数据，
@@ -761,11 +746,9 @@ const ChatContentBody = ({
                 <ArrowDown size={20} strokeWidth={2} aria-hidden="true" />
               </button>
             ) : null}
-            {isSubAgentFailurePending && activeConversationId ? (
-              <SubAgentRetryBar conversationId={activeConversationId} />
-            ) : isSubAgentFinished || isSubAgentAbandoning ? (
+            {isSubAgentFinished ? (
               <SubAgentFinishedNotice
-                status={isSubAgentFinished ? subAgentRunStatus : "failed"}
+                status={subAgentRunStatus}
                 parentConversationId={subAgentParentConversationId}
                 onBackToParent={handleSelectConversation}
               />
@@ -982,50 +965,6 @@ const SubAgentInfoHeader = ({
           />
         </div>
       ) : null}
-    </div>
-  );
-};
-
-/** 子代理请求失败挂起时替换输入框：主会话等待用户选择重试或放弃。 */
-const SubAgentRetryBar = ({
-  conversationId,
-}: {
-  conversationId: string;
-}): React.JSX.Element => {
-  const { t } = useI18n();
-  return (
-    <div className="sub-agent-finished-bar is-error">
-      <span className="sub-agent-finished-bar-status">
-        <AlertCircle size={15} aria-hidden="true" />
-        <span>
-          {t("chat.subAgentRetry.pending", {
-            defaultValue:
-              "The sub-agent request failed. The parent conversation is waiting for your decision.",
-          })}
-        </span>
-      </span>
-      <span className="sub-agent-retry-actions">
-        <button
-          type="button"
-          className="sub-agent-finished-bar-back"
-          onClick={() =>
-            resolveSubAgentFailureDecision(conversationId, "abandon")
-          }
-        >
-          <XCircle size={13} aria-hidden="true" />
-          {t("chat.subAgentRetry.abandon", { defaultValue: "Give up" })}
-        </button>
-        <button
-          type="button"
-          className="sub-agent-finished-bar-back is-primary"
-          onClick={() =>
-            resolveSubAgentFailureDecision(conversationId, "retry")
-          }
-        >
-          <RotateCcw size={13} aria-hidden="true" />
-          {t("chat.subAgentRetry.retry", { defaultValue: "Retry" })}
-        </button>
-      </span>
     </div>
   );
 };

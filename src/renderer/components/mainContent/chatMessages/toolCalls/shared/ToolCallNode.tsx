@@ -5,6 +5,7 @@ import { resolveLocalized } from "../../../../../plugins/manifest";
 import { usePluginStore } from "../../../../../plugins/pluginStore";
 import { usePluginToolOwner } from "../../../../../plugins/pluginToolIndex";
 import { PluginIcon } from "../../../../common/PluginIcon";
+import { useEntrance } from "../../components/EntranceScope";
 import { resolveToolDisplayName } from "./toolDisplayName";
 import type { ToolCategory } from "./ToolNameBadge";
 import { ToolNameBadge } from "./ToolNameBadge";
@@ -69,6 +70,8 @@ export const ToolCallNode = ({
   // 收起动画进行中：保留 open 直到退场动画结束，再真正折叠
   const [isClosing, setIsClosing] = useState(false);
   const isRunning = status === "running";
+  // 与所在集合/消息同批挂载时不再单独播入场
+  const { suppressed: skipEnter } = useEntrance();
 
   // When defaultOpen changes from false to true (e.g. an interactive
   // session starts), automatically expand the node so the body — and
@@ -128,8 +131,8 @@ export const ToolCallNode = ({
   return (
     <details
       className={`tcn tcn--${status}${isClosing ? " tcn--closing" : ""}${
-        className ? ` ${className}` : ""
-      }`}
+        skipEnter ? " tcn--no-enter" : ""
+      }${className ? ` ${className}` : ""}`}
       open={isOpen}
       onToggle={(e) => setIsOpen(e.currentTarget.open)}
     >

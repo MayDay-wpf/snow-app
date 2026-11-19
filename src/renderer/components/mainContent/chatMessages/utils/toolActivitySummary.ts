@@ -193,15 +193,6 @@ const summarizeActivities = (
   return parts.join(" · ");
 };
 
-const LATEST_KEY: Record<ActivityKind, string> = {
-  read: "read",
-  search: "search",
-  edit: "edit",
-  command: "command",
-  web: "web",
-  other: "other",
-};
-
 const LATEST_DEFAULTS: Record<string, string> = {
   readDone: "已读取 {{name}}",
   searchDone: "已搜索 {{name}}",
@@ -227,14 +218,36 @@ const describeSettledActivity = (
     }
     const { kind, summary, target } = digestOf(toolCall);
     const name = summary ?? target ?? resolveToolDisplayName(t, toolCall.name);
-    const key =
-      toolCall.status === "error" ? "error" : `${LATEST_KEY[kind]}Done`;
+    const key = toolCall.status === "error" ? "error" : `${kind}Done`;
     return t(`toolCall.latest.${key}`, {
       defaultValue: LATEST_DEFAULTS[key] ?? "{{name}}",
       values: { name },
     });
   }
   return "";
+};
+
+/** 单条工具调用的简短目标 + 目标文件（用于文件类型图标）。 */
+export type ToolTargetInfo = {
+  text: string;
+  filePath: string | null;
+};
+
+/**
+ * 单条工具调用的简短目标（文件名 / 模式 / 命令 / 查询）。
+ * 同类连续合并的组摘要行用它补出最近一次的具体目标。
+ */
+export const describeToolTarget = (
+  toolCall: ToolCallInfo,
+): ToolTargetInfo | null => {
+  const { kind, path, summary, target } = digestOf(toolCall);
+  const text = summary ?? target;
+  if (!text) return null;
+  return {
+    text,
+    // 只有展示的是文件名本身（无自定义摘要）时才配文件类型图标
+    filePath: !summary && (kind === "read" || kind === "edit") ? path : null,
+  };
 };
 
 /**

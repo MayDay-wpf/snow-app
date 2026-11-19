@@ -3,6 +3,8 @@ import { useEffect, useRef, useState } from "react";
 import { useI18n } from "../../../i18n";
 import { useBusySendBehavior } from "../../../constants/busySendBehavior";
 import { useShortcutLabel } from "../../../hooks/useShortcutLabel";
+import { Tooltip } from "../../common/Tooltip";
+import { useEscapeAbortArmed } from "./escapeAbortGuard";
 import type { ChatInputViewProps, SendKeyMode } from "./types";
 
 type ChatInputActionButtonsProps = Pick<
@@ -16,11 +18,15 @@ type ChatInputActionButtonsProps = Pick<
   | "handleSend"
   | "sendKeyMode"
   | "setSendKeyMode"
->;
+> & {
+  /** 会话视图 key：匹配 ESC 二次确认提示的归属。 */
+  sessionKey: string;
+};
 
 const SEND_KEY_MODES: SendKeyMode[] = ["enter", "ctrlEnter"];
 
 export const ChatInputActionButtons = ({
+  sessionKey,
   value,
   isStreaming,
   isAborting,
@@ -56,6 +62,8 @@ export const ChatInputActionButtons = ({
         ? `${sendLabel} (${sendShortcut})`
         : sendLabel;
   const stopShortcut = useShortcutLabel("stopGeneration");
+  const cancelShortcut = useShortcutLabel("cancelSession");
+  const escapeArmed = useEscapeAbortArmed(sessionKey);
   const stoppingLabel = t("chatInput.stoppingGeneration", {
     defaultValue: "Stopping generation",
   });
@@ -114,22 +122,29 @@ export const ChatInputActionButtons = ({
   return (
     <div className="input-action-buttons">
       {(isStreaming || isAborting) && (
-        <button
-          className={`abort-btn ${isAborting ? "is-aborting" : ""}`}
-          aria-label={abortTitle}
-          title={abortTitle}
-          // 必须以无参形式调用：handleAbort 实现接受可选的 targetSessionKey，
-          // 直接绑定会把 MouseEvent 当作会话 key，导致中断静默失效。
-          onClick={() => handleAbort()}
-          disabled={isAborting}
-          type="button"
+        <Tooltip
+          content={t("chatInput.escapeAbortHint", {
+            values: { shortcut: cancelShortcut || "Esc" },
+          })}
+          visible={escapeArmed && !isAborting}
         >
-          {isAborting ? (
-            <Loader2 size={14} className="spin" />
-          ) : (
-            <Square size={14} fill="currentColor" />
-          )}
-        </button>
+          <button
+            className={`abort-btn ${isAborting ? "is-aborting" : ""}`}
+            aria-label={abortTitle}
+            title={escapeArmed ? undefined : abortTitle}
+            // 必须以无参形式调用：handleAbort 实现接受可选的 targetSessionKey，
+            // 直接绑定会把 MouseEvent 当作会话 key，导致中断静默失效。
+            onClick={() => handleAbort()}
+            disabled={isAborting}
+            type="button"
+          >
+            {isAborting ? (
+              <Loader2 size={14} className="spin" />
+            ) : (
+              <Square size={14} fill="currentColor" />
+            )}
+          </button>
+        </Tooltip>
       )}
       <div className="send-key-group" ref={groupRef}>
         <button

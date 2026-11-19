@@ -7,6 +7,13 @@
    选择器额外带 .tcg / .tcn 祖先，压过主题预设的同名规则。
    ============================================================ */
 
+/* 统一动效：时长须与 ToolCallGroup / SameToolRun 的 COLLAPSE_MS 一致 */
+:root[data-tool-card-style="minimal"] {
+  --minimal-motion-duration: 0.22s;
+  --minimal-motion-ease: cubic-bezier(0.23, 1, 0.32, 1);
+  --minimal-motion-ease-in: cubic-bezier(0.55, 0, 0.85, 0.4);
+}
+
 /* ---------- 工具组：活动摘要 + 最近结果标题 ---------- */
 
 /* 标题文案就地更新（不做淡入淡出）：摘要是常驻数据，只改数字。 */
@@ -83,7 +90,7 @@
   color: currentColor;
   opacity: 0.55;
   transition:
-    transform 0.2s cubic-bezier(0.23, 1, 0.32, 1),
+    transform var(--minimal-motion-duration) var(--minimal-motion-ease),
     opacity 0.12s ease;
 }
 
@@ -91,10 +98,33 @@
   opacity: 1;
 }
 
+:root[data-tool-card-style="minimal"] .tcg .tcg-collapse {
+  transition:
+    grid-template-rows var(--minimal-motion-duration) var(--minimal-motion-ease),
+    visibility 0s var(--minimal-motion-duration);
+}
+
+:root[data-tool-card-style="minimal"] .tcg .tcg-collapse.is-open {
+  transition:
+    grid-template-rows var(--minimal-motion-duration) var(--minimal-motion-ease),
+    visibility 0s;
+}
+
+/* 展开时列表整体淡入（与同类列表一致），卡片本身不再单独入场 */
 :root[data-tool-card-style="minimal"] .tcg .tcg-list {
   gap: 0;
   padding-left: 0;
   margin-top: 2px;
+  opacity: 0;
+  transform: translateY(-3px);
+  transition:
+    opacity var(--minimal-motion-duration) var(--minimal-motion-ease),
+    transform var(--minimal-motion-duration) var(--minimal-motion-ease);
+}
+
+:root[data-tool-card-style="minimal"] .tcg .tcg-collapse.is-open > .tcg-list {
+  opacity: 1;
+  transform: none;
 }
 
 :root[data-tool-card-style="minimal"] .tcg .tcg-list::before {
@@ -229,8 +259,16 @@
   white-space: nowrap;
 }
 
-:root[data-tool-card-style="minimal"] .tcn .tcn-name > svg {
+/* 文件类型图标保留，其余行内图标仍隐藏 */
+:root[data-tool-card-style="minimal"] .tcn .tcn-name > svg:not(.tcn-file-icon) {
   display: none;
+}
+
+:root[data-tool-card-style="minimal"] .tcn .tcn-name > svg.tcn-file-icon {
+  display: inline-block;
+  flex-shrink: 0;
+  width: 13px;
+  height: 13px;
 }
 
 :root[data-tool-card-style="minimal"] .tcn .tcn-name--running {
@@ -245,7 +283,7 @@
 :root[data-tool-card-style="minimal"] .tcn .tcn-chevron {
   opacity: 0;
   transition:
-    transform 0.2s cubic-bezier(0.23, 1, 0.32, 1),
+    transform var(--minimal-motion-duration) var(--minimal-motion-ease),
     opacity 0.12s ease;
 }
 
@@ -259,63 +297,124 @@
   padding: 4px 0 8px;
 }
 
-/* ---------- 同类连续工具：最新一次为标题，其余折叠 ---------- */
-
-.tsr-head {
-  display: flex;
-  align-items: flex-start;
-  gap: 6px;
-  min-width: 0;
+/* 单卡展开/收起：沿用同名关键帧（animationend 依赖 tcn-body-out），只换节奏 */
+:root[data-tool-card-style="minimal"] .tcn[open] > .tcn-collapse {
+  animation: tcn-collapse-in var(--minimal-motion-duration)
+    var(--minimal-motion-ease) both;
 }
 
-.tsr-latest {
+:root[data-tool-card-style="minimal"] .tcn.tcn--closing > .tcn-collapse {
+  animation: tcn-collapse-out var(--minimal-motion-duration)
+    var(--minimal-motion-ease-in) both;
+}
+
+:root[data-tool-card-style="minimal"] .tcn[open] > .tcn-collapse > .tcn-body {
+  animation: tcn-body-in var(--minimal-motion-duration)
+    var(--minimal-motion-ease) both;
+}
+
+:root[data-tool-card-style="minimal"]
+  .tcn.tcn--closing
+  > .tcn-collapse
+  > .tcn-body {
+  animation: tcn-body-out var(--minimal-motion-duration)
+    var(--minimal-motion-ease-in) both;
+}
+
+/* ---------- 同类连续工具：组摘要行 + 同级平铺 ---------- */
+
+.tsr {
   display: flex;
-  flex: 0 1 auto;
   flex-direction: column;
   min-width: 0;
 }
 
-/* 收缩宽度下百分比上限会过早截断，改用固定上限 */
-.tsr-latest .tcn .tcn-name {
-  max-width: 520px;
-}
-
-.tsr-toggle {
-  display: inline-flex;
+/* 组摘要行是分组标签、不是一次调用：无工具图标，颜色比调用行更淡 */
+.tsr-head {
+  display: flex;
   flex-shrink: 0;
   align-items: center;
-  gap: 2px;
-  height: 18px;
-  margin-top: 3px;
-  padding: 0 3px 0 6px;
+  gap: 5px;
+  width: 100%;
+  height: 24px;
+  min-width: 0;
+  padding: 0;
   border: none;
-  border-radius: 999px;
-  background: var(--bg-hover);
+  border-radius: 0;
+  background: transparent;
   color: var(--text-tertiary);
-  font-size: 11.5px;
-  font-variant-numeric: tabular-nums;
-  line-height: 1;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.2;
+  text-align: left;
   cursor: pointer;
-  transition:
-    color 0.12s ease,
-    background-color 0.12s ease;
+  transition: color 0.12s ease;
 }
 
-.tsr-toggle:hover {
-  color: var(--text-primary);
+.tsr-head:hover {
+  color: var(--text-secondary);
 }
 
-.tsr-toggle.has-error .tsr-count {
-  color: var(--accent-red);
+.tsr-name {
+  flex-shrink: 0;
 }
 
-.tsr-toggle.is-running .tsr-count {
+.tsr-head.is-running .tsr-name {
   animation: tcn-minimal-pulse 1.4s ease-in-out infinite;
 }
 
+.tsr-head.has-error .tsr-name {
+  color: var(--accent-red);
+}
+
+.tsr-count {
+  flex-shrink: 0;
+  color: var(--text-muted, var(--text-tertiary));
+  font-variant-numeric: tabular-nums;
+}
+
+.tsr-diff {
+  flex-shrink: 0;
+}
+
+/* 最近一次的目标：只在收起态补信息，展开后由列表本身承载 */
+.tsr-latest-target {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-muted, var(--text-tertiary));
+}
+
+.tsr-latest-target-icon {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.tsr-latest-target-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tsr-latest-target::before {
+  content: "·";
+}
+
+.tsr-alert {
+  flex-shrink: 0;
+  color: var(--accent-red);
+}
+
 .tsr-chevron {
-  opacity: 0.7;
-  transition: transform 0.2s cubic-bezier(0.23, 1, 0.32, 1);
+  flex-shrink: 0;
+  opacity: 0.55;
+  transition: transform var(--minimal-motion-duration, 0.22s)
+    var(--minimal-motion-ease, ease);
 }
 
 .tsr.is-open .tsr-chevron {
@@ -327,31 +426,33 @@
   grid-template-rows: 0fr;
   visibility: hidden;
   transition:
-    grid-template-rows 0.22s ease,
-    visibility 0s 0.22s;
+    grid-template-rows var(--minimal-motion-duration, 0.22s)
+      var(--minimal-motion-ease, ease),
+    visibility 0s var(--minimal-motion-duration, 0.22s);
 }
 
 .tsr-collapse.is-open {
   grid-template-rows: 1fr;
   visibility: visible;
   transition:
-    grid-template-rows 0.22s ease,
+    grid-template-rows var(--minimal-motion-duration, 0.22s)
+      var(--minimal-motion-ease, ease),
     visibility 0s;
 }
 
+/* 同级平铺：与组摘要行同缩进，无树形连线 */
 .tsr-list {
   display: flex;
   flex-direction: column;
   min-height: 0;
   overflow: hidden;
-  margin-left: 6px;
-  padding-left: 12px;
-  border-left: 1px solid var(--border-color);
   opacity: 0;
   transform: translateY(-3px);
   transition:
-    opacity 0.18s ease,
-    transform 0.18s ease;
+    opacity var(--minimal-motion-duration, 0.22s)
+      var(--minimal-motion-ease, ease),
+    transform var(--minimal-motion-duration, 0.22s)
+      var(--minimal-motion-ease, ease);
 }
 
 .tsr-collapse.is-open > .tsr-list {
@@ -359,13 +460,24 @@
   transform: none;
 }
 
+/* 自动收纳：用户没参与开合，直接切到目标状态，不播收起过渡 */
+.tsr.is-static .tsr-chevron,
+.tsr.is-static .tsr-collapse,
+.tsr.is-static .tsr-list {
+  transition: none;
+}
+
 @media (prefers-reduced-motion: reduce) {
   :root[data-tool-card-style="minimal"] .tcg .tcg-chevron,
+  :root[data-tool-card-style="minimal"] .tcg .tcg-collapse,
+  :root[data-tool-card-style="minimal"] .tcg .tcg-list,
   :root[data-tool-card-style="minimal"] .tcn .tcn-chevron,
+  :root[data-tool-card-style="minimal"] .tcn[open] > .tcn-collapse,
+  :root[data-tool-card-style="minimal"] .tcn[open] > .tcn-collapse > .tcn-body,
   .tsr-chevron,
   .tsr-collapse,
   .tsr-list,
-  .tsr-toggle.is-running .tsr-count {
+  .tsr-head.is-running .tsr-name {
     animation: none;
     transition: none;
   }

@@ -2,6 +2,7 @@ import { memo, useCallback, useEffect, useRef } from "react";
 import { VIRTUAL_PLACEHOLDER_DEFAULT_HEIGHT } from "../hooks/useViewportVirtualization";
 import { MessageContent, type MessageContentProps } from "./MessageContent";
 import { ChatImAvatar } from "./ChatImAvatar";
+import { EntranceScope } from "./EntranceScope";
 
 /**
  * Viewport-virtualized wrapper for a single chat message.
@@ -90,7 +91,9 @@ export const VirtualizedMessage = memo(
       // ResizeObserver can measure the true height for future placeholder use.
       const content = (
         <div className={itemClassName} data-message-index={itemIndex}>
-          <MessageContent {...contentProps} />
+          <EntranceScope active={!isReplay}>
+            <MessageContent {...contentProps} />
+          </EntranceScope>
         </div>
       );
       const imRole =

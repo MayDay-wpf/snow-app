@@ -176,12 +176,7 @@ export type SubAgentRunRecord = SubAgentRunScope & {
   acceptedAt: number;
   startedAt?: number;
   completedAt?: number;
-  waitingReason?:
-    | "authorization"
-    | "question"
-    | "failure_decision"
-    | "hook_decision"
-    | "pause";
+  waitingReason?: "authorization" | "question" | "hook_decision" | "pause";
   outcome?: SubAgentOutcome;
   snapshot: SubAgentExecutionSnapshot;
   eventId?: string;

@@ -10210,25 +10210,6 @@ body.is-panel-resizing * {
   color: var(--text-primary);
 }
 
-/* 子代理请求失败挂起：重试 / 放弃 */
-.sub-agent-retry-actions {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  flex-shrink: 0;
-}
-
-.sub-agent-finished-bar-back.is-primary {
-  background: var(--text-primary);
-  color: var(--on-solid);
-}
-
-.sub-agent-finished-bar-back.is-primary:hover {
-  background: var(--text-primary);
-  color: var(--on-solid);
-  opacity: 0.88;
-}
-
 /* ===== User Message Rail (edge count pill) =====
    A glass capsule hugging the chat column's right edge: bubble icon + user
    message count. On hover it slides slightly outward and expands a floating
@@ -15648,26 +15629,32 @@ img.tcg-plugin-icon {
   overflow: hidden;
 }
 
-/* 新工具卡片依次浮现：交错延迟让批量出现的卡片有节奏感，
-   最迟一张也在 0.18s 淡入 + 0.2s 延迟内完成，整体不拖沓。 */
-.tcg-list > .tcn:nth-child(2) {
+/* 手动展开集合时卡片依次浮现（.is-staggering 只在展开瞬间挂上）；
+   流式逐个追加的卡片不吃延迟，到达即出现。 */
+.tcg.is-staggering .tcg-list > .tcn:nth-child(2) {
   animation-delay: 40ms;
 }
 
-.tcg-list > .tcn:nth-child(3) {
+.tcg.is-staggering .tcg-list > .tcn:nth-child(3) {
   animation-delay: 80ms;
 }
 
-.tcg-list > .tcn:nth-child(4) {
+.tcg.is-staggering .tcg-list > .tcn:nth-child(4) {
   animation-delay: 120ms;
 }
 
-.tcg-list > .tcn:nth-child(5) {
+.tcg.is-staggering .tcg-list > .tcn:nth-child(5) {
   animation-delay: 160ms;
 }
 
-.tcg-list > .tcn:nth-child(n + 6) {
+.tcg.is-staggering .tcg-list > .tcn:nth-child(n + 6) {
   animation-delay: 200ms;
+}
+
+/* 与外层消息/集合同批挂载：不重复播入场，避免多层位移叠加 */
+.tcg.tcg--no-enter,
+.tcn.tcn--no-enter {
+  animation: none;
 }
 
 /* ============================================================
@@ -25724,39 +25711,10 @@ button.user-message-source:hover {
   font-size: 11px;
 }
 
-/* 子代理请求失败挂起（卡片内重试 / 放弃） */
-.tool-call-sub-agent-retry {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 8px;
-  padding: 4px 0;
-}
-
-.tool-call-sub-agent-retry-text {
+.tool-call-sub-agent-actions {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 12px;
-  color: var(--color-error, #ef4444);
-}
-
-.tool-call-sub-agent-retry-actions {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.tool-call-sub-agent-retry-actions .tool-call-sub-agent-jump.is-primary,
-.tool-call-sub-agent-retry-actions .tool-call-sub-agent-jump.is-primary:hover {
-  background: var(--text-primary);
-  border-color: var(--text-primary);
-  color: var(--on-solid);
-}
-
-.tool-call-sub-agent-retry-actions .tool-call-sub-agent-jump.is-primary:hover {
-  opacity: 0.88;
 }
 
 .sub-agent-concurrency-row {

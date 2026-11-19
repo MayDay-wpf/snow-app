@@ -83,12 +83,6 @@ import type {
   SubAgentAcceptanceEvidenceStatus,
   SubAgentAcceptanceSnapshot,
 } from "./subAgentAcceptance";
-import {
-  awaitSubAgentFailureDecision,
-  cancelSubAgentRunWaits,
-  registerSubAgentRunControl,
-  unregisterSubAgentRunControl,
-} from "./subAgentRunControl";
 import { loadSubAgentExecutionMode } from "./subAgentExecutionMode";
 import {
   activeConversationRun,
@@ -707,36 +701,7 @@ const createSubAgentRunLoop = (deps: SubAgentRunLoopDeps): SubAgentRunLoop => {
               : message,
           ),
         );
-        // 挂起等待用户「重试 / 放弃」，主会话的工具调用保持等待；挂起期间让出并发名额。
-        if (!isSubCancelled()) {
-          ctx.updateSessionField(subConvId, "isStreaming", false);
-          ctx.removeStreamingId(subConvId);
-          const decision = await withWaiting("failure_decision", () =>
-            awaitSubAgentFailureDecision(slotOwner),
-          );
-          const retryReady = decision === "retry" && !isSubCancelled();
-          if (retryReady) {
-            ctx.updateSessionField(subConvId, "isStreaming", true);
-            ctx.addStreamingId(subConvId);
-            // 只移除失败气泡：本轮消息（含已完成工具结果）保留在库内，不重发、不重放。
-            ctx.updateSessionMessages(subConvId, (currentMessages) =>
-              currentMessages.filter(
-                (message) => message.id !== subAssistantMessageId,
-              ),
-            );
-            // 重试同一轮请求：本轮消息已随失败回合落库，历史会原样提供（工具结果、
-            // 插话都在）。唯一例外是紧挨失败行的那条 user 消息会被历史排除规则跳过，
-            // 这里补发它；其余消息一律不重发，避免上下文重复。
-            const trailingRetryMessage = subMessages[subMessages.length - 1];
-            return subAgentRunLoop(
-              trailingRetryMessage && trailingRetryMessage.role === "user"
-                ? [trailingRetryMessage]
-                : [],
-              resumeAfterCompaction,
-              true,
-            );
-          }
-        }
+        // 失败即终结本次运行：不挂起等待人工重试，失败原因交给主会话处理。
         stopped = true;
         if (isSubCancelled() || isForceSendInterrupted()) {
           return "Sub-agent interrupted by user";
@@ -1973,11 +1938,9 @@ const releaseSubAgentInteractions = (
 const stopSubAgentResources = async (
   ctx: ConversationContextValue,
   conversationId: string,
-  ownerId: string,
 ): Promise<void> => {
   const ref = ctx.sessionsRefData.current.get(conversationId);
   if (ref) ref.isAbortRequested = true;
-  cancelSubAgentRunWaits(ownerId);
   releaseSubAgentInteractions(ctx, conversationId, "Sub-agent run cancelled");
   for (const [id, pending] of ctx.pendingHookDecisionRef.current) {
     if (pending.sessionKey !== conversationId) continue;
@@ -2414,7 +2377,6 @@ const dispatchPreparedSubAgentRun = async (
     publish,
     ownerId,
   );
-  registerSubAgentRunControl(ownerId, actualConversationId);
   subAgentSessionOwners.set(actualConversationId, ownerId);
   const promise = startOwnedSubAgentRun(
     ownerId,
@@ -2669,8 +2631,6 @@ const dispatchPreparedSubAgentRun = async (
           subAgentSessionOwners.delete(actualConversationId);
         }
         capacityAbort.abort();
-        cancelSubAgentRunWaits(ownerId);
-        unregisterSubAgentRunControl(ownerId);
       }
     },
     async () => {
@@ -2681,7 +2641,7 @@ const dispatchPreparedSubAgentRun = async (
         );
       state.cancelled = true;
       capacityAbort.abort();
-      await stopSubAgentResources(ctx, actualConversationId, ownerId);
+      await stopSubAgentResources(ctx, actualConversationId);
     },
   );
   if (receipt.executionMode === "async") return JSON.stringify(receipt);
