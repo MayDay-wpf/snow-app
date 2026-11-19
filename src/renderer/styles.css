@@ -50441,22 +50441,6 @@ body.ctrl-held [data-path] {
   flex-direction: column;
 }
 
-/* The view mode code area is
-   the single scroll container for both axes, so the horizontal scrollbar is
-   pinned to the bottom of the viewport instead of the bottom of the whole
-   content (previously it lived on `.file-viewer-code-content`, forcing users
-   to scroll all the way down to reach it). Long lines overflow the `.file-viewer-code`
-   flex row, whose `white-space: pre` code child refuses to shrink below its
-   widest line (min-width: auto), producing the horizontal scroll here while
-   the sticky gutter stays pinned on the left. */
-.file-viewer-code-scroll {
-  flex: 1;
-  min-height: 0;
-  overflow-y: scroll;
-  overflow-x: auto;
-  background: var(--bg-primary);
-}
-
 /* Markdown 文件渲染预览（复用 .ai-message 的 markdown 排版样式）。
    容器自身滚动；覆盖 ai-message 的消息内边距，适配阅读器布局。 */
 .file-viewer-markdown {
@@ -50490,165 +50474,6 @@ body.ctrl-held [data-path] {
 
 .file-viewer-markdown a:hover {
   text-decoration: underline;
-}
-
-.file-viewer-code {
-  margin: 0;
-  padding: 12px 0;
-  background: var(--bg-primary);
-  font-family: var(--font-mono);
-  font-size: 12.5px;
-  line-height: 1.6;
-  display: flex;
-  min-height: 100%;
-  position: relative;
-}
-
-/* 查看模式专属（编辑模式复用上面的类但依赖 editor-wrap 自身撑宽）：
-   pre 按最长行扩展，横向滚动由外层 .file-viewer-code-scroll 承担，
-   使行高亮条与搜索标记层（absolute 定位于本元素）覆盖全部内容宽度；
-   内容较窄时 min-width 兜底占满视口宽度。 */
-pre.file-viewer-code {
-  width: max-content;
-  min-width: 100%;
-}
-
-.file-viewer-line-numbers {
-  flex-shrink: 0;
-  padding: 0 10px 0 14px;
-  text-align: right;
-  color: var(--text-muted);
-  user-select: none;
-  white-space: pre;
-  background: var(--bg-primary);
-  position: sticky;
-  left: 0;
-  z-index: 1;
-  border-right: 1px solid var(--border-color);
-}
-
-.file-viewer-code-content {
-  flex: 1;
-  padding: 0 14px 0 10px;
-  background: transparent;
-  white-space: pre;
-}
-
-/* 逐行渲染（查看模式）：行换行符存放在隐藏节点里，保证 textContent 与
-   源码一致（文内搜索按字符偏移定位依赖这一点），因此容器自身不需要 pre。 */
-.file-viewer-code-content--lines {
-  white-space: normal;
-}
-
-.file-viewer-code-line {
-  display: block;
-  white-space: pre;
-  /* 空行也要占满一行高度（lh 不支持时退回与 line-height 一致的 em） */
-  min-height: 1.6em;
-  min-height: 1lh;
-}
-
-.file-viewer-truncated-badge {
-  display: inline-block;
-  margin-left: 6px;
-  color: var(--accent-orange, #f59e0b);
-  background: color-mix(
-    in srgb,
-    var(--accent-orange, #f59e0b) 12%,
-    transparent
-  );
-  border: 1px solid
-    color-mix(in srgb, var(--accent-orange, #f59e0b) 25%, transparent);
-  border-radius: var(--radius-xs, 3px);
-  padding: 0 4px;
-  font-size: 10px;
-  user-select: none;
-  vertical-align: middle;
-}
-
-/* 行号槽逐行渲染：折叠箭头固定在左侧列，行号靠右对齐 */
-.file-viewer-gutter-line {
-  position: relative;
-  display: flex;
-  align-items: center;
-}
-
-.file-viewer-gutter-num {
-  margin-left: auto;
-}
-
-/* 折叠块首行末尾的占位标记（文案由 data-fold-label 提供） */
-.file-viewer-code-line--folded::after {
-  content: attr(data-fold-label);
-  margin-left: 8px;
-  padding: 0 6px;
-  border-radius: 3px;
-  background: var(--bg-hover);
-  color: var(--text-muted);
-  font-size: 11px;
-}
-
-.file-viewer-fold-toggle {
-  position: absolute;
-  top: 50%;
-  right: 100%;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 14px;
-  height: 14px;
-  padding: 0;
-  border: none;
-  border-radius: 3px;
-  background: transparent;
-  color: var(--text-muted);
-  cursor: pointer;
-  opacity: 0.5;
-  transform: translateY(-50%);
-  transition:
-    opacity 0.12s ease,
-    background 0.12s ease;
-}
-
-.file-viewer-line-numbers:hover .file-viewer-fold-toggle {
-  opacity: 0.9;
-}
-
-.file-viewer-fold-toggle:hover {
-  background: var(--bg-hover);
-  color: var(--text-primary);
-  opacity: 1;
-}
-
-.file-viewer-fold-toggle svg {
-  transition: transform 0.12s ease;
-}
-
-.file-viewer-fold-toggle.expanded svg {
-  transform: rotate(90deg);
-}
-
-.file-viewer-line-highlight {
-  position: absolute;
-  left: 0;
-  right: 0;
-  pointer-events: none;
-  background: color-mix(in srgb, var(--accent-color, #4f8cff) 18%, transparent);
-  border-left: 2px solid var(--accent-color, #4f8cff);
-  animation: file-viewer-line-highlight-fade 2.4s ease-out forwards;
-  z-index: 0;
-}
-
-@keyframes file-viewer-line-highlight-fade {
-  0% {
-    opacity: 1;
-  }
-  70% {
-    opacity: 1;
-  }
-  100% {
-    opacity: 0;
-  }
 }
 
 /* File Viewer highlight.js theme is shared with .ai-message via :is() selector
@@ -51407,54 +51232,12 @@ pre.file-viewer-code {
   font-size: 12px;
 }
 
-/* 匹配高亮层：绝对定位于 .file-viewer-code（position: relative）内。
-    横向滚动由外层 .file-viewer-code-scroll 承担，本层随 pre 与代码
-    同步滚动，矩形坐标天然对齐，无需滚动补偿。 */
-.file-viewer-search-marks {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  z-index: 0;
-}
-
-.file-viewer-search-mark {
-  position: absolute;
-  background: color-mix(
-    in srgb,
-    var(--accent-amber-text, #d97706) 40%,
-    transparent
-  );
-  border-radius: 2px;
-}
-
-.file-viewer-search-mark.current {
-  background: color-mix(in srgb, var(--accent-color, #4f8cff) 55%, transparent);
-  box-shadow: inset 0 0 0 1px var(--accent-color, #4f8cff);
-}
-
 /* 编辑模式：CodeMirror 宿主，滚动与虚拟化由编辑器自身负责。 */
 .file-viewer-cm {
   flex: 1;
   min-height: 0;
   overflow: hidden;
   background: var(--bg-primary);
-}
-
-/* 命中行整行底色（查看模式），当前命中行更深。 */
-.file-viewer-search-line {
-  position: absolute;
-  left: 0;
-  right: 0;
-  pointer-events: none;
-  background: color-mix(
-    in srgb,
-    var(--accent-amber-text, #d97706) 9%,
-    transparent
-  );
-}
-
-.file-viewer-search-line.current {
-  background: color-mix(in srgb, var(--accent-color, #4f8cff) 16%, transparent);
 }
 
 .file-viewer-search-mark-inline {

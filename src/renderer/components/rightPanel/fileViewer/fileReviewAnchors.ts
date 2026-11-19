@@ -25,51 +25,19 @@ export const reviewLineAt = (index: LineIndex, offset: number): number => {
 export const FILE_REVIEW_MAX_SELECTION_CHARS = 4096;
 
 /**
- * 捕获代码区当前选区为文本锚点（起止行号 + 原文）。
- * Only accept selection endpoints inside real rendered source rows.
+ * 捕获编辑器选区（全文字符偏移）为文本锚点（起止行号 + 原文）。
+ * 位置来自编辑器文档模型，折叠或虚拟滚动都不影响引用的原文。
  */
-export const captureFileTextSelection = (
-  root: HTMLElement,
+export const captureFileTextRange = (
   index: LineIndex,
+  from: number,
+  to: number,
   representation: FileReviewTextAnchor["representation"],
   maxChars: number = FILE_REVIEW_MAX_SELECTION_CHARS,
 ): FileReviewDraftAnchor | null => {
-  const selection = window.getSelection();
-  if (!selection || selection.isCollapsed || selection.rangeCount !== 1)
-    return null;
-  const range = selection.getRangeAt(0);
-  const endpoint = (node: Node, offset: number): number | null => {
-    const element = node instanceof Element ? node : node.parentElement;
-    const row = element?.closest<HTMLElement>(
-      ".file-viewer-code-line[data-line]",
-    );
-    if (!row || !root.contains(row)) return null;
-    const line = Number(row.dataset.line);
-    if (!Number.isInteger(line) || line < 1 || line > index.total) return null;
-    const prefix = document.createRange();
-    prefix.selectNodeContents(row);
-    prefix.setEnd(node, offset);
-    const column = prefix.toString().length;
-    if (column > index.getLine(line).length) return null;
-    return index.starts[line - 1] + column;
-  };
-  const start = endpoint(range.startContainer, range.startOffset);
-  const end = endpoint(range.endContainer, range.endOffset);
-  if (start === null || end === null || end <= start || end - start > maxChars)
-    return null;
-  const startLine = reviewLineAt(index, start);
-  const endLine = reviewLineAt(index, end - 1);
-  // A DOM selection across folded or virtualized-away rows must not silently
-  // quote source text the user did not select on screen.
-  for (let line = startLine; line <= endLine; line += 1) {
-    const row = root.querySelector<HTMLElement>(`[data-line="${line}"]`);
-    if (
-      !row ||
-      (line < endLine &&
-        row.classList.contains("file-viewer-code-line--folded"))
-    )
-      return null;
-  }
+  const start = Math.max(0, Math.min(from, to));
+  const end = Math.min(index.text.length, Math.max(from, to));
+  if (end <= start || end - start > maxChars) return null;
   const splitsSurrogatePair = (offset: number): boolean => {
     const left = index.text.charCodeAt(offset - 1);
     const right = index.text.charCodeAt(offset);
@@ -78,19 +46,19 @@ export const captureFileTextSelection = (
     );
   };
   if (splitsSurrogatePair(start) || splitsSurrogatePair(end)) return null;
+  const quote = index.text.slice(start, end);
+  if (!quote.trim()) return null;
   let beforeStart = Math.max(0, start - 80);
   let afterEnd = Math.min(index.text.length, end + 80);
   if (splitsSurrogatePair(beforeStart)) beforeStart += 1;
   if (splitsSurrogatePair(afterEnd)) afterEnd -= 1;
-  const quote = index.text.slice(start, end);
-  if (!quote.trim()) return null;
   return {
     kind: "text-range",
     representation,
     start,
     end,
-    startLine,
-    endLine,
+    startLine: reviewLineAt(index, start),
+    endLine: reviewLineAt(index, end - 1),
     quote,
     before: index.text.slice(beforeStart, start),
     after: index.text.slice(end, afterEnd),

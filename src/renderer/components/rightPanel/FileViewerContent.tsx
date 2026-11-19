@@ -4,7 +4,6 @@ import {
   AlertCircle,
   CaseSensitive,
   ChevronDown,
-  ChevronRight,
   ChevronUp,
   Code2,
   Copy,
@@ -24,14 +23,7 @@ import {
   Terminal as TerminalIcon,
   X,
 } from "lucide-react";
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useKeyboardShortcutsSettings } from "../KeyboardShortcutsProvider";
 import { keyToDisplay } from "../../utils/shortcutUtils";
@@ -47,21 +39,17 @@ import type {
   FileTag,
 } from "../mainContent/chatInput/fileTagUtils";
 import { INSERT_FILE_TAGS_EVENT } from "../mainContent/chatInput/fileTagUtils";
-import { createCodeHighlighter } from "./fileViewer/codeHighlight";
 import {
   computeFoldRegions,
   createLineIndex,
-  createLineMapping,
-  DEFAULT_LINE_HEIGHT,
-  estimateMaxColumns,
   type FoldRegion,
 } from "./fileViewer/codeText";
-import { useVirtualRows } from "./fileViewer/useVirtualRows";
-import {
-  CodeEditor,
-  type CodeEditorHandle,
-  type CodeEditorSearch,
-} from "./fileViewer/CodeEditor";
+import { CodeEditor, type CodeEditorHandle } from "./fileViewer/CodeEditor";
+import { CodeViewer, type CodeViewerHandle } from "./fileViewer/CodeViewer";
+import type {
+  CodeReviewMark,
+  CodeSearchMarks,
+} from "./fileViewer/codeMirrorSupport";
 import type { EditorState } from "@codemirror/state";
 import { rightPanelEvents } from "./rightPanelEvents";
 import {
@@ -70,7 +58,7 @@ import {
   type FileReviewHighlight,
 } from "./FileReviewPanel";
 import {
-  captureFileTextSelection,
+  captureFileTextRange,
   FILE_REVIEW_MAX_SELECTION_CHARS,
   type FileReviewDraftAnchor,
   type FileReviewLocation,
@@ -133,81 +121,6 @@ type SearchMatch = {
   end: number;
   line: number;
   lineStart: number;
-};
-
-type SearchMarkRect = {
-  left: number;
-  top: number;
-  width: number;
-  height: number;
-  isCurrent: boolean;
-};
-
-/**
- * 在单行行元素内按相对行首的偏移 [start, end) 创建 DOM Range，
- * 供 getClientRects() 取得匹配矩形（查看模式高亮层与横向滚动定位使用）。
- */
-const makeRowRange = (
-  row: HTMLElement,
-  start: number,
-  end: number,
-): Range | null => {
-  const range = document.createRange();
-  const walker = document.createTreeWalker(row, NodeFilter.SHOW_TEXT);
-  let position = 0;
-  let started = false;
-  let node = walker.nextNode();
-  while (node) {
-    const length = node.nodeValue?.length ?? 0;
-    if (!started && start <= position + length) {
-      range.setStart(node, Math.min(start - position, length));
-      started = true;
-    }
-    if (started && end <= position + length) {
-      range.setEnd(node, Math.min(end - position, length));
-      return range;
-    }
-    position += length;
-    node = walker.nextNode();
-  }
-  if (started) {
-    range.setEnd(row, row.childNodes.length);
-    return range;
-  }
-  return null;
-};
-
-type SearchLineBand = { line: number; current: boolean };
-
-/** 行窗口 [firstLine, lastLine] 内的命中行（去重），用于整行底色。 */
-const collectMatchLines = (
-  matches: SearchMatch[],
-  firstLine: number,
-  lastLine: number,
-  currentLine: number,
-): SearchLineBand[] => {
-  let from = matches.length;
-  let lo = 0;
-  let hi = matches.length - 1;
-  while (lo <= hi) {
-    const mid = (lo + hi) >> 1;
-    if (matches[mid].line >= firstLine) {
-      from = mid;
-      hi = mid - 1;
-    } else {
-      lo = mid + 1;
-    }
-  }
-  const bands: SearchLineBand[] = [];
-  let prev = -1;
-  for (let i = from; i < matches.length; i += 1) {
-    const { line } = matches[i];
-    if (line > lastLine) break;
-    if (line === prev) continue;
-    prev = line;
-    bands.push({ line, current: line === currentLine });
-  }
-  return bands;
 };
 
 // Extracted documents and text that cannot round-trip to its original encoding
@@ -351,16 +264,18 @@ export function FileViewerContent({
 
   const isMarkdown = /\.(md|markdown)$/i.test(fileName);
 
-  /** 获取当前选中的文本（编辑模式读编辑器选区，否则读浏览器选区）。 */
+  /** 获取当前选中的文本（编辑/代码视图读编辑器选区，否则读浏览器选区）。 */
   const getSelectedText = (): string => {
-    if (editMode) {
-      return editorRef.current?.getSelectedText() ?? "";
-    }
-    return window.getSelection()?.toString() ?? "";
+    const fromEditor = editMode
+      ? editorRef.current?.getSelectedText()
+      : viewerRef.current?.getSelectedText();
+    return fromEditor ?? window.getSelection()?.toString() ?? "";
   };
 
   // Edit mode state
   const [editMode, setEditMode] = useState(false);
+  // 仅显式进入编辑（快捷编辑弹窗 / 点击编辑按钮）时自动聚焦，打开文件不抢输入焦点。
+  const [editAutoFocus, setEditAutoFocus] = useState(initialEditMode);
   const [editedContent, setEditedContent] = useState("");
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -412,37 +327,26 @@ export function FileViewerContent({
     sshSessionId.startsWith("ssh-profile:") &&
     Boolean(sshWorkspaceId);
 
-  // 代码视图滚动容器与高亮行相关状态。focusLine 由外部
-  // （搜索结果点击行）传入，加载完内容后滚动到该行并临时高亮。
-  const codeScrollRef = useRef<HTMLDivElement | null>(null);
-  const [highlightLine, setHighlightLine] = useState<number | null>(null);
+  // 只读代码视图（查看模式）的命令式接口。
+  const viewerRef = useRef<CodeViewerHandle | null>(null);
 
   // ===== 文内搜索（Ctrl/Cmd+F）相关 =====
   // 文件区持有焦点时 openSearch 快捷键被接管为文内搜索（scoped 拦截），
   // 失焦后自动回落到全局聚合搜索。RightPanel 为 keep-alive 多实例共存，
   // 只有持有焦点的实例会拦截。
   const rootRef = useRef<HTMLDivElement | null>(null);
-  const codeContentRef = useRef<HTMLElement | null>(null);
-  const marksLayerRef = useRef<HTMLDivElement | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   // 锚点：打开搜索时记录光标位置，首个命中落在锚点附近；null 表示未设置。
   const searchAnchorRef = useRef<number | null>(null);
   // 导航时钟：仅显式导航（打开/上一个/下一个）时才在编辑模式重设选区，
-  // 避免用户在 textarea 中编辑时不断覆盖其光标。
+  // 避免用户输入时不断覆盖其光标。
   const searchNavTickRef = useRef(0);
   const lastHandledNavTickRef = useRef(0);
-  // 等待可视窗口更新后再做横向定位的命中（跳转目标行尚未渲染时使用）。
-  const pendingAlignRef = useRef<SearchMatch | null>(null);
 
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchCaseSensitive, setSearchCaseSensitive] = useState(false);
   const [searchIndex, setSearchIndex] = useState(0);
-  const [searchMarkRects, setSearchMarkRects] = useState<SearchMarkRect[]>([]);
-  // 已收起的折叠块，以块首行号标识。
-  const [foldedStarts, setFoldedStarts] = useState<Set<number>>(
-    () => new Set(),
-  );
 
   useEffect(() => {
     onDirtyChangeRef.current = onDirtyChange;
@@ -469,7 +373,6 @@ export function FileViewerContent({
     setEditedContent("");
     editorStateRef.current = null;
     setMdMode("preview");
-    setFoldedStarts(new Set());
     setExternalChange(null);
     try {
       let result: FileContentResult;
@@ -503,10 +406,12 @@ export function FileViewerContent({
       }
       setContent(result);
       originalContentRef.current = result.content;
-      // 快速编辑弹窗：加载完成后直接进入编辑模式（markdown 同步切到源码视图）。
-      if (initialEditMode && isEditable(result)) {
+      // 代码类文件默认直接进入编辑模式；Markdown 与 SVG 仍以阅读视图优先。
+      const editable = isEditable(result);
+      if (editable && (initialEditMode || (!isMarkdown && !result.isSvg))) {
         setEditMode(true);
         setEditedContent(result.content);
+        setEditAutoFocus(initialEditMode);
         setDirty(Boolean(virtual?.initialDirty));
         setSaveError(null);
         setSavedAt(false);
@@ -656,15 +561,16 @@ export function FileViewerContent({
     [reviewOpen, canReview, content, lineIndex],
   );
   const captureSelection = (maxChars: number): FileReviewDraftAnchor | null => {
-    const root = codeContentRef.current;
-    return canReview && showCodeView && root && lineIndex
-      ? captureFileTextSelection(
-          root,
-          lineIndex,
-          reviewRepresentation,
-          maxChars,
-        )
-      : null;
+    const viewer = viewerRef.current;
+    if (!canReview || !showCodeView || !viewer || !lineIndex) return null;
+    const { from, to } = viewer.getSelection();
+    return captureFileTextRange(
+      lineIndex,
+      from,
+      to,
+      reviewRepresentation,
+      maxChars,
+    );
   };
   const captureReview = (): FileReviewDraftAnchor | null =>
     captureSelection(FILE_REVIEW_MAX_SELECTION_CHARS);
@@ -813,33 +719,6 @@ export function FileViewerContent({
     [],
   );
 
-  // 单行行高与顶部内边距：虚拟滚动按行高换算滚动位置，测量一次即可。
-  const [codeMetrics, setCodeMetrics] = useState({
-    lineHeight: DEFAULT_LINE_HEIGHT,
-    paddingTop: 12,
-  });
-
-  useLayoutEffect(() => {
-    const element = codeScrollRef.current?.querySelector(".file-viewer-code");
-    if (!(element instanceof HTMLElement)) return;
-    const style = window.getComputedStyle(element);
-    const lineHeight = Number.parseFloat(style.lineHeight);
-    const paddingTop = Number.parseFloat(style.paddingTop);
-    setCodeMetrics((prev) => {
-      const next = {
-        lineHeight:
-          Number.isFinite(lineHeight) && lineHeight > 0
-            ? lineHeight
-            : prev.lineHeight,
-        paddingTop: Number.isFinite(paddingTop) ? paddingTop : prev.paddingTop,
-      };
-      return next.lineHeight === prev.lineHeight &&
-        next.paddingTop === prev.paddingTop
-        ? prev
-        : next;
-    });
-  }, [content, editMode, showCodeView]);
-
   // ===== 代码折叠（缩进折叠） =====
   // 折叠区域按缩进计算；收起时区域内的行不再渲染（虚拟窗口直接跳过），
   // 行号槽与代码列共用同一可视窗口与行高，因此两侧天然对齐。
@@ -874,284 +753,11 @@ export function FileViewerContent({
     };
   }, [lineIndex, showCodeView]);
 
-  const foldByStart = useMemo(() => {
-    const map = new Map<number, FoldRegion>();
-    for (const region of foldRegions) {
-      map.set(region.start, region);
-    }
-    return map;
-  }, [foldRegions]);
-
-  const collapsedRegions = useMemo(
-    () => foldRegions.filter((region) => foldedStarts.has(region.start)),
-    [foldRegions, foldedStarts],
-  );
-
-  const lineMapping = useMemo(
-    () => createLineMapping(lineIndex?.total ?? 1, collapsedRegions),
-    [lineIndex, collapsedRegions],
-  );
-
-  const { range: rowRange, syncRange } = useVirtualRows(
-    codeScrollRef,
-    lineMapping.total,
-    codeMetrics.lineHeight,
-  );
-
-  const codeHighlighter = useMemo(
-    () =>
-      lineIndex && showCodeView
-        ? createCodeHighlighter(lineIndex, getLanguageFromFileName(fileName))
-        : null,
-    [fileName, lineIndex, showCodeView],
-  );
-
-  const contentColumns = useMemo(
-    () => (lineIndex && showCodeView ? estimateMaxColumns(lineIndex) : 0),
-    [lineIndex, showCodeView],
-  );
-
-  // 折叠切换锚点：收起/展开后把块首行钉回原视口位置，避免滚动位置跳动。
-  const foldAnchorRef = useRef<{ line: number; offset: number } | null>(null);
-
-  const toggleFold = useCallback(
-    (line: number) => {
-      const scrollEl = codeScrollRef.current;
-      if (scrollEl) {
-        foldAnchorRef.current = {
-          line,
-          offset:
-            codeMetrics.paddingTop +
-            (lineMapping.toVisual(line) - 1) * codeMetrics.lineHeight -
-            scrollEl.scrollTop,
-        };
-      }
-      setFoldedStarts((prev) => {
-        const next = new Set(prev);
-        if (next.has(line)) {
-          next.delete(line);
-        } else {
-          next.add(line);
-        }
-        return next;
-      });
-    },
-    [codeMetrics.lineHeight, codeMetrics.paddingTop, lineMapping],
-  );
-
-  useLayoutEffect(() => {
-    const anchor = foldAnchorRef.current;
-    if (!anchor) return;
-    foldAnchorRef.current = null;
-    const scrollEl = codeScrollRef.current;
-    if (!scrollEl) return;
-    scrollEl.scrollTop = Math.max(
-      0,
-      codeMetrics.paddingTop +
-        (lineMapping.toVisual(anchor.line) - 1) * codeMetrics.lineHeight -
-        anchor.offset,
-    );
-    syncRange();
-  }, [codeMetrics, lineMapping, syncRange]);
-
-  /** 展开包含目标行的折叠块；返回是否需要等待重渲染后再定位。 */
-  const revealLine = useCallback(
-    (line: number): boolean => {
-      const targets = collapsedRegions.filter(
-        (region) => line > region.start && line <= region.end,
-      );
-      if (targets.length === 0) {
-        return false;
-      }
-      setFoldedStarts((prev) => {
-        const next = new Set(prev);
-        for (const region of targets) {
-          next.delete(region.start);
-        }
-        return next;
-      });
-      return true;
-    },
-    [collapsedRegions],
-  );
-
+  // 审阅定位：直接滚动到目标行（编辑器会先展开所在折叠区域）。
   useEffect(() => {
-    if (!reviewScroll || !showCodeView || !lineIndex || editMode) return;
-    if (revealLine(reviewScroll.location.startLine)) return;
-    const scroll = codeScrollRef.current;
-    if (!scroll) return;
-    const top =
-      codeMetrics.paddingTop +
-      (lineMapping.toVisual(reviewScroll.location.startLine) - 1) *
-        codeMetrics.lineHeight;
-    scroll.scrollTop = Math.max(0, top - scroll.clientHeight / 3);
-    syncRange();
-  }, [
-    reviewScroll,
-    showCodeView,
-    lineIndex,
-    editMode,
-    revealLine,
-    lineMapping,
-    codeMetrics,
-    syncRange,
-  ]);
-
-  // focusLine 变化时滚动到目标行并高亮。仅在非编辑、非二进制/图片、
-  // 内容已加载且行号有效时生效。每次 focusLine 变化都会重新触发，
-  // 即使是同一文件的不同行点击。
-  useEffect(() => {
-    if (focusLine == null || focusLine < 1 || loading) {
-      return;
-    }
-    if (!lineIndex || !showCodeView) {
-      return;
-    }
-
-    const scrollEl = codeScrollRef.current;
-    if (!scrollEl) {
-      return;
-    }
-
-    const targetLine = Math.min(focusLine, lineIndex.total);
-    // 目标行被折叠隐藏时先展开，重渲染后本效果会再次触发完成定位。
-    if (revealLine(targetLine)) {
-      return;
-    }
-
-    // 滚动使目标行尽量落在视口上部约 1/3 处。
-    const targetTop =
-      codeMetrics.paddingTop +
-      (lineMapping.toVisual(targetLine) - 1) * codeMetrics.lineHeight;
-    scrollEl.scrollTop = Math.max(0, targetTop - scrollEl.clientHeight / 3);
-    syncRange();
-
-    setHighlightLine(targetLine);
-    const timer = window.setTimeout(() => {
-      setHighlightLine(null);
-    }, 2400);
-
-    return () => {
-      window.clearTimeout(timer);
-    };
-  }, [
-    codeMetrics,
-    focusLine,
-    lineIndex,
-    lineMapping,
-    loading,
-    revealLine,
-    showCodeView,
-    syncRange,
-  ]);
-
-  const rowHeight = codeMetrics.lineHeight;
-  const renderEnd = Math.min(rowRange.end, lineMapping.total);
-  const spacerTop = rowRange.start * rowHeight;
-  const spacerBottom = Math.max(0, (lineMapping.total - renderEnd) * rowHeight);
-  const gutterWidth = `calc(${String(lineIndex?.total ?? 1).length}ch + 26px)`;
-  const contentMinWidth =
-    contentColumns > 0 ? `calc(${contentColumns}ch + 24px)` : undefined;
-
-  // 查看模式代码行：只渲染可视窗口内的行（虚拟滚动），高亮 HTML 由分块缓存
-  // 按需生成（未命中的行退回纯文本转义），折叠隐藏的行直接不参与渲染。
-  const codeRows = useMemo(() => {
-    const rows: React.JSX.Element[] = [];
-    if (!lineIndex || !codeHighlighter) return rows;
-    const highlights = Object.values(reviewHighlights).reverse();
-    for (let visual = rowRange.start + 1; visual <= renderEnd; visual += 1) {
-      const line = lineMapping.toSource(visual);
-      const region = foldByStart.get(line);
-      const folded = region != null && foldedStarts.has(line);
-      const highlight = highlights.find(
-        (item) =>
-          line >= item.location.startLine && line <= item.location.endLine,
-      );
-      rows.push(
-        <span
-          key={line}
-          data-line={line}
-          className={`file-viewer-code-line${
-            folded ? " file-viewer-code-line--folded" : ""
-          }${
-            highlight
-              ? ` file-viewer-code-line--review-target file-review-hl-${highlight.colorIndex}`
-              : ""
-          }`}
-          data-fold-label={
-            folded && region
-              ? t("rightPanel.fileFoldHiddenLines", {
-                  defaultValue: "⋯ {{count}} lines",
-                  values: { count: region.end - region.start },
-                })
-              : undefined
-          }
-          dangerouslySetInnerHTML={{ __html: codeHighlighter.lineHtml(line) }}
-        />,
-      );
-    }
-    return rows;
-  }, [
-    codeHighlighter,
-    foldByStart,
-    foldedStarts,
-    lineIndex,
-    lineMapping,
-    renderEnd,
-    rowRange.start,
-    reviewHighlights,
-    t,
-  ]);
-
-  // 查看模式行号槽：与代码列共用同一可视窗口与行高，折叠箭头固定在左侧列。
-  const gutterRows = useMemo(() => {
-    const rows: React.JSX.Element[] = [];
-    for (let visual = rowRange.start + 1; visual <= renderEnd; visual += 1) {
-      const line = lineMapping.toSource(visual);
-      const region = foldByStart.get(line);
-      const folded = region != null && foldedStarts.has(line);
-      rows.push(
-        <span key={line} data-line={line} className="file-viewer-gutter-line">
-          {region ? (
-            <button
-              type="button"
-              className={`file-viewer-fold-toggle${folded ? "" : " expanded"}`}
-              tabIndex={-1}
-              onClick={() => toggleFold(line)}
-              title={
-                folded
-                  ? t("rightPanel.fileFoldExpand", {
-                      defaultValue: "Expand block",
-                    })
-                  : t("rightPanel.fileFoldCollapse", {
-                      defaultValue: "Collapse block",
-                    })
-              }
-            >
-              <ChevronRight size={12} strokeWidth={2.2} />
-            </button>
-          ) : null}
-          <span className="file-viewer-gutter-num">{line}</span>
-        </span>,
-      );
-    }
-    return rows;
-  }, [
-    foldByStart,
-    foldedStarts,
-    lineMapping,
-    renderEnd,
-    rowRange.start,
-    t,
-    toggleFold,
-  ]);
-
-  // 空闲时预取窗口外的分块高亮，减少滚动到新区域时的同步计算。
-  useEffect(() => {
-    if (!codeHighlighter || !showCodeView) return;
-    codeHighlighter.prefetch(rowRange.end + 1);
-    codeHighlighter.prefetch(rowRange.start);
-  }, [codeHighlighter, rowRange.end, rowRange.start, showCodeView]);
+    if (!reviewScroll || !showCodeView || editMode) return;
+    viewerRef.current?.scrollToLine(reviewScroll.location.startLine);
+  }, [editMode, reviewScroll, showCodeView]);
 
   const handleCopy = useCallback(() => {
     if (!content) return;
@@ -1172,26 +778,6 @@ export function FileViewerContent({
       })
       .catch(() => {});
   }, [filePath, isSsh, sshWorkspaceId]);
-
-  // 虚拟滚动下行元素只覆盖可视窗口：选中全部已渲染行（如全选）复制时
-  // 补齐为完整文件内容，避免复制结果被窗口截断。
-  const handleCodeCopy = useCallback(
-    (event: React.ClipboardEvent<HTMLDivElement>) => {
-      if (!content) return;
-      const contentEl = codeContentRef.current;
-      const selection = window.getSelection();
-      if (!contentEl || !selection || selection.rangeCount === 0) return;
-      if (lineMapping.total <= renderEnd - rowRange.start) return;
-      const firstRow = contentEl.firstElementChild;
-      const lastRow = contentEl.lastElementChild;
-      if (!firstRow || !lastRow) return;
-      if (!selection.containsNode(firstRow, true)) return;
-      if (!selection.containsNode(lastRow, true)) return;
-      event.preventDefault();
-      event.clipboardData.setData("text/plain", content.content);
-    },
-    [content, lineMapping, renderEnd, rowRange.start],
-  );
 
   /**
    * 应用外部修改：原地替换内容，不重建滚动容器，滚动位置与折叠状态保留。
@@ -1318,6 +904,7 @@ export function FileViewerContent({
     }
     setEditMode(true);
     setEditedContent(content.content);
+    setEditAutoFocus(true);
     setDirty(false);
     setSaveError(null);
     setSavedAt(false);
@@ -1953,9 +1540,11 @@ export function FileViewerContent({
 
   const closeSearch = useCallback(() => {
     setSearchOpen(false);
-    setSearchMarkRects([]);
     if (editMode) {
       requestAnimationFrame(() => editorRef.current?.focus());
+    } else {
+      // 焦点回到代码区，Ctrl/Cmd+F 仍由本实例接管。
+      requestAnimationFrame(() => viewerRef.current?.focus());
     }
   }, [editMode]);
 
@@ -1999,251 +1588,52 @@ export function FileViewerContent({
     [closeSearch, goRelative],
   );
 
-  // 匹配矩形只在可视窗口内测量：行元素按 data-line 定位，字符偏移相对行首。
-  const alignMatchRow = useCallback((match: SearchMatch): boolean => {
-    const scrollEl = codeScrollRef.current;
-    const contentEl = codeContentRef.current;
-    if (!scrollEl || !contentEl) return false;
-    const row = contentEl.querySelector<HTMLElement>(
-      `[data-line="${match.line}"]`,
-    );
-    if (!row) return false;
-    const range = makeRowRange(
-      row,
-      match.start - match.lineStart,
-      match.end - match.lineStart,
-    );
-    const rects = range?.getClientRects();
-    if (!rects || rects.length === 0) {
-      return false;
-    }
-    const first = rects[0];
-    const scrollBox = scrollEl.getBoundingClientRect();
-    // 内容可视左缘：sticky 行号钉在滚动区左缘，会遮挡其下滚过的内容。
-    const gutterEl = contentEl.parentElement?.querySelector(
-      ".file-viewer-line-numbers",
-    );
-    const contentLeft = contentEl.getBoundingClientRect().left;
-    const visibleLeft =
-      gutterEl instanceof HTMLElement
-        ? Math.max(contentLeft, gutterEl.getBoundingClientRect().right)
-        : contentLeft;
-    const margin = 24;
-    if (first.left < visibleLeft + margin) {
-      // 匹配贴近/越过可视左缘（含被行号遮挡）：向左滚动使其距左缘 margin。
-      scrollEl.scrollLeft = Math.max(
-        0,
-        scrollEl.scrollLeft + first.left - visibleLeft - margin,
-      );
-    } else if (first.right > scrollBox.right - margin) {
-      // 匹配超出可视右缘：向右滚动使其距右缘 margin（上限由浏览器夹紧）。
-      scrollEl.scrollLeft =
-        scrollEl.scrollLeft + first.right - (scrollBox.right - margin);
-    }
-    return true;
-  }, []);
-
-  // 跳转后目标行可能尚未进入可视窗口：等窗口更新后补一次横向定位。
-  useLayoutEffect(() => {
-    const pending = pendingAlignRef.current;
-    if (!pending) return;
-    pendingAlignRef.current = null;
-    alignMatchRow(pending);
-  }, [alignMatchRow, rowRange.end, rowRange.start]);
-
-  // 当前匹配滚动入视。编辑模式仅在显式导航时重设选区（避免覆盖用户
-  // 正在编辑的光标）；查看模式始终滚动（外层滚动容器双轴定位）。
+  // 当前匹配滚动入视：编辑模式仅在显式导航时重设选区（避免覆盖用户光标），
+  // 查看模式直接滚动到命中位置（编辑器会先展开所在折叠区域）。
   useEffect(() => {
     if (!searchOpen || searchMatches.length === 0) return;
     const match =
       searchMatches[Math.min(searchIndex, searchMatches.length - 1)];
     if (!match) return;
-    // 命中落在折叠区域内：先展开，重渲染后再定位。
-    if (!editMode && revealLine(match.line)) {
-      return;
-    }
     const navigated =
       searchNavTickRef.current !== lastHandledNavTickRef.current;
     if (navigated) {
       lastHandledNavTickRef.current = searchNavTickRef.current;
     }
-
     if (editMode) {
-      if (!navigated) return;
-      editorRef.current?.select(match.start, match.end);
+      if (navigated) editorRef.current?.select(match.start, match.end);
       return;
     }
+    viewerRef.current?.scrollToPos(match.start);
+  }, [editMode, searchIndex, searchMatches, searchOpen]);
 
-    const scrollEl = codeScrollRef.current;
-    if (!scrollEl) {
-      return;
-    }
-    const applyScroll = (): void => {
-      const targetTop =
-        codeMetrics.paddingTop +
-        (lineMapping.toVisual(match.line) - 1) * codeMetrics.lineHeight;
-      scrollEl.scrollTop = Math.max(0, targetTop - scrollEl.clientHeight / 3);
-    };
-    applyScroll();
-    syncRange();
-    if (!alignMatchRow(match)) {
-      pendingAlignRef.current = match;
-    }
-    // 虚拟窗口更新后补一次定位，避免 padding 变化/钳制吃掉目标位置。
-    const frame = requestAnimationFrame(() => {
-      if (codeScrollRef.current === scrollEl) {
-        applyScroll();
-      }
-    });
-    return () => cancelAnimationFrame(frame);
-  }, [
-    alignMatchRow,
-    codeMetrics,
-    editMode,
-    lineMapping,
-    revealLine,
-    searchIndex,
-    searchMatches,
-    searchOpen,
-    syncRange,
-  ]);
-
-  // 查看模式匹配高亮层：只测量可视窗口内的行（虚拟滚动下每帧至多几十行），
-  // 行元素按 data-line 取用，矩形换算为相对 .file-viewer-code 的坐标；
-  // 改用 requestAnimationFrame 调度，消除同步 useLayoutEffect 触发的强制同步回流与级联重渲染。
-  useEffect(() => {
-    if (editMode || !searchOpen || searchMatches.length === 0) {
-      setSearchMarkRects([]);
-      return;
-    }
-    let cancelled = false;
-    const rafId = requestAnimationFrame(() => {
-      if (cancelled) return;
-      const layer = marksLayerRef.current;
-      const contentEl = codeContentRef.current;
-      if (!layer || !contentEl || searchMatches.length === 0) {
-        setSearchMarkRects([]);
-        return;
-      }
-      const preEl = contentEl.closest(".file-viewer-code");
-      if (!preEl) return;
-      const preRect = preEl.getBoundingClientRect();
-      const current =
-        searchMatches[Math.min(searchIndex, searchMatches.length - 1)];
-      if (!current) {
-        setSearchMarkRects([]);
-        return;
-      }
-      const rows = new Map<number, HTMLElement>();
-      for (const child of Array.from(contentEl.children)) {
-        if (!(child instanceof HTMLElement)) continue;
-        const line = Number(child.dataset.line);
-        if (line > 0) rows.set(line, child);
-      }
-      const firstLine = lineMapping.toSource(rowRange.start + 1);
-      const lastLine = lineMapping.toSource(rowRange.end);
-      let from = searchMatches.length;
-      let lo = 0;
-      let hi = searchMatches.length - 1;
-      while (lo <= hi) {
-        const mid = (lo + hi) >> 1;
-        if (searchMatches[mid].line >= firstLine) {
-          from = mid;
-          hi = mid - 1;
-        } else {
-          lo = mid + 1;
-        }
-      }
-      const rects: SearchMarkRect[] = [];
-      for (let i = from; i < searchMatches.length; i += 1) {
-        const match = searchMatches[i];
-        if (match.line > lastLine) break;
-        if (rects.length >= SEARCH_MARK_RENDER_LIMIT && match !== current)
-          continue;
-        const row = rows.get(match.line);
-        if (!row) continue;
-        const range = makeRowRange(
-          row,
-          match.start - match.lineStart,
-          match.end - match.lineStart,
-        );
-        if (!range) continue;
-        const clientRects = range.getClientRects();
-        for (let j = 0; j < clientRects.length; j += 1) {
-          const rect = clientRects[j];
-          if (rect.width <= 0 && rect.height <= 0) continue;
-          rects.push({
-            left: rect.left - preRect.left,
-            top: rect.top - preRect.top,
-            width: rect.width,
-            height: rect.height,
-            isCurrent: match === current,
-          });
-        }
-      }
-      if (!cancelled) {
-        setSearchMarkRects(rects);
-      }
-    });
-    return () => {
-      cancelled = true;
-      cancelAnimationFrame(rafId);
-    };
-  }, [
-    editMode,
-    lineMapping,
-    rowRange.end,
-    rowRange.start,
-    searchIndex,
-    searchMatches,
-    searchOpen,
-  ]);
-
-  // 查看模式命中行整行底色：关键词横向滚出视窗时仍能感知命中所在行。
-  const viewSearchBands = useMemo<SearchLineBand[]>(() => {
-    if (editMode || !searchOpen || searchMatches.length === 0) return [];
-    const current =
-      searchMatches[Math.min(searchIndex, searchMatches.length - 1)];
-    return collectMatchLines(
-      searchMatches,
-      lineMapping.toSource(rowRange.start + 1),
-      lineMapping.toSource(rowRange.end),
-      current?.line ?? -1,
-    ).filter((band) => !lineMapping.isHidden(band.line));
-  }, [
-    editMode,
-    lineMapping,
-    rowRange.end,
-    rowRange.start,
-    searchIndex,
-    searchMatches,
-    searchOpen,
-  ]);
-
-  // 编辑模式匹配高亮交给编辑器装饰层（只渲染视口内的标记）。
-  const editSearch = useMemo<CodeEditorSearch | null>(
+  // 搜索命中标记：交给编辑器装饰层，只渲染视口内的标记。
+  const searchMarks = useMemo<CodeSearchMarks>(
     () =>
-      editMode && searchOpen && searchMatches.length > 0
+      searchOpen && searchMatches.length > 0
         ? {
             matches: searchMatches,
             current: searchIndex,
             limit: SEARCH_MARK_RENDER_LIMIT,
           }
         : null,
-    [editMode, searchIndex, searchMatches, searchOpen],
+    [searchIndex, searchMatches, searchOpen],
   );
 
-  const renderSearchBands = (
-    bands: SearchLineBand[],
-    lineTop: (line: number) => number,
-  ) =>
-    bands.map((band) => (
-      <div
-        key={`band-${band.line}`}
-        className={`file-viewer-search-line${band.current ? " current" : ""}`}
-        style={{ top: lineTop(band.line), height: codeMetrics.lineHeight }}
-      />
-    ));
+  // 审阅标注行高亮：转成编辑器的行装饰。
+  const reviewMarks = useMemo<CodeReviewMark[]>(
+    () =>
+      Object.values(reviewHighlights).map((highlight) => ({
+        startLine: highlight.location.startLine,
+        endLine: highlight.location.endLine,
+        colorIndex: highlight.colorIndex,
+      })),
+    [reviewHighlights],
+  );
+
+  const handleViewerSelection = (): void => {
+    setReviewCandidate(captureReview());
+  };
 
   const buildMenuItems = (): ContextMenuItem[] => {
     const items: ContextMenuItem[] = [];
@@ -2312,86 +1702,20 @@ export function FileViewerContent({
     return items;
   };
 
-  const renderCodeBlock = () => {
-    let highlightStyle: React.CSSProperties | null = null;
-    if (highlightLine != null && !lineMapping.isHidden(highlightLine)) {
-      highlightStyle = {
-        top: `${
-          codeMetrics.paddingTop +
-          (lineMapping.toVisual(highlightLine) - 1) * codeMetrics.lineHeight
-        }px`,
-        height: `${codeMetrics.lineHeight}px`,
-      };
-    }
-    return (
-      <div
-        className="file-viewer-code-scroll"
-        ref={codeScrollRef}
-        onMouseUp={() => setReviewCandidate(captureReview())}
-        onKeyUp={() => setReviewCandidate(captureReview())}
-      >
-        <pre className="file-viewer-code">
-          {highlightStyle ? (
-            <span
-              className="file-viewer-line-highlight"
-              style={highlightStyle}
-              aria-hidden="true"
-            />
-          ) : null}
-          {searchOpen && !editMode ? (
-            <div
-              className="file-viewer-search-marks"
-              ref={marksLayerRef}
-              aria-hidden="true"
-            >
-              {renderSearchBands(
-                viewSearchBands,
-                (line) =>
-                  codeMetrics.paddingTop +
-                  (lineMapping.toVisual(line) - 1) * codeMetrics.lineHeight,
-              )}
-              {searchMarkRects.map((rect, i) => (
-                <div
-                  key={i}
-                  className={`file-viewer-search-mark${
-                    rect.isCurrent ? " current" : ""
-                  }`}
-                  style={{
-                    left: rect.left,
-                    top: rect.top,
-                    width: rect.width,
-                    height: rect.height,
-                  }}
-                />
-              ))}
-            </div>
-          ) : null}
-          <code
-            className="file-viewer-line-numbers"
-            aria-hidden="true"
-            style={{
-              paddingTop: spacerTop,
-              paddingBottom: spacerBottom,
-              width: gutterWidth,
-            }}
-          >
-            {gutterRows}
-          </code>
-          <code
-            ref={codeContentRef}
-            className="hljs file-viewer-code-content file-viewer-code-content--lines"
-            style={{
-              paddingTop: spacerTop,
-              paddingBottom: spacerBottom,
-              minWidth: contentMinWidth,
-            }}
-          >
-            {codeRows}
-          </code>
-        </pre>
-      </div>
-    );
-  };
+  // 查看模式与编辑模式共用 CodeMirror：只渲染视口内的行，滚动、折叠与复制由编辑器负责。
+  const renderCodeBlock = () => (
+    <CodeViewer
+      key={filePath}
+      ref={viewerRef}
+      text={content?.content ?? ""}
+      language={getLanguageFromFileName(fileName)}
+      search={searchMarks}
+      reviewMarks={reviewMarks}
+      focusLine={focusLine ?? null}
+      foldRegions={foldRegions}
+      onSelectionChange={handleViewerSelection}
+    />
+  );
 
   const renderEditBlock = () => (
     <CodeEditor
@@ -2399,8 +1723,8 @@ export function FileViewerContent({
       ref={editorRef}
       initialText={editedContent}
       language={getLanguageFromFileName(fileName)}
-      autoFocus
-      search={editSearch}
+      autoFocus={editAutoFocus}
+      search={searchMarks}
       onChange={handleEditorChange}
       onSave={handleEditorSave}
       onEscape={handleExitEditMode}
@@ -2562,7 +1886,6 @@ export function FileViewerContent({
       className="file-viewer"
       ref={rootRef}
       tabIndex={-1}
-      onCopy={handleCodeCopy}
       onContextMenu={(e) => {
         // 编辑模式放行浏览器原生菜单（保留 textarea 的复制/粘贴/剪切）。
         if (
