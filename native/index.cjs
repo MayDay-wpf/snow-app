@@ -178,14 +178,20 @@ const requiredExports = [
   "killProcessTree",
   // 内置浏览器 UA 对齐本机真实浏览器（读取 Chrome/Edge 版本号）
   "detectLocalBrowserVersion",
-  // 数据备份（本地目录后端：预估 / 创建 / 列表 / 恢复 / 删除 / 根目录 / 进度）
-  "backupLocalPlan",
-  "backupLocalCreate",
-  "backupLocalList",
-  "backupLocalRestore",
-  "backupLocalDelete",
+  // 数据备份（本地目录 / Cloudflare R2：预估 / 创建 / 列表 / 恢复 / 删除 / 根目录 / 进度 / 中断任务续跑与放弃 / R2 配置）
+  "backupPlan",
+  "backupCreate",
+  "backupList",
+  "backupRestore",
+  "backupDelete",
+  "backupPendingTask",
+  "backupResumeTask",
+  "backupDiscardTask",
   "backupLocalRoot",
   "backupTaskProgress",
+  "backupGetR2Config",
+  "backupSetR2Config",
+  "backupTestR2Config",
   // 插件 WebSocket 长连接（打开 / 发送 / 关闭 / 事件回调）
   "pluginWsOpen",
   "pluginWsSend",

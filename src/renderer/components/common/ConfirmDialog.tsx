@@ -17,6 +17,8 @@ type ConfirmDialogProps = {
   /** 确认操作进行中（如删除会话）：禁用按钮并显示 loading */
   isConfirming?: boolean;
   variant?: "default" | "warning" | "danger";
+  /** 确认按钮配色：默认危险色；非破坏性操作（继续、安装等）用 primary 主题色 */
+  confirmTone?: "danger" | "primary";
   className?: string;
   children?: ReactNode;
 };
@@ -33,6 +35,7 @@ export const ConfirmDialog = ({
   onCancel,
   isConfirming = false,
   variant = "default",
+  confirmTone = "danger",
   className,
   children,
 }: ConfirmDialogProps): React.JSX.Element => {
@@ -104,7 +107,9 @@ export const ConfirmDialog = ({
             )}
             <button
               type="button"
-              className="confirm-dialog-btn confirm"
+              className={`confirm-dialog-btn ${
+                confirmTone === "primary" ? "primary" : "confirm"
+              }`}
               onClick={onConfirm}
               disabled={isConfirming}
             >

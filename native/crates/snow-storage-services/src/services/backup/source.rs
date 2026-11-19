@@ -4,6 +4,7 @@ use std::time::UNIX_EPOCH;
 
 use napi::bindgen_prelude::*;
 
+use super::journal::{JOURNAL_FILE_NAME, JOURNAL_TEMP_FILE_NAME};
 use super::manifest::ReuseIndex;
 use super::restore::STAGING_DIR_NAME;
 
@@ -140,7 +141,13 @@ fn is_excluded_file(relative: &str) -> bool {
     if EXCLUDED_FILE_NAMES.contains(&name) {
         return true;
     }
-    !relative.contains('/') && EXCLUDED_ROOT_FILES.contains(&relative)
+    if relative.contains('/') {
+        return false;
+    }
+    // 备份任务日志只描述本机正在进行的任务，恢复到别处没有意义。
+    EXCLUDED_ROOT_FILES.contains(&relative)
+        || relative == JOURNAL_FILE_NAME
+        || relative == JOURNAL_TEMP_FILE_NAME
 }
 
 pub(crate) fn modified_ms(metadata: &fs::Metadata) -> i64 {

@@ -1,89 +1,53 @@
+use std::collections::HashSet;
 use std::fs;
-use std::io::ErrorKind;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
+use std::sync::{Mutex, MutexGuard};
 
 use napi::bindgen_prelude::*;
 
 use super::manifest::{BackupManifest, LatestPointer, MANIFEST_VERSION};
-use super::BACKUP_DIR_NAME;
 
-const MANIFEST_DIR: &str = "manifests";
-const CHUNK_DIR: &str = "chunks";
-const LATEST_FILE: &str = "latest.json";
-const WORK_DIR: &str = ".work";
+const MANIFEST_PREFIX: &str = "manifests/";
+const CHUNK_PREFIX: &str = "chunks/";
+const LATEST_KEY: &str = "latest.json";
 
-/// 本地目录后端：把备份写进 `<target>/snow-app-backup/`。
+/// 备份后端的最小对象存储接口。
 ///
-/// key 空间刻意与将来的网络后端保持一致（`manifests/<id>.json` 与
-/// `chunks/<hash前两位>/<hash>`），这样切换后端时只替换读写实现，
-/// 分块、清单与保留策略都不受影响。
-pub(crate) struct LocalStore {
-    root: PathBuf,
+/// key 是相对备份根的正斜杠路径（`manifests/<id>.json`、`chunks/<hh>/<hash>`、
+/// `latest.json`）。本地目录与 Cloudflare R2 只需实现这几个读写原语，分块、
+/// 清单、保留策略与恢复流程全部共用。
+pub(crate) trait ObjectStore {
+    /// 读取对象；不存在时返回 None。
+    fn get(&self, key: &str) -> Result<Option<Vec<u8>>>;
+    /// 写入对象（整体覆盖，读者不会看到写了一半的内容）。
+    fn put(&self, key: &str, bytes: &[u8]) -> Result<()>;
+    /// 删除对象；不存在时视为成功。
+    fn delete(&self, key: &str) -> Result<()>;
+    /// 列出 key 以 prefix 开头的全部对象。
+    fn list(&self, prefix: &str) -> Result<Vec<String>>;
+    /// 本地临时工作区根目录（数据库快照落在这里），必须位于 `.snowapp` 之外。
+    fn work_root(&self) -> PathBuf;
 }
 
-impl LocalStore {
-    /// 打开（必要时创建）备份根目录，并拒绝把备份写进应用数据目录内部。
-    pub(crate) fn open(target_dir: &str) -> Result<Self> {
-        let target = Path::new(target_dir);
-        if target.exists() {
-            if !target.is_dir() {
-                return Err(Error::from_reason(format!(
-                    "Backup target is not a directory: {target_dir}"
-                )));
-            }
-        } else {
-            fs::create_dir_all(target).map_err(|error| {
-                Error::from_reason(format!(
-                    "Failed to create backup target '{}': {error}",
-                    target.display()
-                ))
-            })?;
+/// 建立在对象存储之上的备份仓库：清单、内容块与最新指针的读写。
+pub(crate) struct BackupRepo {
+    store: Box<dyn ObjectStore>,
+    /// 已存在的块哈希。首次用到时一次性列举，避免网络后端逐块探测。
+    chunks: Mutex<Option<HashSet<String>>>,
+}
+
+impl BackupRepo {
+    pub(crate) fn new(store: Box<dyn ObjectStore>) -> Self {
+        Self {
+            store,
+            chunks: Mutex::new(None),
         }
-
-        let target = fs::canonicalize(target).map_err(|error| {
-            Error::from_reason(format!(
-                "Failed to resolve backup target '{}': {error}",
-                target.display()
-            ))
-        })?;
-        let app_dir = crate::storage::paths::app_storage_dir()?;
-        let app_dir = fs::canonicalize(&app_dir).unwrap_or(app_dir);
-
-        // 备份目录若落在 .snowapp 内部，下一次备份会把上一次的备份一起打包，
-        // 体积立刻翻倍且不断自我嵌套，必须在入口处拒绝。
-        if target.starts_with(&app_dir) {
-            return Err(Error::from_reason(format!(
-                "Backup target '{}' is inside Snow App's data directory; choose a directory outside '{}'",
-                target.display(),
-                app_dir.display()
-            )));
-        }
-
-        let root = target.join(BACKUP_DIR_NAME);
-        for directory in [MANIFEST_DIR, CHUNK_DIR, WORK_DIR] {
-            fs::create_dir_all(root.join(directory)).map_err(|error| {
-                Error::from_reason(format!(
-                    "Failed to create backup directory '{}': {error}",
-                    root.join(directory).display()
-                ))
-            })?;
-        }
-
-        Ok(Self { root })
-    }
-
-    pub(crate) fn root(&self) -> &Path {
-        &self.root
-    }
-
-    pub(crate) fn chunk_root(&self) -> PathBuf {
-        self.root.join(CHUNK_DIR)
     }
 
     /// 创建本次操作专用的临时目录，并清掉同名残留。
     pub(crate) fn create_work_dir(&self, name: &str) -> Result<PathBuf> {
         validate_work_dir_name(name)?;
-        let directory = self.root.join(WORK_DIR).join(name);
+        let directory = self.store.work_root().join(name);
         if directory.exists() {
             fs::remove_dir_all(&directory).map_err(|error| {
                 Error::from_reason(format!(
@@ -101,103 +65,93 @@ impl LocalStore {
         Ok(directory)
     }
 
-    pub(crate) fn has_chunk(&self, hash: &str) -> bool {
-        is_valid_chunk_hash(hash) && self.chunk_path(hash).is_file()
+    /// 删除本次操作的临时目录（尽力而为：残留会在同名续跑时被清掉）。
+    pub(crate) fn remove_work_dir(&self, name: &str) {
+        if validate_work_dir_name(name).is_ok() {
+            let _ = fs::remove_dir_all(self.store.work_root().join(name));
+        }
     }
 
-    /// 写入一个内容块。返回 true 表示本次真正落盘，false 表示已有相同内容。
-    pub(crate) fn put_chunk(&self, hash: &str, bytes: &[u8]) -> Result<bool> {
-        validate_chunk_hash(hash)?;
-        let directory = self.chunk_root().join(&hash[..2]);
-        let final_path = directory.join(hash);
-        if final_path.is_file() {
+    fn known_chunks(&self) -> Result<MutexGuard<'_, Option<HashSet<String>>>> {
+        let mut guard = self
+            .chunks
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if guard.is_none() {
+            *guard = Some(self.list_chunks()?.into_iter().collect());
+        }
+        Ok(guard)
+    }
+
+    pub(crate) fn has_chunk(&self, hash: &str) -> Result<bool> {
+        if !is_valid_chunk_hash(hash) {
             return Ok(false);
         }
+        Ok(self
+            .known_chunks()?
+            .as_ref()
+            .is_some_and(|chunks| chunks.contains(hash)))
+    }
 
-        fs::create_dir_all(&directory).map_err(|error| {
-            Error::from_reason(format!(
-                "Failed to create backup chunk directory '{}': {error}",
-                directory.display()
-            ))
-        })?;
-
-        let temporary = directory.join(format!("{hash}.tmp"));
-        fs::write(&temporary, bytes).map_err(|error| {
-            let _ = fs::remove_file(&temporary);
-            Error::from_reason(format!(
-                "Failed to write backup chunk '{}': {error}",
-                temporary.display()
-            ))
-        })?;
-
-        match fs::rename(&temporary, &final_path) {
-            Ok(()) => Ok(true),
-            Err(error) => {
-                let _ = fs::remove_file(&temporary);
-                // 并发写入同一内容块时，目标可能已被另一个任务发布。
-                if final_path.is_file() {
-                    Ok(false)
-                } else {
-                    Err(Error::from_reason(format!(
-                        "Failed to publish backup chunk '{}': {error}",
-                        final_path.display()
-                    )))
-                }
-            }
+    /// 写入一个内容块。返回 true 表示本次真正写入，false 表示已有相同内容。
+    pub(crate) fn put_chunk(&self, hash: &str, bytes: &[u8]) -> Result<bool> {
+        validate_chunk_hash(hash)?;
+        if self.has_chunk(hash)? {
+            return Ok(false);
         }
+        self.store.put(&chunk_key(hash), bytes)?;
+        if let Some(chunks) = self.known_chunks()?.as_mut() {
+            chunks.insert(hash.to_string());
+        }
+        Ok(true)
     }
 
     pub(crate) fn get_chunk(&self, hash: &str) -> Result<Vec<u8>> {
         validate_chunk_hash(hash)?;
-        let path = self.chunk_path(hash);
-        fs::read(&path).map_err(|error| {
-            Error::from_reason(format!(
-                "Backup chunk '{}' is missing or unreadable: {error}",
-                path.display()
-            ))
+        self.store.get(&chunk_key(hash))?.ok_or_else(|| {
+            Error::from_reason(format!("Backup chunk '{hash}' is missing"))
         })
+    }
+
+    /// 列出后端中全部合法的块哈希。
+    pub(crate) fn list_chunks(&self) -> Result<Vec<String>> {
+        Ok(self
+            .store
+            .list(CHUNK_PREFIX)?
+            .into_iter()
+            .filter_map(|key| {
+                let name = key.rsplit('/').next()?;
+                is_valid_chunk_hash(name).then(|| name.to_string())
+            })
+            .collect())
+    }
+
+    pub(crate) fn delete_chunk(&self, hash: &str) -> Result<()> {
+        validate_chunk_hash(hash)?;
+        self.store.delete(&chunk_key(hash))?;
+        if let Some(chunks) = self.known_chunks()?.as_mut() {
+            chunks.remove(hash);
+        }
+        Ok(())
     }
 
     pub(crate) fn write_manifest(&self, manifest: &BackupManifest) -> Result<()> {
         validate_backup_id(&manifest.id)?;
-        let directory = self.root.join(MANIFEST_DIR);
         let json = serde_json::to_vec(manifest).map_err(|error| {
             Error::from_reason(format!("Failed to serialize backup manifest: {error}"))
         })?;
-        let temporary = directory.join(format!("{}.tmp", manifest.id));
-        fs::write(&temporary, json).map_err(|error| {
-            let _ = fs::remove_file(&temporary);
-            Error::from_reason(format!(
-                "Failed to write backup manifest '{}': {error}",
-                temporary.display()
-            ))
-        })?;
-        let final_path = directory.join(format!("{}.json", manifest.id));
-        fs::rename(&temporary, &final_path).map_err(|error| {
-            let _ = fs::remove_file(&temporary);
-            Error::from_reason(format!(
-                "Failed to publish backup manifest '{}': {error}",
-                final_path.display()
-            ))
-        })
+        self.store.put(&manifest_key(&manifest.id), &json)
     }
 
     pub(crate) fn read_manifest(&self, backup_id: &str) -> Result<BackupManifest> {
         validate_backup_id(backup_id)?;
-        let path = self
-            .root
-            .join(MANIFEST_DIR)
-            .join(format!("{backup_id}.json"));
-        let json = fs::read_to_string(&path).map_err(|error| {
+        let bytes = self
+            .store
+            .get(&manifest_key(backup_id))?
+            .ok_or_else(|| Error::from_reason(format!("Backup '{backup_id}' does not exist")))?;
+        let manifest: BackupManifest = serde_json::from_slice(&bytes).map_err(|error| {
             Error::from_reason(format!(
-                "Failed to read backup manifest '{}': {error}",
-                path.display()
-            ))
-        })?;
-        let manifest: BackupManifest = serde_json::from_str(&json).map_err(|error| {
-            Error::from_reason(format!(
-                "Failed to parse backup manifest '{}': {error}",
-                path.display()
+                "Failed to parse backup manifest '{backup_id}': {error}"
             ))
         })?;
         if manifest.version != MANIFEST_VERSION {
@@ -211,26 +165,12 @@ impl LocalStore {
 
     /// 列出全部可读清单，按创建时间倒序。单个清单损坏不影响其它备份。
     pub(crate) fn list_manifests(&self) -> Result<Vec<BackupManifest>> {
-        let directory = self.root.join(MANIFEST_DIR);
-        let entries = match fs::read_dir(&directory) {
-            Ok(entries) => entries,
-            Err(error) if error.kind() == ErrorKind::NotFound => return Ok(Vec::new()),
-            Err(error) => {
-                return Err(Error::from_reason(format!(
-                    "Failed to list backup manifests '{}': {error}",
-                    directory.display()
-                )))
-            }
-        };
-
         let mut manifests = Vec::new();
-        for entry in entries {
-            let entry = entry.map_err(|error| {
-                Error::from_reason(format!("Failed to read backup manifest entry: {error}"))
-            })?;
-            let name = entry.file_name();
-            let Some(name) = name.to_str() else { continue };
-            let Some(backup_id) = name.strip_suffix(".json") else {
+        for key in self.store.list(MANIFEST_PREFIX)? {
+            let Some(backup_id) = key
+                .strip_prefix(MANIFEST_PREFIX)
+                .and_then(|name| name.strip_suffix(".json"))
+            else {
                 continue;
             };
             if !is_valid_backup_id(backup_id) {
@@ -246,22 +186,10 @@ impl LocalStore {
 
     pub(crate) fn delete_manifest(&self, backup_id: &str) -> Result<()> {
         validate_backup_id(backup_id)?;
-        let path = self
-            .root
-            .join(MANIFEST_DIR)
-            .join(format!("{backup_id}.json"));
-        if path.is_file() {
-            fs::remove_file(&path).map_err(|error| {
-                Error::from_reason(format!(
-                    "Failed to delete backup manifest '{}': {error}",
-                    path.display()
-                ))
-            })?;
-        }
-        Ok(())
+        self.store.delete(&manifest_key(backup_id))
     }
 
-    /// 读取最新一份备份。指针缺失或损坏时回退为扫描清单目录。
+    /// 读取最新一份备份。指针缺失或损坏时回退为扫描清单。
     pub(crate) fn latest_manifest(&self) -> Result<Option<BackupManifest>> {
         if let Some(pointer) = self.read_latest()? {
             if is_valid_backup_id(&pointer.backup_id) {
@@ -282,22 +210,7 @@ impl LocalStore {
         let json = serde_json::to_vec(&pointer).map_err(|error| {
             Error::from_reason(format!("Failed to serialize latest pointer: {error}"))
         })?;
-        let temporary = self.root.join(format!("{LATEST_FILE}.{backup_id}.tmp"));
-        fs::write(&temporary, json).map_err(|error| {
-            let _ = fs::remove_file(&temporary);
-            Error::from_reason(format!(
-                "Failed to write latest pointer '{}': {error}",
-                temporary.display()
-            ))
-        })?;
-        let final_path = self.root.join(LATEST_FILE);
-        fs::rename(&temporary, &final_path).map_err(|error| {
-            let _ = fs::remove_file(&temporary);
-            Error::from_reason(format!(
-                "Failed to publish latest pointer '{}': {error}",
-                final_path.display()
-            ))
-        })
+        self.store.put(LATEST_KEY, &json)
     }
 
     /// 删除的正好是当前指针指向的备份时，同时清掉指针。
@@ -306,32 +219,26 @@ impl LocalStore {
             return Ok(());
         };
         if pointer.backup_id == backup_id {
-            let path = self.root.join(LATEST_FILE);
-            if path.is_file() {
-                let _ = fs::remove_file(path);
-            }
+            self.store.delete(LATEST_KEY)?;
         }
         Ok(())
     }
 
     fn read_latest(&self) -> Result<Option<LatestPointer>> {
-        let path = self.root.join(LATEST_FILE);
-        if !path.is_file() {
+        let Some(bytes) = self.store.get(LATEST_KEY)? else {
             return Ok(None);
-        }
-        let json = fs::read_to_string(&path).map_err(|error| {
-            Error::from_reason(format!(
-                "Failed to read latest pointer '{}': {error}",
-                path.display()
-            ))
-        })?;
+        };
         // 指针只是加速缓存，损坏时静默回退到清单扫描。
-        Ok(serde_json::from_str(&json).ok())
+        Ok(serde_json::from_slice(&bytes).ok())
     }
+}
 
-    fn chunk_path(&self, hash: &str) -> PathBuf {
-        self.chunk_root().join(&hash[..2]).join(hash)
-    }
+fn manifest_key(backup_id: &str) -> String {
+    format!("{MANIFEST_PREFIX}{backup_id}.json")
+}
+
+fn chunk_key(hash: &str) -> String {
+    format!("{CHUNK_PREFIX}{}/{hash}", &hash[..2])
 }
 
 /// 备份 id 只允许字母、数字与连字符，避免通过清单名做路径穿越。
@@ -357,9 +264,6 @@ pub(crate) fn validate_backup_id(backup_id: &str) -> Result<()> {
 fn validate_work_dir_name(name: &str) -> Result<()> {
     let valid = !name.is_empty()
         && name.len() <= 128
-        && !name.contains('/')
-        && !name.contains('\\')
-        && !name.contains("..")
         && name
             .bytes()
             .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-');

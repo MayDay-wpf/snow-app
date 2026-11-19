@@ -1,12 +1,15 @@
 /** 可迁移的存储位置种类：checkpoint（检查点）| upload（上传图片） */
 export type StorageLocationKind = "checkpoint" | "upload";
 
-/** 自动备份计划相关类型（定义在 shared，供主进程与界面共用）。 */
+/** 自动备份计划与备份目标相关类型（定义在 shared，供主进程与界面共用）。 */
 export type {
+  BackupR2Config,
   BackupScheduleMode,
   BackupScheduleRuntime,
   BackupScheduleSettings,
   BackupScheduleState,
+  BackupTarget,
+  BackupTargetKind,
 } from "../../shared/backupSchedule";
 
 /** 各存储位置路径信息 */
@@ -133,22 +136,44 @@ export type BackupSummary = {
   appVersion: string;
 };
 
-/** 数据备份 / 恢复任务进度（渲染进程按固定间隔轮询绘制进度条） */
+/** 数据备份 / 恢复 / 删除任务进度（渲染进程按固定间隔轮询绘制进度条） */
 export type BackupTaskProgress = {
   /** 是否有任务正在执行 */
   active: boolean;
-  /** 任务类型：create（备份）| restore（恢复）；空闲时为空字符串 */
+  /** 任务类型：create（备份）| restore（恢复）| delete（删除备份）；空闲时为空字符串 */
   kind: string;
-  /** 当前阶段：snapshot | collect | write | apply | finalize | idle */
+  /** 当前阶段：snapshot | collect | write | apply | remove | scan | reclaim | finalize | idle */
   phase: string;
   /** 已处理字节数 */
   processedBytes: number;
-  /** 待处理总字节数（0 表示尚未统计） */
+  /** 待处理总字节数（0 表示尚未统计，或任务只按文件数计量） */
   totalBytes: number;
-  /** 已处理文件数 */
+  /** 已处理文件数（删除任务为已回收的块数） */
   processedFiles: number;
-  /** 待处理文件总数（0 表示尚未统计） */
+  /** 待处理文件总数（0 表示尚未统计；删除任务为待回收的块数） */
   totalFiles: number;
+  /** 最近一段时间内实际写入 / 读取备份目标的平均速度（字节每秒） */
+  bytesPerSecond: number;
+};
+
+/** 数据备份：应用退出或失败后留下的未完成任务（可继续或放弃） */
+export type BackupPendingTask = {
+  /** 任务类型：create（备份）| delete（删除备份） */
+  kind: string;
+  /** 备份：正在生成的备份 id；删除：正在删除的备份 id */
+  backupId: string;
+  /** 任务开始时的备份位置：local | r2 */
+  targetKind: string;
+  /** 本地备份目录（R2 为空） */
+  targetDir?: string | null;
+  /** 任务开始时间（Unix 毫秒） */
+  startedAtMs: number;
+};
+
+/** 数据备份：续跑结果（备份任务附带执行结果） */
+export type BackupResumeResult = {
+  kind: string;
+  created?: BackupCreateResult | null;
 };
 
 /** 孤儿项目数据：分类 id（与 Rust 侧 orphan_projects 服务一一对应） */

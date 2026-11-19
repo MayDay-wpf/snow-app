@@ -3957,7 +3957,30 @@ export const en = {
   "settings.storageTab": "Storage & resources",
   "settings.backupTitle": "Data backup",
   "settings.backupInfo":
-    "Back up app data to a local folder. Blocks are content-addressed, so later backups only write what changed.",
+    "Back up app data to a local folder or Cloudflare R2. Blocks are content-addressed, so later backups only upload what changed.",
+  "settings.backupTargetKind": "Backup location",
+  "settings.backupTargetKindInfo":
+    "Back up to a local folder or a Cloudflare R2 bucket. Each location keeps its own backup list.",
+  "settings.backupTargetLocal": "Local folder",
+  "settings.backupTargetR2": "Cloudflare R2",
+  "settings.backupR2Title": "Cloudflare R2",
+  "settings.backupR2Info":
+    "Create an R2 API token with Object Read & Write permission for the bucket in the Cloudflare dashboard. Credentials are stored only in the local database.",
+  "settings.backupR2AccountId": "Account ID",
+  "settings.backupR2AccountIdPlaceholder": "32-character account ID",
+  "settings.backupR2Bucket": "Bucket",
+  "settings.backupR2AccessKeyId": "Access Key ID",
+  "settings.backupR2SecretAccessKey": "Secret Access Key",
+  "settings.backupR2Prefix": "Path prefix (optional)",
+  "settings.backupR2PrefixPlaceholder":
+    "e.g. laptop; backups go under <prefix>/snow-app-backup/",
+  "settings.backupR2Test": "Test connection",
+  "settings.backupR2Save": "Save",
+  "settings.backupR2Saved": "Cloudflare R2 settings saved.",
+  "settings.backupR2TestOk": "Connected to Cloudflare R2.",
+  "settings.backupR2TestFailed": "Cloudflare R2 connection failed: {{error}}",
+  "settings.backupScheduleNeedR2":
+    "Save the Cloudflare R2 settings to enable automatic backups.",
   "settings.backupTargetDir": "Backup folder",
   "settings.backupTargetDirEmpty": "No backup folder selected yet.",
   "settings.backupSelectDir": "Choose folder",
@@ -4006,19 +4029,47 @@ export const en = {
   "settings.backupDeleteMessage":
     "Only this backup is removed; chunks no longer referenced by other backups are reclaimed.",
   "settings.backupRestored": "Restore is ready. Restart Snow App to apply it.",
+  "settings.backupDeleted": "Backup deleted.",
   "settings.backupFailed": "Operation failed: {{error}}",
   "settings.backupProgressCreateTitle": "Backing up data",
   "settings.backupProgressRestoreTitle": "Preparing restore",
+  "settings.backupProgressDeleteTitle": "Deleting backup",
   "settings.backupPhasePreparing": "Preparing...",
   "settings.backupPhaseSnapshot": "Creating database snapshot...",
   "settings.backupPhaseCollect": "Scanning files...",
   "settings.backupPhaseWrite": "Writing backup data...",
   "settings.backupPhaseApply": "Writing restored files...",
+  "settings.backupPhaseRemove": "Removing backup record...",
+  "settings.backupPhaseScan": "Checking chunks still in use...",
+  "settings.backupPhaseReclaim": "Reclaiming unused chunks...",
   "settings.backupPhaseFinalize": "Finalizing...",
-  "settings.backupProgressCount": "{{files}}/{{total}} files · {{size}}",
-  "settings.backupProgressCreateNote": "Do not close the app while this runs.",
+  "settings.backupProgressBytes":
+    "{{done}} / {{total}} · {{files}}/{{totalFiles}} files",
+  "settings.backupProgressChunks": "{{done}} / {{total}} chunks",
+  "settings.backupProgressCreateNote":
+    "You can keep using the app in the background. If you quit midway, the unfinished part can be resumed next time.",
   "settings.backupProgressRestoreNote":
     "Resource files are written now; databases are swapped the next time the app starts.",
+  "settings.backupProgressDeleteNote":
+    "You can keep using the app in the background. If you quit midway, the deletion can be resumed next time.",
+  "settings.backupRunInBackground": "Run in background",
+  "settings.backupRunningInBackgroundCreate": "Backing up in the background",
+  "settings.backupRunningInBackgroundRestore": "Restoring in the background",
+  "settings.backupRunningInBackgroundDelete": "Deleting in the background",
+  "settings.backupShowProgress": "Show progress",
+  "settings.backupPendingCreateTitle": "A backup was interrupted",
+  "settings.backupPendingDeleteTitle": "Deleting a backup was interrupted",
+  "settings.backupPendingCreateMessage":
+    "The backup started at {{time}} did not finish before Snow App quit. Continue it now? Data already written will not be uploaded again.",
+  "settings.backupPendingDeleteMessage":
+    "The deletion started at {{time}} did not finish before Snow App quit. Continue it now?",
+  "settings.backupPendingCreateInline":
+    "Backup started at {{time}} was interrupted",
+  "settings.backupPendingDeleteInline":
+    "Deletion started at {{time}} was interrupted",
+  "settings.backupPendingResume": "Continue",
+  "settings.backupPendingDiscard": "Discard",
+  "settings.backupPendingLater": "Later",
   "settings.resourceOptimize": "Optimize usage",
   "settings.resourceOptimizeInfo":
     "Rebuild database files to reclaim disk space and compact process memory.",

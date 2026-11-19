@@ -4220,6 +4220,7 @@ dependencies = [
  "flate2",
  "futures",
  "getrandom 0.2.17",
+ "hmac",
  "image",
  "libc",
  "napi",

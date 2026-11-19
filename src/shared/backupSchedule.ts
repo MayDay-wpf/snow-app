@@ -38,6 +38,8 @@ export type BackupScheduleState = BackupScheduleRuntime & {
 
 /** 备份相关系统设置键（存于应用数据库的 system_settings）。 */
 export const BACKUP_SETTINGS_CODES = {
+  targetKind: "backup_target_kind",
+  targetKindName: "数据备份位置",
   targetDir: "backup_local_target_dir",
   targetDirName: "数据备份目录",
   keep: "backup_local_keep",
@@ -47,6 +49,37 @@ export const BACKUP_SETTINGS_CODES = {
   scheduleRuntime: "backup_schedule_runtime",
   scheduleRuntimeName: "数据备份计划状态",
 } as const;
+
+/** 备份位置：local = 本地目录；r2 = Cloudflare R2。 */
+export type BackupTargetKind = "local" | "r2";
+
+/** 备份目标（与 Rust 侧 BackupTarget 一致）：本地目录需带 dir。 */
+export type BackupTarget = {
+  kind: BackupTargetKind;
+  dir?: string;
+};
+
+/** Cloudflare R2 配置（读取与保存共用同一结构）。 */
+export type BackupR2Config = {
+  accountId: string;
+  bucket: string;
+  accessKeyId: string;
+  secretAccessKey: string;
+  /** 存储桶内的路径前缀（可为空）。 */
+  prefix: string;
+};
+
+/** 把任意输入收敛成合法的备份位置，默认本地目录。 */
+export const normalizeBackupTargetKind = (value: unknown): BackupTargetKind =>
+  value === "r2" ? "r2" : "local";
+
+/** R2 配置是否完整（缺任一项都无法执行备份）。 */
+export const isBackupR2Configured = (config: BackupR2Config | null): boolean =>
+  config !== null &&
+  config.accountId !== "" &&
+  config.bucket !== "" &&
+  config.accessKeyId !== "" &&
+  config.secretAccessKey !== "";
 
 export const DEFAULT_BACKUP_SCHEDULE: BackupScheduleSettings = {
   mode: "off",

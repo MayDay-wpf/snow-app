@@ -1,31 +1,56 @@
 import {
   CalendarClock,
   Clock,
+  Cloud,
   DatabaseBackup,
+  Eye,
+  EyeOff,
   FolderCog,
+  Gauge,
+  HardDrive,
+  History,
   LoaderCircle,
+  Play,
+  PlugZap,
   Power,
   RefreshCw,
   RotateCcw,
+  Save,
   Trash2,
+  X,
 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
+  BackupR2Config,
   BackupScheduleSettings,
   BackupScheduleState,
   BackupSummary,
-  BackupTaskProgress,
+  BackupTarget,
+  BackupTargetKind,
 } from "../../../preload";
 import {
   BACKUP_SETTINGS_CODES,
   DEFAULT_BACKUP_KEEP,
   DEFAULT_BACKUP_SCHEDULE,
+  isBackupR2Configured,
   normalizeBackupKeep,
   normalizeBackupSchedule,
+  normalizeBackupTargetKind,
 } from "../../../shared/backupSchedule";
 import { useI18n } from "../../i18n";
+import { AutoDismissNotice } from "../AutoDismissNotice";
 import { ApiSettingsHintIcon } from "./apiSettings/ApiSettingsFieldLabel";
+import {
+  backupTaskPercent,
+  backupTaskSpeed,
+  discardBackupPendingTask,
+  formatBytes,
+  resumeBackupPendingTask,
+  runBackupTask,
+  setBackupTaskDialogOpen,
+  useBackupTask,
+  type BackupTaskKind,
+} from "./backupTask";
 import { ConfirmDialog } from "../common/ConfirmDialog";
 import { CustomSelect } from "../common/CustomSelect";
 
@@ -39,22 +64,37 @@ const MINUTE_OPTIONS = Array.from({ length: 60 }, (_, minute) => ({
   label: String(minute).padStart(2, "0"),
 }));
 
-type BusyKind = "plan" | "create" | "restore" | "delete" | null;
+/** 卡片内后台进度条的标题文案（按任务类型）。 */
+const BACKGROUND_TEXT: Record<
+  BackupTaskKind,
+  { key: string; fallback: string }
+> = {
+  create: {
+    key: "settings.backupRunningInBackgroundCreate",
+    fallback: "Backing up in the background",
+  },
+  restore: {
+    key: "settings.backupRunningInBackgroundRestore",
+    fallback: "Restoring in the background",
+  },
+  delete: {
+    key: "settings.backupRunningInBackgroundDelete",
+    fallback: "Deleting in the background",
+  },
+};
 
-/** 将字节数格式化为可读大小（B / KB / MB / GB / TB）。 */
-const formatBytes = (bytes: number): string => {
-  if (!Number.isFinite(bytes) || bytes <= 0) {
-    return "0 B";
-  }
-  const units = ["B", "KB", "MB", "GB", "TB"];
-  let value = bytes;
-  let unitIndex = 0;
-  while (value >= 1024 && unitIndex < units.length - 1) {
-    value /= 1024;
-    unitIndex += 1;
-  }
-  const digits = value >= 100 ? 0 : value >= 10 ? 1 : 2;
-  return `${value.toFixed(digits)} ${units[unitIndex]}`;
+type BusyKind = "plan" | null;
+type R2BusyKind = "save" | "test" | null;
+
+/** R2 保存 / 测试连接的弹出提示。 */
+type R2Notice = { message: string; tone: "success" | "error" };
+
+const EMPTY_R2_CONFIG: BackupR2Config = {
+  accountId: "",
+  bucket: "",
+  accessKeyId: "",
+  secretAccessKey: "",
+  prefix: "",
 };
 
 const formatTime = (timestampMs: number): string =>
@@ -66,23 +106,33 @@ const readErrorMessage = (error: unknown): string =>
 /**
  * 数据备份设置区块（通用设置 → 存储与资源）。
  *
- * 目标目录、保留份数与自动备份计划保存在系统设置里；备份本身由 Rust 侧
+ * 备份位置（本地目录 / Cloudflare R2）、保留份数与自动备份计划保存在系统
+ * 设置里；R2 凭据由 Rust 侧读写，可在界面切换明文查看。备份本身由 Rust 侧
  * 执行：SQLite 走 Online Backup API，资源文件按 8MB 内容寻址分块去重。
- * 自动备份的计时与系统唤醒注册在主进程，关闭应用后也能按计划执行。
+ * 手动备份 / 恢复 / 删除的任务状态在 backupTask 模块中，进度弹窗可切到后台，
+ * 离开设置页也不会中断；备份与删除在应用退出后可继续或放弃。自动备份的计时
+ * 与系统唤醒注册在主进程，关闭应用后也能按计划执行。
  */
 export function BackupSettingsSection(): React.JSX.Element {
   const { t } = useI18n();
   const [expanded, setExpanded] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  const [targetKind, setTargetKind] = useState<BackupTargetKind>("local");
   const [targetDir, setTargetDir] = useState("");
+  /** 已保存的 R2 配置（null 表示尚未读取） */
+  const [r2Config, setR2Config] = useState<BackupR2Config | null>(null);
+  const [r2Form, setR2Form] = useState<BackupR2Config>(EMPTY_R2_CONFIG);
+  const [r2Busy, setR2Busy] = useState<R2BusyKind>(null);
+  const [r2Notice, setR2Notice] = useState<R2Notice | null>(null);
+  const [showR2Secret, setShowR2Secret] = useState(false);
   const [keep, setKeep] = useState(DEFAULT_BACKUP_KEEP);
   const [scheduleState, setScheduleState] =
     useState<BackupScheduleState | null>(null);
   const [scheduleSaving, setScheduleSaving] = useState(false);
   const [backups, setBackups] = useState<BackupSummary[]>([]);
   const [busy, setBusy] = useState<BusyKind>(null);
-  /** 备份 / 恢复任务的实时进度（busy 为 create / restore 时轮询） */
-  const [progress, setProgress] = useState<BackupTaskProgress | null>(null);
+  /** 手动备份 / 恢复任务（模块级状态，设置页卸载后继续执行） */
+  const backupTask = useBackupTask();
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const [pendingRestore, setPendingRestore] = useState<BackupSummary | null>(
@@ -91,22 +141,31 @@ export function BackupSettingsSection(): React.JSX.Element {
   const [pendingDelete, setPendingDelete] = useState<BackupSummary | null>(
     null,
   );
-  /** 事件回调里读取最新目录，避免订阅随目录变化重建。 */
-  const targetDirRef = useRef("");
+
+  /** 当前可用的备份目标；位置尚未配置完整时为 null。 */
+  const target = useMemo<BackupTarget | null>(() => {
+    if (targetKind === "r2") {
+      return isBackupR2Configured(r2Config) ? { kind: "r2" } : null;
+    }
+    return targetDir ? { kind: "local", dir: targetDir } : null;
+  }, [targetKind, targetDir, r2Config]);
+
+  /** 事件回调里读取最新目标，避免订阅随目标变化重建。 */
+  const targetRef = useRef<BackupTarget | null>(null);
 
   useEffect(() => {
-    targetDirRef.current = targetDir;
-  }, [targetDir]);
+    targetRef.current = target;
+  }, [target]);
 
   const schedule = scheduleState?.settings ?? DEFAULT_BACKUP_SCHEDULE;
 
-  const refreshList = useCallback(async (directory: string) => {
-    if (!directory) {
+  const refreshList = useCallback(async (current: BackupTarget | null) => {
+    if (!current) {
       setBackups([]);
       return;
     }
     try {
-      const list = await window.snow.backupLocalList(directory);
+      const list = await window.snow.backupList(current);
       setBackups(list);
     } catch (listError) {
       setBackups([]);
@@ -114,23 +173,30 @@ export function BackupSettingsSection(): React.JSX.Element {
     }
   }, []);
 
-  // 读取已保存的目录、保留份数与自动备份计划。
+  // 读取已保存的备份位置、R2 配置、保留份数与自动备份计划。
   useEffect(() => {
     let cancelled = false;
     void (async () => {
       try {
-        const [savedDir, savedKeep, savedSchedule] = await Promise.all([
-          window.snow.getSystemSettingValue(BACKUP_SETTINGS_CODES.targetDir),
-          window.snow.getSystemSettingValue(BACKUP_SETTINGS_CODES.keep),
-          window.snow.getBackupSchedule().catch(() => null),
-        ]);
+        const [savedKind, savedDir, savedKeep, savedR2, savedSchedule] =
+          await Promise.all([
+            window.snow.getSystemSettingValue(BACKUP_SETTINGS_CODES.targetKind),
+            window.snow.getSystemSettingValue(BACKUP_SETTINGS_CODES.targetDir),
+            window.snow.getSystemSettingValue(BACKUP_SETTINGS_CODES.keep),
+            window.snow.backupGetR2Config().catch(() => null),
+            window.snow.getBackupSchedule().catch(() => null),
+          ]);
         if (cancelled) {
           return;
         }
-        const directory = savedDir?.trim() ?? "";
         const parsedKeep = savedKeep ? Number.parseInt(savedKeep, 10) : NaN;
-        setTargetDir(directory);
+        setTargetKind(normalizeBackupTargetKind(savedKind?.trim()));
+        setTargetDir(savedDir?.trim() ?? "");
         setKeep(normalizeBackupKeep(parsedKeep));
+        if (savedR2) {
+          setR2Config(savedR2);
+          setR2Form(savedR2);
+        }
         if (savedSchedule) {
           setScheduleState(savedSchedule);
         }
@@ -149,44 +215,57 @@ export function BackupSettingsSection(): React.JSX.Element {
   useEffect(() => {
     const unsubscribe = window.snow.onBackupScheduleChanged((next) => {
       setScheduleState(next);
-      if (!next.running && targetDirRef.current) {
-        void refreshList(targetDirRef.current);
+      if (!next.running && targetRef.current) {
+        void refreshList(targetRef.current);
       }
     });
     return unsubscribe;
   }, [refreshList]);
 
   useEffect(() => {
-    if (!loaded || !targetDir) {
+    if (!loaded) {
       return;
     }
-    void refreshList(targetDir);
-  }, [loaded, targetDir, refreshList]);
+    void refreshList(target);
+  }, [loaded, target, refreshList]);
 
-  // 备份 / 恢复期间按固定间隔读取 Rust 侧进度快照，用于绘制进度条。
+  // 手动备份 / 恢复结束后刷新列表（任务可能在设置页挂载期间于后台完成）。
+  const finishedRef = useRef(backupTask.finished);
+
   useEffect(() => {
-    if (busy !== "create" && busy !== "restore") {
-      setProgress(null);
+    if (backupTask.finished === finishedRef.current) {
       return;
     }
-    let cancelled = false;
-    const readProgress = async (): Promise<void> => {
-      try {
-        const snapshot = await window.snow.backupTaskProgress();
-        if (!cancelled) {
-          setProgress(snapshot);
-        }
-      } catch {
-        // 进度读取失败不影响任务本身，下一次轮询继续
-      }
-    };
-    void readProgress();
-    const timer = window.setInterval(() => void readProgress(), 300);
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
-  }, [busy]);
+    finishedRef.current = backupTask.finished;
+    if (loaded) {
+      void refreshList(targetRef.current);
+    }
+  }, [backupTask.finished, loaded, refreshList]);
+
+  /** 备份位置变化后，计划已开启时立即按新位置重新安排下一次备份。 */
+  const rescheduleIfEnabled = async (): Promise<void> => {
+    if (schedule.mode !== "off") {
+      const next = await window.snow.setBackupSchedule(schedule);
+      setScheduleState(next);
+    }
+  };
+
+  const handleTargetKindChange = async (value: string): Promise<void> => {
+    const nextKind = normalizeBackupTargetKind(value);
+    if (nextKind === targetKind) {
+      return;
+    }
+    setTargetKind(nextKind);
+    setBackups([]);
+    setError("");
+    setNotice("");
+    await window.snow.setSystemSetting(
+      BACKUP_SETTINGS_CODES.targetKindName,
+      BACKUP_SETTINGS_CODES.targetKind,
+      nextKind,
+    );
+    await rescheduleIfEnabled();
+  };
 
   const handleSelectDirectory = async (): Promise<void> => {
     const selected = await window.snow.selectStorageDirectory(
@@ -203,10 +282,71 @@ export function BackupSettingsSection(): React.JSX.Element {
       BACKUP_SETTINGS_CODES.targetDir,
       selected,
     );
-    // 计划已开启时立即按新目录安排下一次备份，无需等待下一轮检查。
-    if (schedule.mode !== "off") {
-      const next = await window.snow.setBackupSchedule(schedule);
-      setScheduleState(next);
+    await rescheduleIfEnabled();
+  };
+
+  const updateR2Field =
+    (field: keyof BackupR2Config) =>
+    (event: React.ChangeEvent<HTMLInputElement>): void => {
+      const { value } = event.target;
+      setR2Form((current) => ({ ...current, [field]: value }));
+    };
+
+  const handleR2Save = async (): Promise<void> => {
+    if (r2Busy) {
+      return;
+    }
+    setR2Busy("save");
+    setR2Notice(null);
+    try {
+      await window.snow.backupSetR2Config(r2Form);
+      const saved = await window.snow.backupGetR2Config();
+      setR2Config(saved);
+      setR2Form(saved);
+      setR2Notice({
+        tone: "success",
+        message: t("settings.backupR2Saved", {
+          defaultValue: "Cloudflare R2 settings saved.",
+        }),
+      });
+      await rescheduleIfEnabled();
+    } catch (saveError) {
+      setR2Notice({
+        tone: "error",
+        message: t("settings.backupFailed", {
+          values: { error: readErrorMessage(saveError) },
+          defaultValue: "Operation failed: {{error}}",
+        }),
+      });
+    } finally {
+      setR2Busy(null);
+    }
+  };
+
+  const handleR2Test = async (): Promise<void> => {
+    if (r2Busy) {
+      return;
+    }
+    setR2Busy("test");
+    setR2Notice(null);
+    try {
+      await window.snow.backupTestR2Config(r2Form);
+      setR2Notice({
+        tone: "success",
+        message: t("settings.backupR2TestOk", {
+          defaultValue: "Connected to Cloudflare R2.",
+        }),
+      });
+    } catch (testError) {
+      setR2Notice({
+        tone: "error",
+        message: t("settings.backupR2TestFailed", {
+          values: { error: readErrorMessage(testError) },
+          defaultValue: "Cloudflare R2 connection failed: {{error}}",
+        }),
+      });
+    } finally {
+      setR2Busy(null);
     }
   };
 
@@ -284,12 +424,17 @@ export function BackupSettingsSection(): React.JSX.Element {
       : schedule.mode === "interval"
         ? String(schedule.intervalHours)
         : "off";
-  const scheduleEnabled = schedule.mode !== "off" && targetDir !== "";
+  const scheduleEnabled = schedule.mode !== "off" && target !== null;
   const scheduleStatus = ((): string => {
-    if (!targetDir) {
-      return t("settings.backupScheduleNeedDir", {
-        defaultValue: "Choose a backup folder to enable automatic backups.",
-      });
+    if (!target) {
+      return targetKind === "r2"
+        ? t("settings.backupScheduleNeedR2", {
+            defaultValue:
+              "Save the Cloudflare R2 settings to enable automatic backups.",
+          })
+        : t("settings.backupScheduleNeedDir", {
+            defaultValue: "Choose a backup folder to enable automatic backups.",
+          });
     }
     if (schedule.mode === "off") {
       return t("settings.backupScheduleOffInfo", {
@@ -321,14 +466,14 @@ export function BackupSettingsSection(): React.JSX.Element {
   })();
 
   const handlePlan = async (): Promise<void> => {
-    if (!targetDir || busy) {
+    if (!target || busy) {
       return;
     }
     setBusy("plan");
     setError("");
     setNotice("");
     try {
-      const plan = await window.snow.backupLocalPlan(targetDir);
+      const plan = await window.snow.backupPlan(target);
       setNotice(
         t("settings.backupPlanResult", {
           values: {
@@ -352,137 +497,177 @@ export function BackupSettingsSection(): React.JSX.Element {
     }
   };
 
-  const handleCreate = async (): Promise<void> => {
-    if (!targetDir || busy) {
+  const handleCreate = (): void => {
+    if (!target || isBlockedByPending) {
       return;
     }
-    setBusy("create");
     setError("");
     setNotice("");
-    try {
-      const result = await window.snow.backupLocalCreate(targetDir, keep);
-      setNotice(
-        t("settings.backupCreated", {
-          values: {
-            size: formatBytes(result.uploadedBytes),
-            files: result.fileCount,
-          },
-          defaultValue: "Backup finished: {{size}} written, {{files}} files.",
-        }),
-      );
-      await refreshList(targetDir);
-    } catch (createError) {
-      setError(
-        t("settings.backupFailed", {
-          values: { error: readErrorMessage(createError) },
-          defaultValue: "Operation failed: {{error}}",
-        }),
-      );
-    } finally {
-      setBusy(null);
-    }
+    runBackupTask("create", () => window.snow.backupCreate(target, keep));
   };
 
-  const handleRestore = async (): Promise<void> => {
-    const target = pendingRestore;
-    if (!targetDir || !target || busy) {
+  const handleRestore = (): void => {
+    const backup = pendingRestore;
+    if (!target || !backup || isBusy) {
       return;
     }
     setPendingRestore(null);
-    setBusy("restore");
     setError("");
     setNotice("");
-    try {
-      await window.snow.backupLocalRestore(targetDir, target.id);
-      setNotice(
-        t("settings.backupRestored", {
-          defaultValue: "Restore is ready. Restart Snow App to apply it.",
-        }),
-      );
-      await refreshList(targetDir);
-    } catch (restoreError) {
-      setError(
-        t("settings.backupFailed", {
-          values: { error: readErrorMessage(restoreError) },
-          defaultValue: "Operation failed: {{error}}",
-        }),
-      );
-    } finally {
-      setBusy(null);
-    }
+    runBackupTask("restore", () =>
+      window.snow.backupRestore(target, backup.id),
+    );
   };
 
-  const handleDelete = async (): Promise<void> => {
-    const target = pendingDelete;
-    if (!targetDir || !target || busy) {
+  const handleDelete = (): void => {
+    const backup = pendingDelete;
+    if (!target || !backup || isBlockedByPending) {
       return;
     }
-    setBusy("delete");
+    setPendingDelete(null);
     setError("");
     setNotice("");
-    try {
-      await window.snow.backupLocalDelete(targetDir, target.id);
-      setPendingDelete(null);
-      await refreshList(targetDir);
-    } catch (deleteError) {
-      setError(
-        t("settings.backupFailed", {
-          values: { error: readErrorMessage(deleteError) },
-          defaultValue: "Operation failed: {{error}}",
-        }),
-      );
-    } finally {
-      setBusy(null);
-    }
+    runBackupTask("delete", () => window.snow.backupDelete(target, backup.id));
   };
 
-  // 自动备份执行期间同样禁用手动备份 / 恢复 / 删除，避免两个任务争用备份数据。
-  const isBusy = busy !== null || scheduleState?.running === true;
-  const progressActive = busy === "create" || busy === "restore";
-  const progressTotalBytes = progress?.totalBytes ?? 0;
-  const progressPercent =
-    progress && progressTotalBytes > 0
-      ? Math.min(
-          100,
-          Math.round((progress.processedBytes / progressTotalBytes) * 100),
-        )
-      : 0;
-  // 快照阶段（以及刚发起任务时）还没有总量，进度条按不确定状态显示
-  const progressIndeterminate =
-    !progress || !progress.active || progressTotalBytes === 0;
+  // 手动任务与自动备份执行期间禁用备份 / 恢复 / 删除，避免两个任务争用备份数据。
+  const isBusy =
+    busy !== null ||
+    backupTask.running !== null ||
+    scheduleState?.running === true;
+  /** 有中断的备份 / 删除待处理时，必须先继续或放弃才能开始新的备份或删除。 */
+  const isBlockedByPending = isBusy || backupTask.pending !== null;
+  const backupTaskPercentValue = backupTaskPercent(backupTask.progress);
+  const backupTaskSpeedValue = backupTaskSpeed(backupTask.progress);
 
-  /** 进度阶段文案（阶段名与 Rust 侧 progress.rs 保持一致）。 */
-  const progressPhaseLabel = (phase: string | undefined): string => {
-    switch (phase) {
-      case "snapshot":
-        return t("settings.backupPhaseSnapshot", {
-          defaultValue: "Creating database snapshot...",
-        });
-      case "collect":
-        return t("settings.backupPhaseCollect", {
-          defaultValue: "Scanning files...",
-        });
-      case "write":
-        return t("settings.backupPhaseWrite", {
-          defaultValue: "Writing backup data...",
-        });
-      case "apply":
-        return t("settings.backupPhaseApply", {
-          defaultValue: "Writing restored data...",
-        });
-      case "finalize":
-        return t("settings.backupPhaseFinalize", {
-          defaultValue: "Finalizing...",
-        });
-      default:
-        return t("settings.backupPhasePreparing", {
-          defaultValue: "Preparing...",
-        });
+  /** 上次退出前未完成的备份 / 删除：提示继续或放弃。 */
+  const renderPendingTask = (
+    placement: "header" | "body",
+  ): React.JSX.Element | null => {
+    const pending = backupTask.pending;
+    if (!pending || backupTask.running) {
+      return null;
     }
+    const time = formatTime(pending.startedAtMs);
+    return (
+      <div className={`backup-task-inline ${placement}`}>
+        <div className="backup-task-inline-head">
+          <span className="backup-task-inline-title">
+            <History size={12} strokeWidth={1.8} aria-hidden="true" />
+            {pending.kind === "delete"
+              ? t("settings.backupPendingDeleteInline", {
+                  values: { time },
+                  defaultValue: "Deletion started at {{time}} was interrupted",
+                })
+              : t("settings.backupPendingCreateInline", {
+                  values: { time },
+                  defaultValue: "Backup started at {{time}} was interrupted",
+                })}
+          </span>
+          <div className="general-storage-actions">
+            <button
+              type="button"
+              className="general-storage-action"
+              onClick={() => void discardBackupPendingTask()}
+              disabled={isBusy}
+            >
+              <X size={11} strokeWidth={1.8} aria-hidden="true" />
+              <span>
+                {t("settings.backupPendingDiscard", {
+                  defaultValue: "Discard",
+                })}
+              </span>
+            </button>
+            <button
+              type="button"
+              className="general-storage-action"
+              onClick={resumeBackupPendingTask}
+              disabled={isBusy}
+            >
+              <Play size={11} strokeWidth={1.8} aria-hidden="true" />
+              <span>
+                {t("settings.backupPendingResume", {
+                  defaultValue: "Continue",
+                })}
+              </span>
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  /** 后台执行中的手动备份 / 恢复 / 删除：显示进度条，可重新展开进度弹窗。 */
+  const renderBackupTaskInline = (
+    placement: "header" | "body",
+  ): React.JSX.Element | null => {
+    if (!backupTask.running || backupTask.dialogOpen) {
+      return null;
+    }
+    const title = BACKGROUND_TEXT[backupTask.running];
+    return (
+      <div className={`backup-task-inline ${placement}`}>
+        <div className="backup-task-inline-head">
+          <span className="backup-task-inline-title">
+            <LoaderCircle
+              size={12}
+              strokeWidth={1.8}
+              className="tool-call-icon-spinning"
+              aria-hidden="true"
+            />
+            {t(title.key, { defaultValue: title.fallback })}
+            {backupTaskPercentValue !== null && (
+              <span className="backup-task-inline-percent">
+                {backupTaskPercentValue}%
+              </span>
+            )}
+            {backupTaskSpeedValue && (
+              <span className="backup-task-speed">
+                <Gauge size={11} strokeWidth={1.8} aria-hidden="true" />
+                {backupTaskSpeedValue}
+              </span>
+            )}
+          </span>
+          <button
+            type="button"
+            className="general-storage-action"
+            onClick={() => setBackupTaskDialogOpen(true)}
+          >
+            {t("settings.backupShowProgress", {
+              defaultValue: "Show progress",
+            })}
+          </button>
+        </div>
+        <div
+          className="storage-migration-progress"
+          role="progressbar"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={backupTaskPercentValue ?? undefined}
+        >
+          <div
+            className={`storage-migration-progress-fill${
+              backupTaskPercentValue === null ? " indeterminate" : ""
+            }`}
+            style={
+              backupTaskPercentValue === null
+                ? undefined
+                : { width: `${backupTaskPercentValue}%` }
+            }
+          />
+        </div>
+      </div>
+    );
   };
 
   return (
     <div className="storage-card">
+      <AutoDismissNotice
+        message={r2Notice?.message ?? ""}
+        tone={r2Notice?.tone ?? "success"}
+        durationMs={r2Notice?.tone === "error" ? 5000 : undefined}
+        onDismiss={() => setR2Notice(null)}
+      />
       <div className="storage-card-row">
         <div className="storage-card-text">
           <span className="storage-card-title">
@@ -490,7 +675,7 @@ export function BackupSettingsSection(): React.JSX.Element {
             <ApiSettingsHintIcon
               hint={t("settings.backupInfo", {
                 defaultValue:
-                  "Back up app data to a local folder. Blocks are content-addressed, so later backups only write what changed.",
+                  "Back up app data to a local folder or Cloudflare R2. Blocks are content-addressed, so later backups only upload what changed.",
               })}
             />
           </span>
@@ -506,54 +691,277 @@ export function BackupSettingsSection(): React.JSX.Element {
         </button>
       </div>
 
+      {/* 卡片收起时后台进度放在头部下方，展开后显示在「创建备份」下方 */}
+      {!expanded && renderBackupTaskInline("header")}
+      {!expanded && renderPendingTask("header")}
+
       {expanded && (
         <div className="storage-card-detail">
           <div className="api-settings-form-body">
             <div className="general-storage-row">
               <div className="general-storage-info">
-                <FolderCog
-                  size={14}
-                  strokeWidth={1.8}
-                  className="general-storage-icon"
-                  aria-hidden="true"
-                />
+                {targetKind === "r2" ? (
+                  <Cloud
+                    size={14}
+                    strokeWidth={1.8}
+                    className="general-storage-icon"
+                    aria-hidden="true"
+                  />
+                ) : (
+                  <HardDrive
+                    size={14}
+                    strokeWidth={1.8}
+                    className="general-storage-icon"
+                    aria-hidden="true"
+                  />
+                )}
                 <div className="general-storage-text">
                   <span className="general-storage-label">
-                    {t("settings.backupTargetDir", {
-                      defaultValue: "Backup folder",
+                    {t("settings.backupTargetKind", {
+                      defaultValue: "Backup location",
                     })}
-                  </span>
-                  <span className="settings-item-description">
-                    {targetDir ||
-                      t("settings.backupTargetDirEmpty", {
-                        defaultValue: "No backup folder selected yet.",
+                    <ApiSettingsHintIcon
+                      hint={t("settings.backupTargetKindInfo", {
+                        defaultValue:
+                          "Back up to a local folder or a Cloudflare R2 bucket. Each location keeps its own backup list.",
                       })}
+                    />
                   </span>
                 </div>
               </div>
               <div className="general-storage-actions">
-                <button
-                  type="button"
-                  className="general-storage-action"
-                  onClick={() => void handleSelectDirectory()}
-                >
-                  {t("settings.backupSelectDir", {
-                    defaultValue: "Choose folder",
-                  })}
-                </button>
-                {targetDir && (
+                <div className="settings-close-behavior-select">
+                  <CustomSelect
+                    value={targetKind}
+                    options={[
+                      {
+                        value: "local",
+                        label: t("settings.backupTargetLocal", {
+                          defaultValue: "Local folder",
+                        }),
+                      },
+                      {
+                        value: "r2",
+                        label: t("settings.backupTargetR2", {
+                          defaultValue: "Cloudflare R2",
+                        }),
+                      },
+                    ]}
+                    onChange={(value) => void handleTargetKindChange(value)}
+                    disabled={isBusy}
+                    ariaLabel={t("settings.backupTargetKind", {
+                      defaultValue: "Backup location",
+                    })}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {targetKind === "local" ? (
+              <div className="general-storage-row">
+                <div className="general-storage-info">
+                  <FolderCog
+                    size={14}
+                    strokeWidth={1.8}
+                    className="general-storage-icon"
+                    aria-hidden="true"
+                  />
+                  <div className="general-storage-text">
+                    <span className="general-storage-label">
+                      {t("settings.backupTargetDir", {
+                        defaultValue: "Backup folder",
+                      })}
+                    </span>
+                    <span className="settings-item-description">
+                      {targetDir ||
+                        t("settings.backupTargetDirEmpty", {
+                          defaultValue: "No backup folder selected yet.",
+                        })}
+                    </span>
+                  </div>
+                </div>
+                <div className="general-storage-actions">
                   <button
                     type="button"
                     className="general-storage-action"
-                    onClick={() => void handleOpenDirectory()}
+                    onClick={() => void handleSelectDirectory()}
+                    disabled={isBusy}
                   >
-                    {t("settings.storageOpenDir", {
-                      defaultValue: "Open folder",
+                    {t("settings.backupSelectDir", {
+                      defaultValue: "Choose folder",
                     })}
                   </button>
-                )}
+                  {targetDir && (
+                    <button
+                      type="button"
+                      className="general-storage-action"
+                      onClick={() => void handleOpenDirectory()}
+                    >
+                      {t("settings.storageOpenDir", {
+                        defaultValue: "Open folder",
+                      })}
+                    </button>
+                  )}
+                </div>
               </div>
-            </div>
+            ) : (
+              <div className="api-settings-form-section">
+                <div className="api-settings-form-section-header">
+                  <span className="api-settings-form-section-title">
+                    {t("settings.backupR2Title", {
+                      defaultValue: "Cloudflare R2",
+                    })}
+                    <ApiSettingsHintIcon
+                      hint={t("settings.backupR2Info", {
+                        defaultValue:
+                          "Create an R2 API token with Object Read & Write permission for the bucket in the Cloudflare dashboard. Credentials are stored only in the local database.",
+                      })}
+                    />
+                  </span>
+                </div>
+                <div className="api-settings-form-grid">
+                  <label className="api-settings-field">
+                    <span>
+                      {t("settings.backupR2AccountId", {
+                        defaultValue: "Account ID",
+                      })}
+                    </span>
+                    <input
+                      value={r2Form.accountId}
+                      onChange={updateR2Field("accountId")}
+                      placeholder={t("settings.backupR2AccountIdPlaceholder", {
+                        defaultValue: "32-character account ID",
+                      })}
+                      autoComplete="off"
+                      spellCheck={false}
+                      disabled={r2Busy !== null || isBusy}
+                    />
+                  </label>
+                  <label className="api-settings-field">
+                    <span>
+                      {t("settings.backupR2Bucket", {
+                        defaultValue: "Bucket",
+                      })}
+                    </span>
+                    <input
+                      value={r2Form.bucket}
+                      onChange={updateR2Field("bucket")}
+                      placeholder="snow-app-backup"
+                      autoComplete="off"
+                      spellCheck={false}
+                      disabled={r2Busy !== null || isBusy}
+                    />
+                  </label>
+                  <label className="api-settings-field">
+                    <span>
+                      {t("settings.backupR2AccessKeyId", {
+                        defaultValue: "Access Key ID",
+                      })}
+                    </span>
+                    <input
+                      value={r2Form.accessKeyId}
+                      onChange={updateR2Field("accessKeyId")}
+                      autoComplete="off"
+                      spellCheck={false}
+                      disabled={r2Busy !== null || isBusy}
+                    />
+                  </label>
+                  <label className="api-settings-field">
+                    <span>
+                      {t("settings.backupR2SecretAccessKey", {
+                        defaultValue: "Secret Access Key",
+                      })}
+                    </span>
+                    <div className="api-settings-password-wrap">
+                      <input
+                        type={showR2Secret ? "text" : "password"}
+                        value={r2Form.secretAccessKey}
+                        onChange={updateR2Field("secretAccessKey")}
+                        autoComplete="new-password"
+                        spellCheck={false}
+                        disabled={r2Busy !== null || isBusy}
+                      />
+                      <button
+                        type="button"
+                        className="api-settings-password-toggle"
+                        onClick={() => setShowR2Secret((value) => !value)}
+                        tabIndex={-1}
+                      >
+                        {showR2Secret ? (
+                          <EyeOff size={14} />
+                        ) : (
+                          <Eye size={14} />
+                        )}
+                      </button>
+                    </div>
+                  </label>
+                  <label className="api-settings-field wide">
+                    <span>
+                      {t("settings.backupR2Prefix", {
+                        defaultValue: "Path prefix (optional)",
+                      })}
+                    </span>
+                    <input
+                      value={r2Form.prefix}
+                      onChange={updateR2Field("prefix")}
+                      placeholder={t("settings.backupR2PrefixPlaceholder", {
+                        defaultValue:
+                          "e.g. laptop; backups go under <prefix>/snow-app-backup/",
+                      })}
+                      autoComplete="off"
+                      spellCheck={false}
+                      disabled={r2Busy !== null || isBusy}
+                    />
+                  </label>
+                </div>
+                <div className="api-settings-form-actions">
+                  <button
+                    type="button"
+                    className="general-storage-action"
+                    onClick={() => void handleR2Test()}
+                    disabled={r2Busy !== null || isBusy}
+                  >
+                    {r2Busy === "test" ? (
+                      <LoaderCircle
+                        size={11}
+                        strokeWidth={1.8}
+                        className="tool-call-icon-spinning"
+                        aria-hidden="true"
+                      />
+                    ) : (
+                      <PlugZap size={11} strokeWidth={1.8} aria-hidden="true" />
+                    )}
+                    <span>
+                      {t("settings.backupR2Test", {
+                        defaultValue: "Test connection",
+                      })}
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    className="general-storage-action"
+                    onClick={() => void handleR2Save()}
+                    disabled={r2Busy !== null || isBusy}
+                  >
+                    {r2Busy === "save" ? (
+                      <LoaderCircle
+                        size={11}
+                        strokeWidth={1.8}
+                        className="tool-call-icon-spinning"
+                        aria-hidden="true"
+                      />
+                    ) : (
+                      <Save size={11} strokeWidth={1.8} aria-hidden="true" />
+                    )}
+                    <span>
+                      {t("settings.backupR2Save", {
+                        defaultValue: "Save",
+                      })}
+                    </span>
+                  </button>
+                </div>
+              </div>
+            )}
 
             <div className="general-storage-row">
               <div className="general-storage-info">
@@ -636,7 +1044,7 @@ export function BackupSettingsSection(): React.JSX.Element {
                       },
                     ]}
                     onChange={handleScheduleModeChange}
-                    disabled={!targetDir || scheduleSaving}
+                    disabled={!target || scheduleSaving}
                     ariaLabel={t("settings.backupSchedule", {
                       defaultValue: "Automatic backup",
                     })}
@@ -768,7 +1176,7 @@ export function BackupSettingsSection(): React.JSX.Element {
                   type="button"
                   className="general-storage-action"
                   onClick={() => void handlePlan()}
-                  disabled={!targetDir || isBusy}
+                  disabled={!target || isBusy}
                 >
                   {busy === "plan" ? (
                     <LoaderCircle
@@ -787,10 +1195,10 @@ export function BackupSettingsSection(): React.JSX.Element {
                 <button
                   type="button"
                   className="general-storage-action"
-                  onClick={() => void handleCreate()}
-                  disabled={!targetDir || isBusy}
+                  onClick={handleCreate}
+                  disabled={!target || isBlockedByPending}
                 >
-                  {busy === "create" ? (
+                  {backupTask.running === "create" ? (
                     <LoaderCircle
                       size={11}
                       strokeWidth={1.8}
@@ -805,7 +1213,7 @@ export function BackupSettingsSection(): React.JSX.Element {
                     />
                   )}
                   <span>
-                    {busy === "create"
+                    {backupTask.running === "create"
                       ? t("settings.backupCreating", {
                           defaultValue: "Backing up...",
                         })
@@ -816,6 +1224,9 @@ export function BackupSettingsSection(): React.JSX.Element {
                 </button>
               </div>
             </div>
+
+            {renderBackupTaskInline("body")}
+            {renderPendingTask("body")}
 
             {error && (
               <div role="alert" className="api-settings-error">
@@ -891,7 +1302,7 @@ export function BackupSettingsSection(): React.JSX.Element {
                         type="button"
                         className="general-storage-action"
                         onClick={() => setPendingDelete(backup)}
-                        disabled={isBusy}
+                        disabled={isBlockedByPending}
                       >
                         <Trash2
                           size={11}
@@ -913,96 +1324,6 @@ export function BackupSettingsSection(): React.JSX.Element {
         </div>
       )}
 
-      {/* 备份 / 恢复进度：沿用存储迁移的进度弹窗样式（任务不可中断） */}
-      {progressActive &&
-        createPortal(
-          <div className="storage-migration-overlay">
-            <div
-              className="storage-migration-dialog"
-              role="dialog"
-              aria-modal="true"
-              aria-labelledby="backup-progress-title"
-            >
-              <div className="storage-migration-head">
-                <span className="storage-migration-spinner" aria-hidden="true">
-                  <LoaderCircle
-                    size={18}
-                    strokeWidth={1.8}
-                    className="tool-call-icon-spinning"
-                  />
-                </span>
-                <div className="storage-migration-heading">
-                  <span
-                    className="storage-migration-title"
-                    id="backup-progress-title"
-                  >
-                    {busy === "create"
-                      ? t("settings.backupProgressCreateTitle", {
-                          defaultValue: "Backing up data",
-                        })
-                      : t("settings.backupProgressRestoreTitle", {
-                          defaultValue: "Preparing restore",
-                        })}
-                  </span>
-                  <span className="storage-migration-phase">
-                    {progressPhaseLabel(progress?.phase)}
-                  </span>
-                </div>
-                {!progressIndeterminate && (
-                  <span className="storage-migration-percent">
-                    {progressPercent}%
-                  </span>
-                )}
-              </div>
-              <div
-                className="storage-migration-progress"
-                role="progressbar"
-                aria-valuemin={0}
-                aria-valuemax={100}
-                aria-valuenow={
-                  progressIndeterminate ? undefined : progressPercent
-                }
-              >
-                <div
-                  className={`storage-migration-progress-fill${
-                    progressIndeterminate ? " indeterminate" : ""
-                  }`}
-                  style={
-                    progressIndeterminate
-                      ? undefined
-                      : { width: `${progressPercent}%` }
-                  }
-                />
-              </div>
-              <div className="storage-migration-footer">
-                <span className="storage-migration-count">
-                  {progress && progress.totalFiles > 0
-                    ? t("settings.backupProgressCount", {
-                        values: {
-                          files: progress.processedFiles,
-                          total: progress.totalFiles,
-                          size: formatBytes(progress.processedBytes),
-                        },
-                        defaultValue: `${progress.processedFiles}/${progress.totalFiles} files · ${formatBytes(progress.processedBytes)}`,
-                      })
-                    : ""}
-                </span>
-              </div>
-              <p className="storage-migration-note">
-                {busy === "create"
-                  ? t("settings.backupProgressCreateNote", {
-                      defaultValue: "Do not close the app while this runs.",
-                    })
-                  : t("settings.backupProgressRestoreNote", {
-                      defaultValue:
-                        "Resource files are written now; databases are swapped the next time Snow App starts.",
-                    })}
-              </p>
-            </div>
-          </div>,
-          document.body,
-        )}
-
       <ConfirmDialog
         open={pendingRestore !== null}
         title={t("settings.backupRestoreTitle", {
@@ -1015,7 +1336,7 @@ export function BackupSettingsSection(): React.JSX.Element {
         confirmLabel={t("settings.backupRestore", { defaultValue: "Restore" })}
         cancelLabel={t("settings.cancel", { defaultValue: "Cancel" })}
         variant="warning"
-        onConfirm={() => void handleRestore()}
+        onConfirm={handleRestore}
         onCancel={() => setPendingRestore(null)}
       />
 
@@ -1030,9 +1351,8 @@ export function BackupSettingsSection(): React.JSX.Element {
         })}
         confirmLabel={t("settings.backupDelete", { defaultValue: "Delete" })}
         cancelLabel={t("settings.cancel", { defaultValue: "Cancel" })}
-        isConfirming={busy === "delete"}
         variant="danger"
-        onConfirm={() => void handleDelete()}
+        onConfirm={handleDelete}
         onCancel={() => setPendingDelete(null)}
       />
     </div>

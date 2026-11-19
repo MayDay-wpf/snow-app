@@ -1,7 +1,9 @@
 import { BrowserWindow, dialog, ipcMain, shell } from "electron";
 import type {
   BackupCreateResult,
+  BackupPendingTask,
   BackupPlan,
+  BackupResumeResult,
   BackupSummary,
   BackupTaskProgress,
   CleanupCategoryId,
@@ -19,7 +21,11 @@ import type {
   StorageMigrationProgress,
 } from "../../native/types";
 
-import type { BackupScheduleState } from "../../../shared/backupSchedule";
+import type {
+  BackupR2Config,
+  BackupScheduleState,
+  BackupTarget,
+} from "../../../shared/backupSchedule";
 import {
   getBackupScheduleState,
   setBackupSchedule,
@@ -65,6 +71,38 @@ const requireBackupDirectory = (value: unknown): string => {
     throw new Error("Backup directory is required");
   }
   return value.trim();
+};
+
+/** 备份目标：local 必须带非空目录；r2 使用 Rust 侧已保存的配置 */
+const requireBackupTarget = (value: unknown): BackupTarget => {
+  const record =
+    value !== null && typeof value === "object"
+      ? (value as Record<string, unknown>)
+      : {};
+  if (record.kind === "r2") {
+    return { kind: "r2" };
+  }
+  if (record.kind !== "local") {
+    throw new Error("Invalid backup target");
+  }
+  return { kind: "local", dir: requireBackupDirectory(record.dir) };
+};
+
+/** R2 配置表单：字段统一收敛为字符串，校验交给 Rust 侧 */
+const requireR2Config = (value: unknown): BackupR2Config => {
+  const record =
+    value !== null && typeof value === "object"
+      ? (value as Record<string, unknown>)
+      : {};
+  const text = (field: unknown): string =>
+    typeof field === "string" ? field.trim() : "";
+  return {
+    accountId: text(record.accountId),
+    bucket: text(record.bucket),
+    accessKeyId: text(record.accessKeyId),
+    secretAccessKey: text(record.secretAccessKey),
+    prefix: text(record.prefix),
+  };
 };
 
 /** 备份 id：字符集由 Rust 侧校验，这里只拦空值 */
@@ -245,34 +283,34 @@ export const registerStorageHandlers = (native: NativeBridge): void => {
 
   ipcMain.handle(
     "storage:backup-plan",
-    async (_event, targetDir: unknown): Promise<BackupPlan> =>
-      native.backupLocalPlan(requireBackupDirectory(targetDir)),
+    async (_event, target: unknown): Promise<BackupPlan> =>
+      native.backupPlan(requireBackupTarget(target)),
   );
 
   ipcMain.handle(
     "storage:backup-create",
     async (
       _event,
-      targetDir: unknown,
+      target: unknown,
       keep: unknown,
     ): Promise<BackupCreateResult> =>
-      native.backupLocalCreate(
-        requireBackupDirectory(targetDir),
+      native.backupCreate(
+        requireBackupTarget(target),
         normalizeBackupKeep(keep),
       ),
   );
 
   ipcMain.handle(
     "storage:backup-list",
-    async (_event, targetDir: unknown): Promise<BackupSummary[]> =>
-      native.backupLocalList(requireBackupDirectory(targetDir)),
+    async (_event, target: unknown): Promise<BackupSummary[]> =>
+      native.backupList(requireBackupTarget(target)),
   );
 
   ipcMain.handle(
     "storage:backup-restore",
-    async (_event, targetDir: unknown, backupId: unknown): Promise<void> => {
-      await native.backupLocalRestore(
-        requireBackupDirectory(targetDir),
+    async (_event, target: unknown, backupId: unknown): Promise<void> => {
+      await native.backupRestore(
+        requireBackupTarget(target),
         requireBackupId(backupId),
       );
     },
@@ -280,18 +318,48 @@ export const registerStorageHandlers = (native: NativeBridge): void => {
 
   ipcMain.handle(
     "storage:backup-delete",
-    async (_event, targetDir: unknown, backupId: unknown): Promise<void> => {
-      await native.backupLocalDelete(
-        requireBackupDirectory(targetDir),
+    async (_event, target: unknown, backupId: unknown): Promise<void> => {
+      await native.backupDelete(
+        requireBackupTarget(target),
         requireBackupId(backupId),
       );
     },
   );
 
   ipcMain.handle(
+    "storage:backup-pending-task",
+    async (): Promise<BackupPendingTask | null> => native.backupPendingTask(),
+  );
+
+  ipcMain.handle(
+    "storage:backup-resume-task",
+    async (): Promise<BackupResumeResult> => native.backupResumeTask(),
+  );
+
+  ipcMain.handle("storage:backup-discard-task", async (): Promise<void> =>
+    native.backupDiscardTask(),
+  );
+
+  ipcMain.handle(
     "storage:backup-root",
     async (_event, targetDir: unknown): Promise<string> =>
       native.backupLocalRoot(requireBackupDirectory(targetDir)),
+  );
+
+  ipcMain.handle("storage:backup-r2-get", async (): Promise<BackupR2Config> =>
+    native.backupGetR2Config(),
+  );
+
+  ipcMain.handle(
+    "storage:backup-r2-set",
+    async (_event, config: unknown): Promise<void> =>
+      native.backupSetR2Config(requireR2Config(config)),
+  );
+
+  ipcMain.handle(
+    "storage:backup-r2-test",
+    async (_event, config: unknown): Promise<void> =>
+      native.backupTestR2Config(requireR2Config(config)),
   );
 
   ipcMain.handle(

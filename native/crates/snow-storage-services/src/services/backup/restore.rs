@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use super::manifest::{BackupManifest, ManifestFile};
 use super::progress::TaskProgress;
-use super::store::LocalStore;
+use super::store::BackupRepo;
 
 /// 必须等应用下次启动才替换的数据库文件。
 const DATABASES: [&str; 2] = ["snowapp.db", "archive.db"];
@@ -42,7 +42,7 @@ fn is_database(relative_path: &str) -> bool {
 ///
 /// 运行中的应用始终占用 `snowapp.db`，Windows 上无法改名替换；因此数据库
 /// 只在下次启动、尚未打开任何连接时由 [apply_pending_restore] 换入。
-pub(crate) fn stage_restore(store: &LocalStore, app_dir: &Path, backup_id: &str) -> Result<()> {
+pub(crate) fn stage_restore(store: &BackupRepo, app_dir: &Path, backup_id: &str) -> Result<()> {
     let staging = staging_dir(app_dir);
     if staging.join(JOURNAL_FILE).is_file() {
         return Err(Error::from_reason(
@@ -99,27 +99,41 @@ pub(crate) fn stage_restore(store: &LocalStore, app_dir: &Path, backup_id: &str)
 }
 
 /// 逐文件组装备份内容，任何一块缺失或哈希不符都中止。
+///
+/// 先组装小文件、最后组装数据库这类大文件：文件数只在单个文件完成后递增，
+/// 按清单的路径顺序时 archive.db 排在最前，下载它的期间文件数会一直停在 0。
 fn assemble_files(
-    store: &LocalStore,
+    store: &BackupRepo,
     app_dir: &Path,
     staging: &Path,
     manifest: &BackupManifest,
     task: &TaskProgress,
 ) -> Result<()> {
-    for file in &manifest.files {
+    let mut files: Vec<&ManifestFile> = manifest.files.iter().collect();
+    files.sort_by(|left, right| {
+        left.size
+            .cmp(&right.size)
+            .then_with(|| left.path.cmp(&right.path))
+    });
+    for file in files {
         let target = if is_database(&file.path) {
             staging.join(&file.path)
         } else {
             safe_join(app_dir, &file.path)?
         };
-        assemble_file(store, file, &target)?;
-        task.advance(file.size, 1);
+        assemble_file(store, file, &target, task)?;
+        task.advance(0, 1);
     }
     Ok(())
 }
 
 /// 把单个文件的内容块按顺序写入临时文件，校验通过后再替换目标。
-fn assemble_file(store: &LocalStore, file: &ManifestFile, destination: &Path) -> Result<()> {
+fn assemble_file(
+    store: &BackupRepo,
+    file: &ManifestFile,
+    destination: &Path,
+    task: &TaskProgress,
+) -> Result<()> {
     if let Some(parent) = destination.parent() {
         fs::create_dir_all(parent).map_err(|error| {
             Error::from_reason(format!(
@@ -130,7 +144,7 @@ fn assemble_file(store: &LocalStore, file: &ManifestFile, destination: &Path) ->
     }
 
     let temporary = temporary_path(destination);
-    let written = write_assembled(store, file, &temporary).map_err(|error| {
+    let written = write_assembled(store, file, &temporary, task).map_err(|error| {
         let _ = fs::remove_file(&temporary);
         error
     })?;
@@ -147,7 +161,14 @@ fn assemble_file(store: &LocalStore, file: &ManifestFile, destination: &Path) ->
 }
 
 /// 按块内容重建文件，返回写入的字节数（临时文件由调用方负责清理）。
-fn write_assembled(store: &LocalStore, file: &ManifestFile, temporary: &Path) -> Result<u64> {
+///
+/// 每写完一块就推进进度：从 R2 下载大数据库时块数很多，按文件推进会长时间停住。
+fn write_assembled(
+    store: &BackupRepo,
+    file: &ManifestFile,
+    temporary: &Path,
+    task: &TaskProgress,
+) -> Result<u64> {
     let mut output = fs::File::create(temporary).map_err(|error| {
         Error::from_reason(format!(
             "Failed to create restore file '{}': {error}",
@@ -158,6 +179,7 @@ fn write_assembled(store: &LocalStore, file: &ManifestFile, temporary: &Path) ->
 
     for hash in &file.chunks {
         let bytes = store.get_chunk(hash)?;
+        task.transferred(bytes.len() as i64);
         // 块文件名即其内容地址：重算哈希即可发现存储介质损坏，
         // 避免把损坏的数据写回用户目录。
         let actual = blake3::hash(&bytes).to_hex().to_string();
@@ -173,6 +195,7 @@ fn write_assembled(store: &LocalStore, file: &ManifestFile, temporary: &Path) ->
             ))
         })?;
         written += bytes.len() as u64;
+        task.advance(bytes.len() as i64, 0);
     }
 
     Ok(written)

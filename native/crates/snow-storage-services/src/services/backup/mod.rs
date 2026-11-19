@@ -1,49 +1,81 @@
-//! 应用数据备份（阶段 1：本地目录后端）。
+//! 应用数据备份：本地目录与 Cloudflare R2 两种后端。
 //!
 //! 备份单元是 `.snowapp` 的一致性视图：两个 SQLite 库经 Online Backup API
 //! 落成页序对齐的副本，其余资源按 8 MB 内容寻址分块。相同内容的块在目标
-//! 目录只存一份，因此第二次之后的备份只写入发生变化的块。
+//! 只存一份，因此第二次之后的备份只写入发生变化的块。
 //!
-//! 目标目录布局与后续网络后端（S3 / WebDAV）保持一致的 key 空间：
+//! 两种后端共用同一套 key 空间（本地为目录，R2 为对象 key）：
 //!
 //! ```text
 //! <target>/snow-app-backup/
 //!   manifests/<backupId>.json
 //!   chunks/<hash[0..2]>/<hash>
 //!   latest.json
-//!   .work/                       # 快照与恢复的临时工作区
 //! ```
 
 mod chunker;
 mod gc;
+mod journal;
+mod local;
 mod manifest;
 mod progress;
+mod r2;
 mod restore;
 mod snapshot;
 mod source;
 mod store;
 
 use std::collections::HashSet;
-use std::fs;
 use std::path::Path;
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Mutex, OnceLock, TryLockError};
 
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 
 use self::chunker::{chunk_file, CHUNK_SIZE};
+use self::journal::{TaskJournal, KIND_CREATE};
+use self::local::LocalStore;
 use self::manifest::{
     generate_backup_id, BackupManifest, ManifestFile, ReuseIndex, MANIFEST_VERSION,
 };
 use self::progress::TaskProgress;
+use self::r2::R2Store;
 use self::snapshot::snapshot_databases;
 use self::source::SourceFile;
-use self::store::LocalStore;
+use self::store::{validate_backup_id, BackupRepo};
 
 pub use self::progress::{task_progress, BackupTaskProgress};
+pub use self::r2::{get_r2_config, set_r2_config, test_r2_config, BackupR2Config};
 
-/// 备份根目录名：位于用户选择的目标目录下，避免与其它的文件混在一起。
+/// 备份根目录名：位于用户选择的目标目录（或 R2 路径前缀）下。
 pub(crate) const BACKUP_DIR_NAME: &str = "snow-app-backup";
+
+/// 备份目标：`kind` 为 local（本地目录，需提供 `dir`）或 r2（使用已保存的 R2 配置）。
+#[napi(object)]
+pub struct BackupTarget {
+    pub kind: String,
+    pub dir: Option<String>,
+}
+
+/// 按目标打开备份仓库。
+fn open_repo(target: &BackupTarget) -> Result<BackupRepo> {
+    match target.kind.as_str() {
+        "local" => {
+            let dir = target
+                .dir
+                .as_deref()
+                .map(str::trim)
+                .filter(|dir| !dir.is_empty())
+                .ok_or_else(|| Error::from_reason("Backup directory is required"))?;
+            Ok(BackupRepo::new(Box::new(LocalStore::open(dir)?)))
+        }
+        "r2" => Ok(BackupRepo::new(Box::new(R2Store::open()?))),
+        other => Err(Error::from_reason(format!(
+            "Unknown backup target: {other}"
+        ))),
+    }
+}
+
 /// 默认保留的备份份数。
 const DEFAULT_KEEP: u32 = 5;
 /// 保留份数上限，防止用户配置出无意义的巨大值。
@@ -92,14 +124,39 @@ pub struct BackupPlan {
     pub file_count: u32,
 }
 
+/// 应用退出或任务失败后留下的未完成任务（可继续或放弃）。
+#[napi(object)]
+pub struct BackupPendingTask {
+    /// 任务类型：create（备份）| delete（删除备份）。
+    pub kind: String,
+    /// 备份：正在生成的备份 id；删除：正在删除的备份 id。
+    pub backup_id: String,
+    /// 任务开始时的备份位置：local | r2。
+    pub target_kind: String,
+    /// 本地备份目录（R2 为空）。
+    pub target_dir: Option<String>,
+    /// 任务开始时间（Unix 毫秒）。
+    pub started_at_ms: i64,
+}
+
+/// 续跑结果：kind 为续跑的任务类型，备份任务附带执行结果。
+#[napi(object)]
+pub struct BackupResumeResult {
+    pub kind: String,
+    pub created: Option<BackupCreateResult>,
+}
+
 /// 创建、恢复与删除共享一把进程内互斥锁。
 ///
 /// 备份的"先写块、后写清单"与回收的"按清单引用删块"必须互斥，
 /// 否则并发触发时会把刚写入、尚未被清单引用的块当成孤儿删掉。
-fn with_operation_lock<T>(operation: impl FnOnce() -> Result<T>) -> Result<T> {
+fn operation_lock() -> &'static Mutex<()> {
     static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-    let guard = LOCK
-        .get_or_init(|| Mutex::new(()))
+    LOCK.get_or_init(|| Mutex::new(()))
+}
+
+fn with_operation_lock<T>(operation: impl FnOnce() -> Result<T>) -> Result<T> {
+    let guard = operation_lock()
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     let result = operation();
@@ -107,50 +164,53 @@ fn with_operation_lock<T>(operation: impl FnOnce() -> Result<T>) -> Result<T> {
     result
 }
 
-/// 创建一次本地目录备份。
-pub fn create_local_backup(
-    target_dir: &str,
-    keep: Option<u32>,
-) -> Result<BackupCreateResult> {
+/// 创建一次备份。
+///
+/// 开始前写入任务日志，成功后删除；应用中途退出或失败时日志保留，
+/// 可通过 [resume_task] 续跑（已写入的块不会重复上传）。
+pub fn create_backup(target: &BackupTarget, keep: Option<u32>) -> Result<BackupCreateResult> {
     with_operation_lock(|| {
-        let task = TaskProgress::begin("create", "snapshot");
-        create_local_backup_inner(target_dir, keep, &task)
+        journal::ensure_none()?;
+        let keep = normalize_keep(keep);
+        let repo = open_repo(target)?;
+        let id = generate_backup_id();
+        journal::save(&TaskJournal::create(target, id.clone(), keep))?;
+        let result = run_create(&repo, &id, keep)?;
+        journal::clear()?;
+        Ok(result)
     })
 }
 
-fn create_local_backup_inner(
-    target_dir: &str,
-    keep: Option<u32>,
-    task: &TaskProgress,
-) -> Result<BackupCreateResult> {
-    let keep = normalize_keep(keep);
-    let store = LocalStore::open(target_dir)?;
+/// 执行（或续跑）一次备份：同一个 id 重复执行是安全的。
+fn run_create(repo: &BackupRepo, id: &str, keep: u32) -> Result<BackupCreateResult> {
+    let task = TaskProgress::begin("create", "snapshot");
     let app_dir = crate::storage::paths::app_storage_dir()?;
-    let reuse = ReuseIndex::from_manifest(store.latest_manifest()?.as_ref());
+    let reuse = ReuseIndex::from_manifest(repo.latest_manifest()?.as_ref());
 
-    let id = generate_backup_id();
-    let work_dir = store.create_work_dir(&id)?;
+    // 续跑时同名工作区里是上次残留的快照，create_work_dir 会先清掉再重新生成，
+    // 保证数据库快照与本次扫描的资源文件处于同一时刻。
+    let work_dir = repo.create_work_dir(id)?;
 
     // 无论成功与否都清理临时工作区；成功路径下它只装着数据库快照。
-    let outcome = write_backup(&store, &app_dir, &reuse, &id, &work_dir, task);
-    let _ = fs::remove_dir_all(&work_dir);
+    let outcome = write_backup(repo, &app_dir, &reuse, id, &work_dir, &task);
+    repo.remove_work_dir(id);
     let (manifest, result) = outcome?;
 
     task.phase("finalize");
-    store.write_manifest(&manifest)?;
-    store.write_latest(&manifest.id, manifest.created_at_ms)?;
+    repo.write_manifest(&manifest)?;
+    repo.write_latest(&manifest.id, manifest.created_at_ms)?;
 
-    gc::prune_manifests(&store, keep)?;
-    gc::sweep_orphan_chunks(&store)?;
+    gc::prune_manifests(repo, keep)?;
+    gc::sweep_orphan_chunks(repo, None)?;
 
     Ok(result)
 }
 
-/// 预估一次备份的上传量。只读取与哈希，不写入目标目录。
-pub fn plan_local_backup(target_dir: &str) -> Result<BackupPlan> {
-    let store = LocalStore::open(target_dir)?;
+/// 预估一次备份的上传量。只读取与哈希，不写入备份目标。
+pub fn plan_backup(target: &BackupTarget) -> Result<BackupPlan> {
+    let repo = open_repo(target)?;
     let app_dir = crate::storage::paths::app_storage_dir()?;
-    let reuse = ReuseIndex::from_manifest(store.latest_manifest()?.as_ref());
+    let reuse = ReuseIndex::from_manifest(repo.latest_manifest()?.as_ref());
     let sources = source::collect(&app_dir, plan_extra_sources(&app_dir, &reuse)?, &reuse)?;
 
     let mut plan = BackupPlan {
@@ -177,7 +237,7 @@ pub fn plan_local_backup(target_dir: &str) -> Result<BackupPlan> {
                 // 页级撕裂的内容，但结果仅用于提示数据量，不影响备份正确性。
                 chunk_file(&source.source_path, |hash, bytes| {
                     if seen.insert(hash.to_string()) {
-                        if store.has_chunk(hash) {
+                        if repo.has_chunk(hash)? {
                             plan.reused_chunks += 1;
                         } else {
                             plan.pending_chunks += 1;
@@ -193,10 +253,10 @@ pub fn plan_local_backup(target_dir: &str) -> Result<BackupPlan> {
     Ok(plan)
 }
 
-/// 列出目标目录中已有的备份，按创建时间倒序。
-pub fn list_local_backups(target_dir: &str) -> Result<Vec<BackupSummary>> {
-    let store = LocalStore::open(target_dir)?;
-    Ok(store
+/// 列出备份目标中已有的备份，按创建时间倒序。
+pub fn list_backups(target: &BackupTarget) -> Result<Vec<BackupSummary>> {
+    let repo = open_repo(target)?;
+    Ok(repo
         .list_manifests()?
         .into_iter()
         .map(|manifest| BackupSummary {
@@ -213,11 +273,11 @@ pub fn list_local_backups(target_dir: &str) -> Result<Vec<BackupSummary>> {
 ///
 /// 资源文件立即写回，数据库文件先暂存，等应用下次启动、尚未打开任何连接时
 /// 再替换——运行中的应用一直占用 `snowapp.db`，此刻无法安全改名。
-pub fn restore_local_backup(target_dir: &str, backup_id: &str) -> Result<()> {
+pub fn restore_backup(target: &BackupTarget, backup_id: &str) -> Result<()> {
     with_operation_lock(|| {
-        let store = LocalStore::open(target_dir)?;
+        let repo = open_repo(target)?;
         let app_dir = crate::storage::paths::app_storage_dir()?;
-        restore::stage_restore(&store, &app_dir, backup_id)
+        restore::stage_restore(&repo, &app_dir, backup_id)
     })
 }
 
@@ -227,13 +287,88 @@ pub(crate) fn apply_pending_restore(app_dir: &Path) -> Result<()> {
 }
 
 /// 删除一份备份并回收不再被任何备份引用的块。
-pub fn delete_local_backup(target_dir: &str, backup_id: &str) -> Result<()> {
+///
+/// 与备份一样写入任务日志：应用中途退出时可通过 [resume_task] 继续，
+/// 删除的每一步都是幂等的。
+pub fn delete_backup(target: &BackupTarget, backup_id: &str) -> Result<()> {
     with_operation_lock(|| {
-        let store = LocalStore::open(target_dir)?;
-        store.delete_manifest(backup_id)?;
-        store.clear_latest_if(backup_id)?;
-        gc::sweep_orphan_chunks(&store)?;
-        Ok(())
+        validate_backup_id(backup_id)?;
+        journal::ensure_none()?;
+        let repo = open_repo(target)?;
+        journal::save(&TaskJournal::delete(target, backup_id.to_string()))?;
+        run_delete(&repo, backup_id)?;
+        journal::clear()
+    })
+}
+
+/// 执行（或续跑）一次删除：先删清单与指针，再按块回收并上报进度。
+fn run_delete(repo: &BackupRepo, backup_id: &str) -> Result<()> {
+    let task = TaskProgress::begin("delete", "remove");
+    repo.delete_manifest(backup_id)?;
+    repo.clear_latest_if(backup_id)?;
+    gc::sweep_orphan_chunks(repo, Some(&task))?;
+    Ok(())
+}
+
+/// 读取未完成的备份 / 删除任务。
+///
+/// 任务正在本进程中执行时日志同样存在，但它并没有中断，此时返回 None。
+pub fn pending_task() -> Result<Option<BackupPendingTask>> {
+    let _guard = match operation_lock().try_lock() {
+        Ok(guard) => guard,
+        Err(TryLockError::WouldBlock) => return Ok(None),
+        Err(TryLockError::Poisoned(poisoned)) => poisoned.into_inner(),
+    };
+    Ok(journal::load()?.map(|task| BackupPendingTask {
+        target_kind: task.target_kind(),
+        target_dir: task.target_dir(),
+        kind: task.kind,
+        backup_id: task.backup_id,
+        started_at_ms: task.started_at_ms,
+    }))
+}
+
+/// 继续上次中断的备份 / 删除任务（使用任务开始时的备份位置）。
+pub fn resume_task() -> Result<BackupResumeResult> {
+    with_operation_lock(|| {
+        let task = journal::load()?
+            .ok_or_else(|| Error::from_reason("No interrupted backup task to resume"))?;
+        validate_backup_id(&task.backup_id)?;
+        let repo = open_repo(&task.target())?;
+        let result = if task.kind == KIND_CREATE {
+            let keep = normalize_keep(task.keep);
+            BackupResumeResult {
+                kind: task.kind.clone(),
+                created: Some(run_create(&repo, &task.backup_id, keep)?),
+            }
+        } else {
+            run_delete(&repo, &task.backup_id)?;
+            BackupResumeResult {
+                kind: task.kind.clone(),
+                created: None,
+            }
+        };
+        journal::clear()?;
+        Ok(result)
+    })
+}
+
+/// 放弃上次中断的任务。
+///
+/// 只清掉日志与本地临时工作区；中断备份已写入、未被清单引用的块由下一次
+/// 备份或删除的块回收统一清理，这里不再访问备份目标。
+pub fn discard_task() -> Result<()> {
+    with_operation_lock(|| {
+        let Some(task) = journal::load()? else {
+            return Ok(());
+        };
+        if task.kind == KIND_CREATE && validate_backup_id(&task.backup_id).is_ok() {
+            // 备份目标可能已不可用（目录被移走、R2 凭据被清空），工作区清理只能尽力而为。
+            if let Ok(repo) = open_repo(&task.target()) {
+                repo.remove_work_dir(&task.backup_id);
+            }
+        }
+        journal::clear()
     })
 }
 
@@ -258,7 +393,7 @@ struct BackupProgress {
 
 /// 分块写入所有源文件，返回可持久化的清单与对外统计。
 fn write_backup(
-    store: &LocalStore,
+    store: &BackupRepo,
     app_dir: &Path,
     reuse: &ReuseIndex,
     id: &str,
@@ -268,7 +403,13 @@ fn write_backup(
     let snapshots = snapshot_databases(app_dir, work_dir, reuse)?;
     task.phase("collect");
     let mut sources = source::collect(app_dir, snapshots, reuse)?;
-    sources.sort_by(|left, right| left.relative_path.cmp(&right.relative_path));
+    // 先处理小文件、最后处理数据库这类大文件：文件数只在单个文件写完后递增，
+    // 按路径排序时 archive.db 排在最前，上传它的几分钟里文件数会一直停在 0。
+    sources.sort_by(|left, right| {
+        left.size
+            .cmp(&right.size)
+            .then_with(|| left.relative_path.cmp(&right.relative_path))
+    });
 
     let total_bytes: i64 = sources.iter().map(|source| source.size).sum();
     task.set_totals(total_bytes, sources.len() as u32);
@@ -301,6 +442,7 @@ fn write_backup(
                         progress.reused_chunks += 1;
                     }
                 }
+                task.advance(source_size, 0);
                 (chunks, source_size)
             }
             None => {
@@ -308,12 +450,16 @@ fn write_backup(
                     let written = store.put_chunk(hash, bytes)?;
                     if written {
                         progress.uploaded_bytes += bytes.len() as i64;
+                        task.transferred(bytes.len() as i64);
                         if seen.insert(hash.to_string()) {
                             progress.uploaded_chunks += 1;
                         }
                     } else if seen.insert(hash.to_string()) {
                         progress.reused_chunks += 1;
                     }
+                    // 按块推进进度：大数据库在 R2 上要上传很多块，
+                    // 只在整个文件完成后推进会让进度条长时间停住。
+                    task.advance(bytes.len() as i64, 0);
                     Ok(())
                 })?;
                 (chunks, written_size as i64)
@@ -326,9 +472,13 @@ fn write_backup(
             modified_ms,
             chunks,
         });
-        task.advance(source_size, 1);
+        task.advance(0, 1);
     }
 
+    // 清单仍按路径排序，与处理顺序无关，便于比对与排查。
+    progress
+        .files
+        .sort_by(|left, right| left.path.cmp(&right.path));
     Ok(build_manifest(progress))
 }
 

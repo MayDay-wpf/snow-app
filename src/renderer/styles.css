@@ -56758,6 +56758,80 @@ body.ctrl-held [data-path] {
   min-width: 0;
 }
 
+/* ---- 通用设置：后台执行中的备份 / 恢复（卡片内进度条） ---- */
+.backup-task-inline {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* 卡片收起时：紧贴卡片头部 */
+.backup-task-inline.header {
+  padding: 0 14px 12px;
+}
+
+/* 卡片展开时：位于「创建备份」行下方，外观与设置行一致 */
+.backup-task-inline.body {
+  padding: 8px 10px 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+}
+
+.backup-task-inline-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.backup-task-inline-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.backup-task-inline-title > svg {
+  flex-shrink: 0;
+  color: var(--accent-color);
+}
+
+.backup-task-inline-percent {
+  font-variant-numeric: tabular-nums;
+  color: var(--accent-color);
+}
+
+/* 备份 / 恢复的实时传输速度（进度弹窗百分比下方与卡片内进度条共用） */
+.backup-task-speed {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-inline-start: 8px;
+  font-size: 10.5px;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-tertiary);
+}
+
+/* 进度弹窗右上角：百分比与速度上下排列、右对齐，数字变化不影响左侧排版 */
+.backup-task-rate {
+  display: flex;
+  flex-shrink: 0;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+
+.backup-task-rate > .backup-task-speed {
+  margin-inline-start: 0;
+}
+
 /* ---- 通用设置：存储目录迁移进度模态框（不可关闭） ---- */
 .storage-migration-overlay {
   position: fixed;

@@ -1,5 +1,6 @@
 import type { ImageGenerationNativeApi } from "../../shared/imageGeneration";
 import type { HtmlPreviewDocument } from "../../shared/htmlPreview";
+import type { BackupR2Config, BackupTarget } from "../../shared/backupSchedule";
 import type { MessageOrigin } from "../../preload/types/api";
 import type {
   PromptOptimizationRequest,
@@ -1644,22 +1645,44 @@ export type BackupSummary = {
   appVersion: string;
 };
 
-/** 数据备份 / 恢复任务进度（渲染进程按固定间隔轮询绘制进度条） */
+/** 数据备份 / 恢复 / 删除任务进度（渲染进程按固定间隔轮询绘制进度条） */
 export type BackupTaskProgress = {
   /** 是否有任务正在执行 */
   active: boolean;
-  /** 任务类型：create（备份）| restore（恢复）；空闲时为空字符串 */
+  /** 任务类型：create（备份）| restore（恢复）| delete（删除备份）；空闲时为空字符串 */
   kind: string;
-  /** 当前阶段：snapshot | collect | write | apply | finalize | idle */
+  /** 当前阶段：snapshot | collect | write | apply | remove | scan | reclaim | finalize | idle */
   phase: string;
   /** 已处理字节数 */
   processedBytes: number;
-  /** 待处理总字节数（0 表示尚未统计） */
+  /** 待处理总字节数（0 表示尚未统计，或任务只按文件数计量） */
   totalBytes: number;
-  /** 已处理文件数 */
+  /** 已处理文件数（删除任务为已回收的块数） */
   processedFiles: number;
-  /** 待处理文件总数（0 表示尚未统计） */
+  /** 待处理文件总数（0 表示尚未统计；删除任务为待回收的块数） */
   totalFiles: number;
+  /** 最近一段时间内实际写入 / 读取备份目标的平均速度（字节每秒） */
+  bytesPerSecond: number;
+};
+
+/** 数据备份：应用退出或失败后留下的未完成任务（可继续或放弃） */
+export type BackupPendingTask = {
+  /** 任务类型：create（备份）| delete（删除备份） */
+  kind: string;
+  /** 备份：正在生成的备份 id；删除：正在删除的备份 id */
+  backupId: string;
+  /** 任务开始时的备份位置：local | r2 */
+  targetKind: string;
+  /** 本地备份目录（R2 为空） */
+  targetDir?: string | null;
+  /** 任务开始时间（Unix 毫秒） */
+  startedAtMs: number;
+};
+
+/** 数据备份：续跑结果（备份任务附带执行结果） */
+export type BackupResumeResult = {
+  kind: string;
+  created?: BackupCreateResult | null;
 };
 
 /** 数据清理：一次扫描的完整结果 */
@@ -4152,23 +4175,35 @@ export type NativeBridge = ImageGenerationNativeApi & {
   repairDatabase: (kind: DatabaseKind) => Promise<DatabaseRepairResult>;
   /** 优化数据库磁盘占用（runtime=运行库 / archive=归档库）：VACUUM 回收空闲页并截断 WAL */
   optimizeDatabase: (kind: DatabaseKind) => Promise<DatabaseOptimizeResult>;
-  /** 备份：预估一次本地目录备份的上传量（不写入任何文件） */
-  backupLocalPlan: (targetDir: string) => Promise<BackupPlan>;
-  /** 备份：创建一次本地目录备份；keep 为保留份数（1..50，默认 5） */
-  backupLocalCreate: (
-    targetDir: string,
+  /** 备份：预估一次备份的上传量（不写入任何数据） */
+  backupPlan: (target: BackupTarget) => Promise<BackupPlan>;
+  /** 备份：创建一次备份；keep 为保留份数（1..50，默认 5） */
+  backupCreate: (
+    target: BackupTarget,
     keep?: number,
   ) => Promise<BackupCreateResult>;
-  /** 备份：列出目标目录中已有的备份，按创建时间倒序 */
-  backupLocalList: (targetDir: string) => Promise<BackupSummary[]>;
+  /** 备份：列出备份目标中已有的备份，按创建时间倒序 */
+  backupList: (target: BackupTarget) => Promise<BackupSummary[]>;
   /** 备份：从指定备份恢复 .snowapp（恢复完成后需重启应用） */
-  backupLocalRestore: (targetDir: string, backupId: string) => Promise<void>;
+  backupRestore: (target: BackupTarget, backupId: string) => Promise<void>;
   /** 备份：删除一份备份并回收不再被引用的数据块 */
-  backupLocalDelete: (targetDir: string, backupId: string) => Promise<void>;
-  /** 备份：返回备份根目录的绝对路径 */
+  backupDelete: (target: BackupTarget, backupId: string) => Promise<void>;
+  /** 备份：读取上次中断的备份 / 删除任务（没有时为 null） */
+  backupPendingTask: () => Promise<BackupPendingTask | null>;
+  /** 备份：继续上次中断的备份 / 删除任务 */
+  backupResumeTask: () => Promise<BackupResumeResult>;
+  /** 备份：放弃上次中断的备份 / 删除任务 */
+  backupDiscardTask: () => Promise<void>;
+  /** 备份：返回本地备份根目录的绝对路径 */
   backupLocalRoot: (targetDir: string) => Promise<string>;
   /** 备份 / 恢复任务的当前进度（读取内存状态，供进度条轮询） */
   backupTaskProgress: () => Promise<BackupTaskProgress>;
+  /** 备份：读取已保存的 Cloudflare R2 配置 */
+  backupGetR2Config: () => Promise<BackupR2Config>;
+  /** 备份：保存 Cloudflare R2 配置 */
+  backupSetR2Config: (config: BackupR2Config) => Promise<void>;
+  /** 备份：测试 Cloudflare R2 连接（凭据与存储桶可用性） */
+  backupTestR2Config: (config: BackupR2Config) => Promise<void>;
   /** 扫描本地数据分类的占用（daysList 为需要一并统计的天数档位，如 [7,15,30,90]） */
   scanCleanup: (daysList: number[]) => Promise<CleanupScanResult>;
   /** 删除选中的清理分类数据（maxAgeDays=0 表示删除分类目录下的全部内容） */

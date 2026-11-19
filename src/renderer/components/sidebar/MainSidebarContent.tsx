@@ -66,6 +66,7 @@ import { requestGeneralSettingsTab } from "./generalSettingsNavigation";
 import { MEMOS_CHANGED_EVENT } from "./memoEvents";
 import { OPEN_PROJECT_MEMORY_PANEL_EVENT } from "./projectMemoryNavigation";
 import { UpdateDialog, OPEN_UPDATE_DIALOG_EVENT } from "./UpdateDialog";
+import { BackupTaskHost } from "./BackupTaskHost";
 import type { SidebarContentProps } from "./types";
 import type {
   ConversationSearchResult,
@@ -982,6 +983,7 @@ export function MainSidebarContent({
         open={isHelpSkillDialogOpen}
         onClose={() => setIsHelpSkillDialogOpen(false)}
       />
+      <BackupTaskHost />
     </>
   );
 }

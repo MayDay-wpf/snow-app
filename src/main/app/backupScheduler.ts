@@ -13,13 +13,16 @@ import {
   DEFAULT_BACKUP_SCHEDULE,
   DEFAULT_BACKUP_SCHEDULE_RUNTIME,
   computeNextBackupAt,
+  isBackupR2Configured,
   normalizeBackupKeep,
   normalizeBackupSchedule,
+  normalizeBackupTargetKind,
   parseBackupSchedule,
   parseBackupScheduleRuntime,
   type BackupScheduleRuntime,
   type BackupScheduleSettings,
   type BackupScheduleState,
+  type BackupTarget,
 } from "../../shared/backupSchedule";
 import { buildScheduledWakeLaunchSpec } from "./scheduledWakeLaunch";
 import { safeSend } from "../utils/safeSend";
@@ -60,6 +63,24 @@ const readSetting = async (
 ): Promise<string> => {
   const raw = await native.getSystemSettingValue(code);
   return raw?.trim() ?? "";
+};
+
+/**
+ * 读取当前备份位置并组装备份目标；位置尚未配置完整（本地未选目录、
+ * R2 缺凭据）时返回 null，自动备份据此暂停安排。
+ */
+const resolveBackupTarget = async (
+  native: NativeBridge,
+): Promise<BackupTarget | null> => {
+  const kind = normalizeBackupTargetKind(
+    await readSetting(native, BACKUP_SETTINGS_CODES.targetKind),
+  );
+  if (kind === "r2") {
+    const config = await native.backupGetR2Config().catch(() => null);
+    return isBackupR2Configured(config) ? { kind: "r2" } : null;
+  }
+  const dir = await readSetting(native, BACKUP_SETTINGS_CODES.targetDir);
+  return dir ? { kind: "local", dir } : null;
 };
 
 const persistSettings = async (native: NativeBridge): Promise<void> => {
@@ -126,14 +147,14 @@ const errorMessage = (error: unknown): string =>
 /** 执行一次自动备份，并把下一次执行时间推进到当前计划之后。 */
 const runBackup = async (
   native: NativeBridge,
-  targetDir: string,
+  target: BackupTarget,
 ): Promise<void> => {
   running = true;
   broadcast();
   try {
     const progress = await native.backupTaskProgress();
     if (progress.active) {
-      // 手动备份 / 恢复正在执行：让出资源，稍后重试
+      // 手动备份 / 恢复 / 删除正在执行：让出资源，稍后重试
       runtime.nextRunAt = new Date(Date.now() + BUSY_RETRY_MS).toISOString();
       await persistRuntime(native);
       return;
@@ -142,7 +163,12 @@ const runBackup = async (
     const keep = normalizeBackupKeep(
       await readSetting(native, BACKUP_SETTINGS_CODES.keep),
     );
-    const result = await native.backupLocalCreate(targetDir, keep);
+    // 上次的备份 / 删除在应用退出时未完成：先续跑它，否则新任务会被拒绝。
+    // 续跑的是备份时，它本身就是这一次的自动备份，已写入的块不会重复上传。
+    const pending = await native.backupPendingTask();
+    const resumed = pending ? await native.backupResumeTask() : null;
+    const result =
+      resumed?.created ?? (await native.backupCreate(target, keep));
     runtime.nextRunAt = computeNextBackupAt(settings, result.createdAtMs);
     runtime.lastError = null;
     await persistRuntime(native);
@@ -179,8 +205,8 @@ const evaluate = async (native: NativeBridge): Promise<void> => {
   if (running || applying) {
     return;
   }
-  const targetDir = await readSetting(native, BACKUP_SETTINGS_CODES.targetDir);
-  if (settings.mode === "off" || !targetDir) {
+  const target = await resolveBackupTarget(native);
+  if (settings.mode === "off" || !target) {
     if (runtime.nextRunAt !== null) {
       runtime.nextRunAt = null;
       await persistRuntime(native);
@@ -202,7 +228,7 @@ const evaluate = async (native: NativeBridge): Promise<void> => {
       await persistRuntime(native);
       broadcast();
     } else if (dueAt <= now) {
-      await runBackup(native, targetDir);
+      await runBackup(native, target);
       return;
     }
   }
@@ -250,17 +276,14 @@ const applyBackupSchedule = async (
     const previous = settings;
     const next = normalizeBackupSchedule(value);
     settings = next;
-    const targetDir = await readSetting(
-      native,
-      BACKUP_SETTINGS_CODES.targetDir,
-    );
+    const target = await resolveBackupTarget(native);
     // 只切换「关闭后仍执行」时保留原定时间，避免顺手把即将到来的备份推后。
     const timingChanged =
       previous.mode !== next.mode ||
       previous.intervalHours !== next.intervalHours ||
       previous.hour !== next.hour ||
       previous.minute !== next.minute;
-    runtime.nextRunAt = targetDir
+    runtime.nextRunAt = target
       ? timingChanged || !runtime.nextRunAt
         ? computeNextBackupAt(next, Date.now())
         : runtime.nextRunAt

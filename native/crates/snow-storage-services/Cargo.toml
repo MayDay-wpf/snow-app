@@ -32,6 +32,7 @@ tokio.workspace = true
 chrono = "0.4.38"
 blake3 = "1"
 sha2 = "0.10"
+hmac = "0.12"
 base64 = "0.22"
 dirs-next = "2.0.0"
 futures = "0.3.31"
