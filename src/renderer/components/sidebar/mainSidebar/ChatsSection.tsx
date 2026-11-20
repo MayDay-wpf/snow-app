@@ -387,7 +387,7 @@ export function ChatsSection({
               </div>
               <div className="chat-import-progress-track" aria-hidden="true">
                 <div
-                  className="chat-import-progress-bar"
+                  className="chat-import-progress-bar chat-delete-progress-bar"
                   style={{
                     width: `${Math.max(
                       2,

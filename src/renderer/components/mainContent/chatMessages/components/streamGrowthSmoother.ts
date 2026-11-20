@@ -177,6 +177,12 @@ export const createStreamGrowthSmoother = (
       releaseRafId = 0;
       if (!isAllowed()) {
         release();
+        return;
+      }
+      // 这一帧放行条件又恢复了：不能把视口留在旧的显式高度上（那会把内容裁掉
+      // 并压缩滚动区间）。调用方此刻已经 return，过渡只能在这里重启。
+      if (displayed !== null && displayed !== target) {
+        startTransition();
       }
     });
   };

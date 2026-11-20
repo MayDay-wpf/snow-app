@@ -52,6 +52,18 @@ const RUN_FINISH_FOLLOW_GRACE_MS = 1200;
 const SCROLL_RESTORE_WATCHDOG_STABLE_FRAMES = 12;
 const SCROLL_RESTORE_WATCHDOG_MAX_FRAMES = 90;
 
+// 顶部续页看门狗：翻页在途超过该时长仍未收尾即视为卡死（收尾信号丢失 / IPC 挂死）。
+const OLDER_LOAD_STALL_TIMEOUT_MS = 8000;
+// 两次续页发起的最小间隔：连续滚动事件没必要每帧都重走一遍翻页准备。
+const OLDER_LOAD_RETRY_MIN_INTERVAL_MS = 200;
+// 快滚判定（px/ms）：超过它就把翻页推迟到滚动停下。翻页落地要跑多轮锚点校正
+// 并逐帧写 scrollTop，与惯性滚动较劲，快滚时表现为明显顿挫。
+const SCROLL_FAST_VELOCITY_PX_PER_MS = 1.2;
+// 速度采样的有效期：超过这个时长没有新滚动事件，视为已经停下。
+const SCROLL_VELOCITY_STALE_MS = 130;
+// 滚动停下后补查的延迟：略大于上面的有效期，第一次到点就能判定为已停下。
+const SCROLL_SETTLE_RECHECK_MS = 150;
+
 const measureAnchorContentOffset = (
   container: HTMLDivElement,
   anchor: Element,
@@ -256,6 +268,15 @@ export const useChatScrollFollow = ({
   const autoFillStallRef = useRef(0);
   const hasMessagesRef = useRef(hasMessages);
   const hasMoreMessagesRef = useRef(hasMoreMessages);
+  // 会话层的「更早一页正在取」标志：看门狗据此区分「真在途」与「守卫卡死」。
+  const isLoadingOlderMessagesRef = useRef(isLoadingOlderMessages);
+  // 本轮翻页开始时间戳（0 = 无在途）：超时未收尾时由看门狗就地解锁。
+  const olderLoadStartedAtRef = useRef(0);
+  const topPagingRetryAtRef = useRef(0);
+  // 滚动速度采样（滚动期间由 handleChatScroll 更新）：快滚时翻页让位给滚动。
+  const scrollSampleRef = useRef({ top: 0, at: 0, velocity: 0 });
+  const scrollSettleAtRef = useRef(0);
+  const scrollSettleTimerRef = useRef(0);
   const messagesRef = useRef(messages);
   const isStreamingRef = useRef(isStreaming);
   // Run 收尾宽限窗口：时间戳，期间 RO 钉底视同流式输出。
@@ -266,6 +287,7 @@ export const useChatScrollFollow = ({
   activeConversationIdRef.current = activeConversationId;
   hasMessagesRef.current = hasMessages;
   hasMoreMessagesRef.current = hasMoreMessages;
+  isLoadingOlderMessagesRef.current = isLoadingOlderMessages;
   messagesRef.current = messages;
   isStreamingRef.current = isStreaming;
   const isChatAreaRenderedRef = useRef(isChatAreaRendered);
@@ -400,6 +422,7 @@ export const useChatScrollFollow = ({
   // 定位需要按页推进），避免等待一个永不抵达的信号。
   const finishScrollRestore = useCallback((): void => {
     isLoadingOlderWithScrollRef.current = false;
+    olderLoadStartedAtRef.current = 0;
     const settle = scrollRestoreSettleRef.current;
     scrollRestoreSettleRef.current = null;
     scrollRestoreInflightRef.current = null;
@@ -645,6 +668,13 @@ export const useChatScrollFollow = ({
 
     autoFillStartHeightRef.current = 0;
     autoFillStallRef.current = 0;
+    topPagingRetryAtRef.current = 0;
+    scrollSampleRef.current = { top: 0, at: 0, velocity: 0 };
+    scrollSettleAtRef.current = 0;
+    if (scrollSettleTimerRef.current !== 0) {
+      window.clearTimeout(scrollSettleTimerRef.current);
+      scrollSettleTimerRef.current = 0;
+    }
 
     const container = scrollRef.current;
     if (container) {
@@ -1073,6 +1103,7 @@ export const useChatScrollFollow = ({
 
       const requestId = ++scrollRestoreRequestIdRef.current;
       isLoadingOlderWithScrollRef.current = true;
+      olderLoadStartedAtRef.current = performance.now();
       // 翻页恢复按真实几何校正 scrollTop：平滑视口的显式高度会让新页插入
       // 后的 scrollHeight 偏小、校正被钳制，必须先即时释放。
       growthSmootherRef.current?.release();
@@ -1124,6 +1155,128 @@ export const useChatScrollFollow = ({
       await restoreFinished;
     },
     [finishScrollRestore, loadOlderMessages, startScrollRestoreWatchdog],
+  );
+
+  /** 当前是否处于快速滚动中（速度采样超过有效期即视为已停下）。 */
+  const isScrollingFast = useCallback((): boolean => {
+    const sample = scrollSampleRef.current;
+    if (sample.at === 0) {
+      return false;
+    }
+    if (performance.now() - sample.at > SCROLL_VELOCITY_STALE_MS) {
+      return false;
+    }
+    return sample.velocity > SCROLL_FAST_VELOCITY_PX_PER_MS;
+  }, []);
+
+  /**
+   * 滚动停下后补一次顶部检查。单一定时器 + 截止时间：滚动期间不断把截止时间
+   * 往后推，所以只在真正停下来之后触发一次，不会形成后台重试链。
+   */
+  const armScrollSettleRecheck = useCallback((): void => {
+    scrollSettleAtRef.current = performance.now() + SCROLL_SETTLE_RECHECK_MS;
+    if (scrollSettleTimerRef.current !== 0) {
+      return;
+    }
+    const tick = (): void => {
+      scrollSettleTimerRef.current = 0;
+      if (performance.now() < scrollSettleAtRef.current) {
+        scrollSettleTimerRef.current = window.setTimeout(
+          tick,
+          SCROLL_SETTLE_RECHECK_MS,
+        );
+        return;
+      }
+      recheckLoadOlderRef.current();
+    };
+    scrollSettleTimerRef.current = window.setTimeout(
+      tick,
+      SCROLL_SETTLE_RECHECK_MS,
+    );
+  }, []);
+
+  /**
+   * 续页看门狗：滚动驱动的预取入口，外加「在途守卫卡死」的自愈。
+   *
+   * 只由真实滚动手势路径调用（滚动事件 / 滚轮 / 按键），绝不做定时后台重试：
+   * 定时重试会让分页变成常驻任务——每一页都要释放平滑视口、跑多轮锚点校正并
+   * 反复写 scrollTop，滚动时持续与手势较劲，观感就是「卡涩、要缓一会才能继续
+   * 上滚」。
+   *
+   * 自愈只在「真正到顶 + 用户仍在滚动手势窗口内 + 在途守卫超时」时动手：预取区
+   * 里误判会把正常的一页当成卡死，反而打断滚动。
+   */
+  const ensureTopPagingAlive = useCallback(
+    (container: HTMLDivElement): void => {
+      if (!hasMoreMessagesRef.current) {
+        return;
+      }
+      // 提前预取只在用户离开底部阅读历史时启用：跟随最新输出时视口上方
+      // 的头部还会被消息窗口裁剪，预取只会与裁剪来回拉扯。
+      const loadOlderThreshold = shouldStickToBottomRef.current
+        ? LOAD_OLDER_SCROLL_THRESHOLD
+        : Math.max(
+            LOAD_OLDER_SCROLL_THRESHOLD,
+            container.clientHeight * LOAD_OLDER_PREFETCH_SCREENS,
+          );
+      if (container.scrollTop > loadOlderThreshold) {
+        return;
+      }
+
+      // 快滚期间不翻页：新页落地的锚点校正要逐帧写 scrollTop，跟惯性滚动打架，
+      // 滚动很快时就是一顿一顿的。推迟到滚动停下后那次复查再做。
+      if (isScrollingFast()) {
+        armScrollSettleRecheck();
+        return;
+      }
+
+      const now = performance.now();
+      const inGesture =
+        now - lastUserScrollInputAtRef.current <= USER_SCROLL_INTENT_WINDOW_MS;
+      const startedAt = olderLoadStartedAtRef.current;
+      if (startedAt !== 0) {
+        const atTop = container.scrollTop <= LOAD_OLDER_SCROLL_THRESHOLD;
+        if (
+          !atTop ||
+          !inGesture ||
+          now - startedAt < OLDER_LOAD_STALL_TIMEOUT_MS
+        ) {
+          return;
+        }
+        // 在途守卫超时：本轮翻页的收尾信号丢了，就地解锁并唤醒等待方，
+        // 否则后面每一次续页都会撞上这个永远不消的守卫。
+        olderLoadStartedAtRef.current = 0;
+        isLoadingOlderWithScrollRef.current = false;
+        pendingScrollRestoreRef.current = null;
+        stopScrollRestoreWatchdog();
+        const settle = scrollRestoreSettleRef.current;
+        scrollRestoreSettleRef.current = null;
+        scrollRestoreInflightRef.current = null;
+        settle?.();
+      }
+
+      if (
+        isLoadingOlderMessagesRef.current ||
+        isLoadingOlderWithScrollRef.current
+      ) {
+        return;
+      }
+      // 没有滚动手势就不主动拉页：停在顶部静止时的后台翻页没有任何收益。
+      if (!inGesture) {
+        return;
+      }
+      if (now < topPagingRetryAtRef.current) {
+        return;
+      }
+      topPagingRetryAtRef.current = now + OLDER_LOAD_RETRY_MIN_INTERVAL_MS;
+      void handleLoadOlderWithScroll();
+    },
+    [
+      handleLoadOlderWithScroll,
+      isScrollingFast,
+      armScrollSettleRecheck,
+      stopScrollRestoreWatchdog,
+    ],
   );
 
   // 翻页滚动恢复（多轮收敛）：新页 commit 后、paint 前按 anchor 的内容
@@ -1315,14 +1468,10 @@ export const useChatScrollFollow = ({
         if (container.scrollTop > 0) {
           shouldStickToBottomRef.current = false;
           syncScrollButtonVisibility(container);
-        } else if (
-          hasMoreMessages &&
-          !isLoadingOlderMessages &&
-          container.scrollHeight <= container.clientHeight + 1
-        ) {
-          // 内容不足一屏：容器没有可滚动区间，滚轮不产生 scroll 事件，
-          // 常规的「滚到顶部加载更早记录」通道失效，这里按手势显式续页。
-          void handleLoadOlderWithScroll();
+        } else {
+          // 已在顶部且滚不动：手势窗口内让看门狗补页 / 自愈卡死的翻页。
+          // 不再要求「内容不足一屏」——否则滚到顶的滚轮会毫无反应。
+          ensureTopPagingAlive(container);
         }
         return;
       }
@@ -1335,10 +1484,8 @@ export const useChatScrollFollow = ({
       }
     },
     [
+      ensureTopPagingAlive,
       flashChatScrollbar,
-      handleLoadOlderWithScroll,
-      hasMoreMessages,
-      isLoadingOlderMessages,
       markUserScrollIntent,
       syncScrollButtonVisibility,
     ],
@@ -1385,11 +1532,17 @@ export const useChatScrollFollow = ({
         return;
       }
       markUserScrollIntent(scrollsUp ? -1 : 1);
-      if (scrollsUp && event.currentTarget.scrollTop > 0) {
-        shouldStickToBottomRef.current = false;
+      if (!scrollsUp) {
+        return;
       }
+      if (event.currentTarget.scrollTop > 0) {
+        shouldStickToBottomRef.current = false;
+        return;
+      }
+      // 已在顶部：PageUp / Home 不产生 scroll 事件，手势窗口内显式补页。
+      ensureTopPagingAlive(event.currentTarget);
     },
-    [markUserScrollIntent],
+    [ensureTopPagingAlive, markUserScrollIntent],
   );
 
   const handleChatScroll = useCallback((): void => {
@@ -1397,6 +1550,16 @@ export const useChatScrollFollow = ({
     if (!container) {
       return;
     }
+
+    // 速度采样：快滚期间翻页让位给滚动（见 ensureTopPagingAlive）。
+    const sample = scrollSampleRef.current;
+    const sampledAt = performance.now();
+    const elapsed = sampledAt - sample.at;
+    if (elapsed > 0) {
+      sample.velocity = Math.abs(container.scrollTop - sample.top) / elapsed;
+    }
+    sample.top = container.scrollTop;
+    sample.at = sampledAt;
 
     deriveFollowStateFromScroll(container);
 
@@ -1424,31 +1587,11 @@ export const useChatScrollFollow = ({
         return;
       }
 
-      // 提前预取只在用户离开底部阅读历史时启用：跟随最新输出时视口上方
-      // 的头部还会被消息窗口裁剪，预取只会与裁剪来回拉扯。
-      const loadOlderThreshold = shouldStickToBottomRef.current
-        ? LOAD_OLDER_SCROLL_THRESHOLD
-        : Math.max(
-            LOAD_OLDER_SCROLL_THRESHOLD,
-            throttledContainer.clientHeight * LOAD_OLDER_PREFETCH_SCREENS,
-          );
-      if (
-        throttledContainer.scrollTop > loadOlderThreshold ||
-        !hasMoreMessages ||
-        isLoadingOlderMessages ||
-        isLoadingOlderWithScrollRef.current
-      ) {
-        return;
-      }
-
-      void handleLoadOlderWithScroll();
+      // 阈值判定、在途守卫与卡死自愈统一在 ensureTopPagingAlive 里：它保证
+      // 「在顶部且还有更早记录」时一定有人再去要一页，而不是静默停在这里。
+      ensureTopPagingAlive(throttledContainer);
     });
-  }, [
-    deriveFollowStateFromScroll,
-    handleLoadOlderWithScroll,
-    hasMoreMessages,
-    isLoadingOlderMessages,
-  ]);
+  }, [deriveFollowStateFromScroll, ensureTopPagingAlive]);
 
   // 翻页收尾后主动复查一次顶部阈值（滚动事件不会在翻页后自行重放）。
   useEffect(() => {
@@ -1593,6 +1736,10 @@ export const useChatScrollFollow = ({
       if (wheelScrollbarTimerRef.current !== 0) {
         window.clearTimeout(wheelScrollbarTimerRef.current);
         wheelScrollbarTimerRef.current = 0;
+      }
+      if (scrollSettleTimerRef.current !== 0) {
+        window.clearTimeout(scrollSettleTimerRef.current);
+        scrollSettleTimerRef.current = 0;
       }
       stopScrollRestoreWatchdog();
     };

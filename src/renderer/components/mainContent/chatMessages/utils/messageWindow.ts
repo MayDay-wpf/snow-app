@@ -3,6 +3,7 @@ import type {
   ConversationSessionState,
   MessageRecordRef,
 } from "./conversationTypes";
+import { olderPageCursorOf } from "./conversationTypes";
 import { archiveSubAgentRunActivity } from "./subAgentRunActivity";
 
 /**
@@ -91,6 +92,32 @@ const compareRecordIds = (left: string, right: string): number => {
     return left.length - right.length;
   }
   return left < right ? -1 : left > right ? 1 : 0;
+};
+
+/** candidate 是否严格早于 cursor（雪花 id 先比长度再比字典序）。 */
+export const isOlderRecordId = (candidate: string, cursor: string): boolean =>
+  compareRecordIds(candidate, cursor) < 0;
+
+/**
+ * 下一次向前翻页的游标。必须严格早于本次请求用的游标：否则下一轮会取回同一批
+ * 记录、被去重全部丢弃，翻页原地打转（界面上就是滚到顶再也翻不出更早的消息）。
+ * 「跳过窗口头部孤立 tool 记录」的优化只在前进成立时采用，否则退回窗口最老的
+ * 记录——它必然严格更老，能保证每轮都有推进。
+ */
+export const nextOlderCursorOf = (
+  records: MessageRecordRef[],
+  requestCursor: string,
+  fallback: string | undefined,
+): string | undefined => {
+  const preferred = olderPageCursorOf(records);
+  if (preferred && isOlderRecordId(preferred, requestCursor)) {
+    return preferred;
+  }
+  const oldest = records[0]?.id;
+  if (oldest && isOlderRecordId(oldest, requestCursor)) {
+    return oldest;
+  }
+  return fallback;
 };
 
 /** 仍在接收运行时更新的消息不可卸载（流式、执行中的工具、待答提问等）。 */

@@ -25,6 +25,7 @@ import {
 } from "../utils/conversationHelpers";
 import { abortBackgroundCompaction } from "../utils/autoCompaction";
 import { settleInterruptedMessages } from "../utils/messageSettlement";
+import { isOlderRecordId, nextOlderCursorOf } from "../utils/messageWindow";
 import {
   registerRunCancelReason,
   type RunEndReason,
@@ -52,6 +53,9 @@ import {
 
 /** 会话被选中（切换会话）时派发的全局事件：主视图应回到聊天界面。 */
 export const CONVERSATION_SELECTED_EVENT = "app:conversation-selected";
+
+/** 同一续页游标连续多少轮没有增量即判定为失效，改用窗口最老记录重新推导。 */
+const PAGING_STALL_LIMIT = 2;
 
 export type UseConversationManagementParams = {
   ctx: ConversationContextValue;
@@ -737,6 +741,11 @@ export const useConversationManagement = (
     ],
   );
 
+  /** 续页停滞计数（会话 -> 上次请求游标与连续无增量的轮次）。 */
+  const pagingStallRef = useRef(
+    new Map<string, { cursor: string; rounds: number }>(),
+  );
+
   const loadOlderMessages = useCallback(
     async (pageSize?: number, sessionKey?: string): Promise<void> => {
       // 可能被直接当事件回调调用，非数字参数一律回落默认页长。
@@ -751,20 +760,40 @@ export const useConversationManagement = (
 
       const session = ctx.sessionsRef.current[conversationId];
       // 窗口裁剪过则沿裁剪游标翻页，否则取已加载的最早（非孤立 tool）记录。
-      const beforeMessageId =
+      // sessionCursor 同时是本页「是否仍与窗口相邻」的判据，因此必须与实际
+      // 请求用的游标分开保存（自愈时两者会不同）。
+      const sessionCursor =
         session?.olderCursorId ??
         (session ? olderPageCursorOf(session.messageRecords) : undefined);
       if (
         !session ||
-        !beforeMessageId ||
+        !sessionCursor ||
         !session.hasMoreMessages ||
         ctx.loadingOlderConversationIdsRef.current.has(conversationId)
       ) {
         return;
       }
 
+      // 自愈：同一游标连续多轮取不到任何新记录，说明游标已失效（回退到窗口头，
+      // 或指向不属于本会话的记录）。改用窗口最老的记录 id——它必然严格更老，
+      // 能让翻页重新推进，而不是永远取回同一页、被去重全部丢掉。
+      const stall = pagingStallRef.current.get(conversationId);
+      let beforeMessageId = sessionCursor;
+      if (
+        stall &&
+        stall.cursor === sessionCursor &&
+        stall.rounds >= PAGING_STALL_LIMIT
+      ) {
+        const oldestRecordId = session.messageRecords[0]?.id;
+        if (oldestRecordId && isOlderRecordId(oldestRecordId, sessionCursor)) {
+          beforeMessageId = oldestRecordId;
+        }
+      }
+
       ctx.loadingOlderConversationIdsRef.current.add(conversationId);
       ctx.updateSessionField(conversationId, "isLoadingOlderMessages", true);
+      // 本页是否已经走到「写回会话」的分支：为 false 时在途标志由 finally 兜底复位。
+      let sessionFlagSettled = false;
 
       try {
         const page = await window.snow.listChatMessagesPaginated(
@@ -783,6 +812,18 @@ export const useConversationManagement = (
         const olderRecords = page.items.filter(
           (record) => !existingIds.has(record.id),
         );
+
+        // 停滞计数：本页没带来任何新记录就累加，有增量立刻清零。
+        if (olderRecords.length === 0) {
+          const previous = pagingStallRef.current.get(conversationId);
+          pagingStallRef.current.set(conversationId, {
+            cursor: sessionCursor,
+            rounds:
+              previous?.cursor === sessionCursor ? previous.rounds + 1 : 1,
+          });
+        } else {
+          pagingStallRef.current.delete(conversationId);
+        }
 
         // 新页 markdown 先行预热（倒序：贴近视口的最新旧消息优先，worker
         // 按派发顺序处理）。MarkdownBlock 挂载时缓存未命中会先渲染空 html，
@@ -824,7 +865,7 @@ export const useConversationManagement = (
           const latestCursor =
             latestSession.olderCursorId ??
             olderPageCursorOf(latestSession.messageRecords);
-          if (latestCursor !== beforeMessageId) {
+          if (latestCursor !== sessionCursor) {
             return {
               ...prev,
               [conversationId]: {
@@ -855,9 +896,12 @@ export const useConversationManagement = (
               messageRecords: combinedRecords,
               isLoadingOlderMessages: false,
               hasMoreMessages: page.hasMore,
-              olderCursorId:
-                olderPageCursorOf(combinedRecords) ??
+              // 游标必须严格前进，否则下一轮会取回同一页（见 nextOlderCursorOf）。
+              olderCursorId: nextOlderCursorOf(
+                combinedRecords,
+                beforeMessageId,
                 latestSession.olderCursorId,
+              ),
               lastAccessedAt: Date.now(),
             },
           };
@@ -867,10 +911,23 @@ export const useConversationManagement = (
         if (refData) {
           refData.checkpointIds = page.checkpointIds;
         }
+        // 写回分支都会把在途标志置 false（会话已被移除的分支除外，此时无状态可留）。
+        sessionFlagSettled = true;
       } catch {
         ctx.updateSessionField(conversationId, "isLoadingOlderMessages", false);
+        sessionFlagSettled = true;
       } finally {
         ctx.loadingOlderConversationIdsRef.current.delete(conversationId);
+        // 不变式：每次尝试结束在途标志必须归零。此前「会话已被移除」等提前
+        // return 会把它永久留在 true，随后滚轮 / 键盘 / 用户消息定位的续页
+        // 入口全部失效、定位循环只会空转——表现为滚到顶再也翻不出更早消息。
+        if (!sessionFlagSettled) {
+          ctx.updateSessionField(
+            conversationId,
+            "isLoadingOlderMessages",
+            false,
+          );
+        }
       }
     },
     [ctx.updateSessionField],

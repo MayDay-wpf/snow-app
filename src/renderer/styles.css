@@ -1970,6 +1970,11 @@ body.is-panel-resizing * {
   padding: 4px 10px 6px;
 }
 
+/* 批量删除进度条跟随主题强调色，不使用固定的 --accent 蓝色 */
+.chat-delete-progress-bar {
+  background: var(--accent-color);
+}
+
 /* 正在删除的会话行：弱化显示，避免重复操作 */
 .chat-item.deleting {
   opacity: 0.55;

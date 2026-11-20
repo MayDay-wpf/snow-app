@@ -82,6 +82,10 @@ const nextFrame = (): Promise<void> =>
  *  尾部定时器保证滚动停止后的最后一次计算仍会执行。 */
 const VISIBILITY_COMPUTE_INTERVAL_MS = 120;
 
+/** 快滚判定（px/ms）：超过它就不做可见高亮计算——每次计算都要读一整列消息
+ *  的几何，快滚时布局每帧都是脏的，强制同步布局会直接把滚动打成掉帧。 */
+const VISIBILITY_FAST_SCROLL_PX_PER_MS = 1.2;
+
 /** 同会话内版本号成串变化时合并重拉（长会话单次拉取可达上百毫秒）。 */
 const USER_MESSAGES_REFETCH_DELAY_MS = 200;
 
@@ -390,9 +394,49 @@ export const UserMessageRail = memo(
       const container = scrollContainerRef.current;
       if (!container) return;
 
+      // 速度采样：快滚时跳过可见高亮计算，滚动停下后的尾部定时器会补上。
+      let sampleTop = container.scrollTop;
+      let sampleAt = performance.now();
+      const measureScrollVelocity = (): number => {
+        const now = performance.now();
+        const elapsed = now - sampleAt;
+        const moved = Math.abs(container.scrollTop - sampleTop);
+        sampleTop = container.scrollTop;
+        sampleAt = now;
+        return elapsed > 0 ? moved / elapsed : 0;
+      };
+
+      // 快滚被跳过的计算：滚动停下后补算一次（单定时器 + 截止时间，滚动期间
+      // 只把截止时间往后推），保证高亮不会停在快滚前的位置。
+      let fastSkipAt = 0;
+      let fastSkipTimer = 0;
+      const scheduleAfterFastScroll = (): void => {
+        fastSkipAt = performance.now() + VISIBILITY_COMPUTE_INTERVAL_MS;
+        if (fastSkipTimer !== 0) {
+          return;
+        }
+        const tick = (): void => {
+          fastSkipTimer = 0;
+          if (performance.now() < fastSkipAt) {
+            fastSkipTimer = window.setTimeout(
+              tick,
+              VISIBILITY_COMPUTE_INTERVAL_MS,
+            );
+            return;
+          }
+          lastComputeAt = performance.now();
+          computeVisible();
+        };
+        fastSkipTimer = window.setTimeout(tick, VISIBILITY_COMPUTE_INTERVAL_MS);
+      };
+
       const computeVisible = (): void => {
         // 定位遮罩期间消息区不可见，高亮无意义，且会与定位循环争抢布局。
         if (locatingRef.current) {
+          return;
+        }
+        if (measureScrollVelocity() > VISIBILITY_FAST_SCROLL_PX_PER_MS) {
+          scheduleAfterFastScroll();
           return;
         }
         const dbUserMsgs = userMessagesRef.current;
@@ -403,12 +447,17 @@ export const UserMessageRail = memo(
 
         // 单次遍历建立 id → 矩形索引：此前逐条 querySelector 会让每条用户
         // 消息都重扫一遍容器子树（O(消息数²)），长会话滚动时开销显著。
+        // 只对用户消息读几何：助手消息与占位符占多数，它们的 rect 与此处无关。
+        const wantedIds = new Set<string>();
+        for (const message of dbUserMsgs) {
+          wantedIds.add(message.id);
+        }
         const rectById = new Map<string, DOMRect>();
         const elements =
           container.querySelectorAll<HTMLElement>("[data-message-id]");
         for (const element of elements) {
           const messageId = element.dataset.messageId;
-          if (messageId) {
+          if (messageId && wantedIds.has(messageId)) {
             rectById.set(messageId, element.getBoundingClientRect());
           }
         }
@@ -489,6 +538,9 @@ export const UserMessageRail = memo(
         }
         if (trailingTimer !== 0) {
           window.clearTimeout(trailingTimer);
+        }
+        if (fastSkipTimer !== 0) {
+          window.clearTimeout(fastSkipTimer);
         }
         container.removeEventListener("scroll", scheduleCompute);
         window.removeEventListener("resize", scheduleCompute);
