@@ -4,6 +4,7 @@
 //! （删除时同步重写会话消息中的图片引用）。
 
 use napi::bindgen_prelude::*;
+use napi::threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode};
 use napi_derive::napi;
 
 use crate::storage::{ImageAlbumRecord, ImageLibraryRecord, MigrationProgress};
@@ -71,12 +72,47 @@ pub async fn count_conversation_images(conversation_ids: Vec<String>) -> napi::R
         .map_err(map_spawn_error)?
 }
 
+/// 图片级联删除的真实进度（done/total 为已处理/待处理图片数）。
+#[napi(object)]
+pub struct ConversationImageDeleteProgress {
+    pub done: u32,
+    pub total: u32,
+}
+
+type ConversationImageDeleteProgressCallback = ThreadsafeFunction<
+    ConversationImageDeleteProgress,
+    Unknown<'static>,
+    ConversationImageDeleteProgress,
+    Status,
+    false,
+>;
+
 /// 级联删除指定会话中引用的图库图片（物理文件 + 索引行）。
-/// 由删除会话流程调用（选择不保留图片时）。
-#[napi]
-pub async fn delete_conversation_images(conversation_ids: Vec<String>) -> napi::Result<i64> {
+/// 由删除会话流程调用（选择不保留图片时）；`onProgress` 逐张推送真实进度。
+#[napi(
+    ts_args_type = "conversationIds: string[], onProgress: ((progress: ConversationImageDeleteProgress) => void) | undefined",
+    ts_return_type = "Promise<number>"
+)]
+pub async fn delete_conversation_images(
+    conversation_ids: Vec<String>,
+    on_progress: Option<ConversationImageDeleteProgressCallback>,
+) -> napi::Result<i64> {
     tokio::task::spawn_blocking(move || {
-        crate::storage::delete_conversation_images(conversation_ids)
+        let sink = on_progress.map(|callback| {
+            move |_phase: &str, done: usize, total: usize| {
+                let _ = callback.call(
+                    ConversationImageDeleteProgress {
+                        done: done.min(u32::MAX as usize) as u32,
+                        total: total.min(u32::MAX as usize) as u32,
+                    },
+                    ThreadsafeFunctionCallMode::NonBlocking,
+                );
+            }
+        });
+        crate::storage::delete_conversation_images_with_progress(
+            conversation_ids,
+            sink.as_ref().map(|callback| callback as &dyn Fn(&str, usize, usize)),
+        )
     })
     .await
     .map_err(map_spawn_error)?

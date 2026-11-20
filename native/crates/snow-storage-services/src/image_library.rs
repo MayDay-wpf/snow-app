@@ -176,6 +176,19 @@ pub fn delete_conversation_images(conversation_ids: Vec<String>) -> Result<i64> 
     services::image_library::delete_conversation_images(&database_path, &conversation_ids)
 }
 
+/// 同上，并按真实处理的图片数量逐张上报进度（阶段 `images`）。
+pub fn delete_conversation_images_with_progress(
+    conversation_ids: Vec<String>,
+    on_progress: Option<&dyn Fn(&str, usize, usize)>,
+) -> Result<i64> {
+    let database_path = ensure_database_file()?;
+    services::image_library::delete_conversation_images_with_progress(
+        &database_path,
+        &conversation_ids,
+        on_progress,
+    )
+}
+
 /// 图库目录迁移进度。
 #[napi(object)]
 pub struct MigrationProgress {

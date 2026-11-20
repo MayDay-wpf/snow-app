@@ -618,6 +618,15 @@ pub fn delete_conversation_images(
     database_path: &Path,
     conversation_ids: &[String],
 ) -> Result<i64> {
+    delete_conversation_images_with_progress(database_path, conversation_ids, None)
+}
+
+/// 同 [delete_conversation_images]，按真实处理的图片数量逐张上报进度。
+pub fn delete_conversation_images_with_progress(
+    database_path: &Path,
+    conversation_ids: &[String],
+    on_progress: Option<&dyn Fn(&str, usize, usize)>,
+) -> Result<i64> {
     let mut connection = database::open_connection(database_path).map_err(|error| {
         database::database_error(database_path, "open for image cascade", error)
     })?;
@@ -625,6 +634,18 @@ pub fn delete_conversation_images(
         collect_paths_for_conversations(&connection, conversation_ids).map_err(|error| {
             database::database_error(database_path, "scan conversation images", error)
         })?;
+
+    // 索引行处理与物理文件删除各算一份真实工作量。
+    let mut total = paths.len();
+    let mut done = 0usize;
+    let report = |on_progress: Option<&dyn Fn(&str, usize, usize)>,
+                  done: usize,
+                  total: usize| {
+        if let Some(sink) = on_progress {
+            sink("images", done, total);
+        }
+    };
+    report(on_progress, done, total);
 
     let tx = connection.transaction().map_err(|error| {
         database::database_error(database_path, "begin image cascade tx", error)
@@ -642,21 +663,24 @@ pub fn delete_conversation_images(
             .map_err(|error| {
                 database::database_error(database_path, "query image record", error)
             })?;
-        if file_name.is_none() {
-            continue;
+        if file_name.is_some() {
+            tx.execute(
+                "DELETE FROM image_library WHERE relative_path = ?1",
+                params![path],
+            )
+            .map_err(|error| database::database_error(database_path, "delete image index", error))?;
+            removed_files.push(path.clone());
         }
-        tx.execute(
-            "DELETE FROM image_library WHERE relative_path = ?1",
-            params![path],
-        )
-        .map_err(|error| database::database_error(database_path, "delete image index", error))?;
-        removed_files.push(path.clone());
+        done += 1;
+        report(on_progress, done, total);
     }
 
     tx.commit()
         .map_err(|error| database::database_error(database_path, "commit image cascade", error))?;
 
     // 物理删除文件（失败仅产生孤儿文件，不阻断会话删除）
+    total += removed_files.len();
+    report(on_progress, done, total);
     let root = image_library_root()?;
     for path in &removed_files {
         let file_path = library_file_path(&root, path);
@@ -667,6 +691,8 @@ pub fn delete_conversation_images(
                 }
             }
         }
+        done += 1;
+        report(on_progress, done, total);
     }
 
     if !removed_files.is_empty() {

@@ -180,8 +180,11 @@ export function TreeProjectChats({
     {
       key: "delete",
       label: actions.isBatchDeleting
-        ? t("sidebar.chatMultiSelectDeleting", {
-            defaultValue: "Deleting...",
+        ? t("sidebar.chatMultiSelectDeletingProgress", {
+            defaultValue: "Deleting {{percent}}%",
+            values: {
+              percent: Math.round(actions.batchDeleteProgress?.percent ?? 0),
+            },
           })
         : t("sidebar.chatMultiSelectDelete", {
             defaultValue: "Delete selected",
@@ -309,19 +312,52 @@ export function TreeProjectChats({
   return (
     <>
       {selection.isMultiSelectMode ? (
-        <ChatMultiSelectBar
-          actions={multiSelectActions}
-          allSelected={allSelected}
-          isExitDisabled={actions.isActionLocked}
-          onExit={exitMultiSelect}
-          onToggleSelectAll={
-            allSelected
-              ? selection.handleDeselectAll
-              : selection.handleSelectAll
-          }
-          selectAllDisabled={actions.isActionLocked}
-          selectedCount={selection.selectedIds.size}
-        />
+        <>
+          <ChatMultiSelectBar
+            actions={multiSelectActions}
+            allSelected={allSelected}
+            isExitDisabled={actions.isActionLocked}
+            onExit={exitMultiSelect}
+            onToggleSelectAll={
+              allSelected
+                ? selection.handleDeselectAll
+                : selection.handleSelectAll
+            }
+            selectAllDisabled={actions.isActionLocked}
+            selectedCount={selection.selectedIds.size}
+          />
+          {/* 批量删除的真实进度：后端按实际工作单元计数。 */}
+          {actions.batchDeleteProgress ? (
+            <div
+              className="chat-import-progress chat-delete-progress-inline"
+              role="status"
+              aria-live="polite"
+            >
+              <div className="chat-import-progress-text">
+                <Loader2 className="spin" size={12} aria-hidden="true" />
+                <span>
+                  {t("sidebar.chatMultiSelectDeletingProgress", {
+                    defaultValue: "Deleting {{percent}}%",
+                    values: {
+                      percent: Math.round(actions.batchDeleteProgress.percent),
+                    },
+                  })}
+                </span>
+              </div>
+              <div className="chat-import-progress-track" aria-hidden="true">
+                <div
+                  className="chat-import-progress-bar"
+                  style={{
+                    width: `${Math.max(
+                      2,
+                      Math.min(100, actions.batchDeleteProgress.percent),
+                    )}%`,
+                  }}
+                />
+              </div>
+            </div>
+          ) : null}
+        </>
       ) : null}
       {showLoading ? (
         <span className="empty-text loading">
@@ -365,6 +401,7 @@ export function TreeProjectChats({
         isBatch
         isConfirming={actions.isBatchDeleting}
         memoriesCount={actions.batchMemoriesCount}
+        progress={actions.batchDeleteProgress}
         onCancel={() => actions.setShowBatchConfirm(false)}
         onConfirm={() => void actions.handleBatchDelete()}
         onDeleteImagesChange={actions.setBatchDeleteImages}

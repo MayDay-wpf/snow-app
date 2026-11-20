@@ -416,7 +416,7 @@ export function ChatItem({
         isActive ? " active" : ""
       }${isMultiSelectMode && !isRunning ? " multi-select" : ""}${
         isSelected ? " selected" : ""
-      }${isDragSource ? " dragging" : ""}${
+      }${isDragSource ? " dragging" : ""}${isDeleting ? " deleting" : ""}${
         showQuickActions ? " has-quick-actions" : ""
       }`}
       draggable={canDrag}

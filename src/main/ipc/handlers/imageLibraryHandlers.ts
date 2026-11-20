@@ -3,6 +3,8 @@ import { writeFile } from "fs/promises";
 import { join } from "path";
 import type { NativeBridge } from "../../native/types";
 import { readImageSource } from "../../app/imageProxyProtocol";
+import { safeSend } from "../../utils/safeSend";
+import { CONVERSATION_DELETE_PROGRESS_CHANNEL } from "../deleteProgressChannel";
 
 /** 按图片 MIME 推断保存扩展名，未知类型回退为 png。 */
 const extensionForMime = (mimeType: string): string => {
@@ -192,7 +194,11 @@ export const registerImageLibraryHandlers = (native: NativeBridge): void => {
 
   ipcMain.handle(
     "images:delete-conversation-images",
-    async (_event, conversationIds: unknown): Promise<number> => {
+    async (
+      event,
+      conversationIds: unknown,
+      progressStreamId: unknown,
+    ): Promise<number> => {
       if (!Array.isArray(conversationIds)) {
         return 0;
       }
@@ -202,7 +208,23 @@ export const registerImageLibraryHandlers = (native: NativeBridge): void => {
       if (safeIds.length === 0) {
         return 0;
       }
-      return native.deleteConversationImages(safeIds);
+      const streamId =
+        typeof progressStreamId === "string" ? progressStreamId.trim() : "";
+      return native.deleteConversationImages(
+        safeIds,
+        streamId
+          ? (progress) => {
+              safeSend(event.sender, CONVERSATION_DELETE_PROGRESS_CHANNEL, {
+                streamId,
+                progress: {
+                  phase: "images",
+                  done: progress.done,
+                  total: progress.total,
+                },
+              });
+            }
+          : undefined,
+      );
     },
   );
 

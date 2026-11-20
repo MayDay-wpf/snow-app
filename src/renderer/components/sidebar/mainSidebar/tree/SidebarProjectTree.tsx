@@ -421,6 +421,7 @@ export function SidebarProjectTree({
         batchDeleteMemories={false}
         batchImagesCount={null}
         batchMemoriesCount={null}
+        batchDeleteProgress={null}
         isBatchDeleting={false}
         isDeletingArchived={archived.deletingArchivedIds.size > 0}
         onArchivedDeleteCancel={() => archived.setArchivedDeleteTargetIds(null)}

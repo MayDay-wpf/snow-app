@@ -188,6 +188,8 @@ export const useConversationAbortBridge = (
 export type ConversationRemovalOptions = {
   /** 归档会跳过置顶会话（Rust 侧不搬移），置顶会话也不应被中止。 */
   skipPinned: boolean;
+  /** 准备阶段（逐会话中止运行、清理收尾）的真实进度。 */
+  onPrepareProgress?: (done: number, total: number) => void;
 };
 
 type ConversationRemover = (
@@ -274,7 +276,9 @@ export const useConversationRemovalBridge = (
       const rootIds = options.skipPinned
         ? await excludePinnedConversations(conversationIds)
         : conversationIds;
+      options.onPrepareProgress?.(0, rootIds.length);
       // Archive moves settled data; only permanent deletion closes durable admission.
+      let preparedCount = 0;
       for (const rootId of rootIds) {
         if (options.skipPinned) {
           await prepareSubAgentArchive(rootId, () => stopRef.current(rootId));
@@ -283,6 +287,8 @@ export const useConversationRemovalBridge = (
             stopRef.current(rootId),
           );
         }
+        preparedCount += 1;
+        options.onPrepareProgress?.(preparedCount, rootIds.length);
       }
       const targetIds = await collectStoredConversationTreeIds(rootIds);
       for (const targetId of targetIds) {

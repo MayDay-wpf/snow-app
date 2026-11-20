@@ -4,6 +4,11 @@ import type {
   ImageLibraryMigrationProgress,
   ImageLibraryRecord,
 } from "../types/imageLibrary";
+import type { ConversationDeleteProgress } from "../types/chat";
+import {
+  createDeleteProgressStreamId,
+  subscribeDeleteProgress,
+} from "./deleteProgressStream";
 
 /** 图像管理系统（Image Library）API。 */
 export const imageLibraryApi = {
@@ -48,8 +53,22 @@ export const imageLibraryApi = {
     ipcRenderer.invoke("images:conversation-images-count", conversationIds),
 
   /** 级联删除指定会话中引用的图库图片（删除会话时选择不保留图片） */
-  deleteConversationImages: (conversationIds: string[]): Promise<number> =>
-    ipcRenderer.invoke("images:delete-conversation-images", conversationIds),
+  deleteConversationImages: (
+    conversationIds: string[],
+    onProgress?: (progress: ConversationDeleteProgress) => void,
+  ): Promise<number> => {
+    if (!onProgress) {
+      return ipcRenderer.invoke(
+        "images:delete-conversation-images",
+        conversationIds,
+      );
+    }
+    const streamId = createDeleteProgressStreamId();
+    const unsubscribe = subscribeDeleteProgress(streamId, onProgress);
+    return ipcRenderer
+      .invoke("images:delete-conversation-images", conversationIds, streamId)
+      .finally(unsubscribe);
+  },
 
   /** 准备图库迁移：校验目标目录并写入迁移日志；返回待迁移图片数量（0 表示无需迁移） */
   prepareImageLibraryMigration: (targetDir: string): Promise<number> =>

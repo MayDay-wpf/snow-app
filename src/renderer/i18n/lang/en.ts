@@ -808,6 +808,11 @@ export const en = {
   "sidebar.chatMultiSelectDeleteConfirm":
     "Delete {{count}} selected conversations?",
   "sidebar.chatMultiSelectDeleting": "Deleting...",
+  "sidebar.chatMultiSelectDeletingProgress": "Deleting {{percent}}%",
+  "sidebar.chatDeleteProgressPrepare": "Preparing deletion...",
+  "sidebar.chatDeleteProgressImages": "Deleting images {{percent}}%",
+  "sidebar.chatDeleteProgressData": "Deleting conversation data {{percent}}%",
+  "sidebar.chatDeleteProgressCleanup": "Cleaning attachments {{percent}}%",
   "sidebar.chatMultiSelectExit": "Exit",
   "sidebar.chatMultiSelectGroupSelect": "Select this group",
   "sidebar.chatMultiSelectGroupDeselect": "Deselect this group",

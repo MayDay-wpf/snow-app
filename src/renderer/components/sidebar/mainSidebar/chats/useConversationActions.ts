@@ -1,7 +1,10 @@
 import { removeConversationTrees } from "../../../mainContent/chatMessages/hooks/conversationMessageBridge";
 import { useCallback, useRef, useState } from "react";
 
-import type { ChatConversationRecord } from "../../../../../preload";
+import type {
+  ChatConversationRecord,
+  ConversationDeleteProgress,
+} from "../../../../../preload";
 import { useI18n } from "../../../../i18n";
 import type { ExportFormat } from "../ChatItemMenu";
 
@@ -22,6 +25,66 @@ type UseConversationActionsOptions = {
   setConversations: (
     updater: (prev: ChatConversationRecord[]) => ChatConversationRecord[],
   ) => void;
+};
+
+/** 批量删除的展示进度：percent 由后端真实计数换算，不是定时动画。 */
+export type BatchDeleteProgress = {
+  phase: "prepare" | "images" | "delete" | "cleanup";
+  done: number;
+  total: number;
+  percent: number;
+};
+
+/** 准备阶段占 0-5%；图库图片占 5-25%；会话数据与附件清理占剩余区间。 */
+const PREPARE_STAGE_END = 5;
+const IMAGE_STAGE_END = 25;
+
+const scalePercent = (
+  done: number,
+  total: number,
+  from: number,
+  to: number,
+): number => {
+  if (total <= 0) {
+    return from;
+  }
+  const ratio = Math.min(1, Math.max(0, done / total));
+  return from + (to - from) * ratio;
+};
+
+/** 把后端阶段进度换算成 0-100 的总进度。 */
+const resolveBatchDeleteProgress = (
+  progress: ConversationDeleteProgress,
+  hasImageStage: boolean,
+): BatchDeleteProgress => {
+  const dataStart = hasImageStage ? IMAGE_STAGE_END : PREPARE_STAGE_END;
+  if (progress.phase === "images") {
+    return {
+      phase: "images",
+      done: progress.done,
+      total: progress.total,
+      percent: scalePercent(
+        progress.done,
+        progress.total,
+        PREPARE_STAGE_END,
+        IMAGE_STAGE_END,
+      ),
+    };
+  }
+  if (progress.phase === "delete" || progress.phase === "cleanup") {
+    return {
+      phase: progress.phase,
+      done: progress.done,
+      total: progress.total,
+      percent: scalePercent(progress.done, progress.total, dataStart, 100),
+    };
+  }
+  return {
+    phase: "prepare",
+    done: progress.done,
+    total: progress.total,
+    percent: scalePercent(progress.done, progress.total, 0, PREPARE_STAGE_END),
+  };
 };
 
 export function useConversationActions({
@@ -48,6 +111,36 @@ export function useConversationActions({
     () => new Set(),
   );
   const [isBatchDeleting, setIsBatchDeleting] = useState(false);
+  const [batchDeleteProgress, setBatchDeleteProgress] =
+    useState<BatchDeleteProgress | null>(null);
+  // 节流：进度条只在整数百分比或阶段变化时重渲染。
+  const lastProgressRef = useRef<{ phase: string; percent: number } | null>(
+    null,
+  );
+  // 删除结束后可能有残留的进度事件在途：用活动标记丢弃它们。
+  const batchDeleteActiveRef = useRef(false);
+  const applyBatchDeleteProgress = useCallback(
+    (next: BatchDeleteProgress): void => {
+      if (!batchDeleteActiveRef.current) {
+        return;
+      }
+      const last = lastProgressRef.current;
+      if (
+        last &&
+        last.phase === next.phase &&
+        Math.floor(last.percent) === Math.floor(next.percent)
+      ) {
+        return;
+      }
+      lastProgressRef.current = { phase: next.phase, percent: next.percent };
+      setBatchDeleteProgress((prev) => ({
+        ...next,
+        // total 在阶段内可能扩大（例如附件清理），进度条不应回退。
+        percent: prev ? Math.max(prev.percent, next.percent) : next.percent,
+      }));
+    },
+    [],
+  );
   const [showBatchConfirm, setShowBatchConfirm] = useState(false);
   const [batchImagesCount, setBatchImagesCount] = useState<number | null>(null);
   const [batchDeleteImages, setBatchDeleteImages] = useState(false);
@@ -229,20 +322,46 @@ export function useConversationActions({
       return;
     }
 
+    const targetIds = [...selectedIds];
+    // 图库图片先删，占进度条的 5%-25% 区间；会话数据与附件清理占剩余区间。
+    const hasImageStage = batchDeleteImages && (batchImagesCount ?? 0) > 0;
+
     setIsBatchDeleting(true);
+    setDeletingIds(new Set(targetIds));
+    lastProgressRef.current = null;
+    batchDeleteActiveRef.current = true;
+    setBatchDeleteProgress({ phase: "prepare", done: 0, total: 0, percent: 0 });
 
     try {
       await removeConversationTrees(
-        [...selectedIds],
+        targetIds,
         async () => {
-          if (batchDeleteImages && (batchImagesCount ?? 0) > 0)
-            await window.snow.deleteConversationImages([...selectedIds]);
+          if (hasImageStage) {
+            await window.snow.deleteConversationImages(targetIds, (progress) =>
+              applyBatchDeleteProgress(
+                resolveBatchDeleteProgress(progress, hasImageStage),
+              ),
+            );
+          }
           await window.snow.deleteConversations(
-            [...selectedIds],
+            targetIds,
             batchDeleteMemories,
+            (progress) =>
+              applyBatchDeleteProgress(
+                resolveBatchDeleteProgress(progress, hasImageStage),
+              ),
           );
         },
-        { skipPinned: false },
+        {
+          skipPinned: false,
+          onPrepareProgress: (done, total) =>
+            applyBatchDeleteProgress({
+              phase: "prepare",
+              done,
+              total,
+              percent: scalePercent(done, total, 0, PREPARE_STAGE_END),
+            }),
+        },
       );
       refreshConversations();
       resetMultiSelect();
@@ -250,9 +369,13 @@ export function useConversationActions({
       // 失败时保留列表条目与真实状态，由用户重新发起。
       refreshConversations();
     } finally {
-      // 删除完成后才关闭确认弹窗，期间显示 loading
+      // 删除完成后才关闭确认弹窗，期间显示真实进度
+      batchDeleteActiveRef.current = false;
       setIsBatchDeleting(false);
       setShowBatchConfirm(false);
+      setBatchDeleteProgress(null);
+      setDeletingIds(new Set());
+      lastProgressRef.current = null;
     }
   };
 
@@ -285,6 +408,8 @@ export function useConversationActions({
     deletingIds,
     archivingIds,
     isBatchDeleting,
+    /** 批量删除的真实进度（null = 未在删除中） */
+    batchDeleteProgress,
     showBatchConfirm,
     setShowBatchConfirm,
     batchImagesCount,

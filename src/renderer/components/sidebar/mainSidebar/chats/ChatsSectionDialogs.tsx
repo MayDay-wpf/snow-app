@@ -1,10 +1,13 @@
 import { useI18n } from "../../../../i18n";
 import { ConfirmDialog } from "../../../common/ConfirmDialog";
 import { ChatDeleteConfirmDialog } from "../ChatDeleteConfirmDialog";
+import type { BatchDeleteProgress } from "./useConversationActions";
 
 type ChatsSectionDialogsProps = {
   showBatchConfirm: boolean;
   isBatchDeleting: boolean;
+  /** 批量删除的真实进度（null = 未在删除中） */
+  batchDeleteProgress: BatchDeleteProgress | null;
   selectedCount: number;
   batchDeleteImages: boolean;
   batchDeleteMemories: boolean;
@@ -23,6 +26,7 @@ type ChatsSectionDialogsProps = {
 export function ChatsSectionDialogs({
   showBatchConfirm,
   isBatchDeleting,
+  batchDeleteProgress,
   selectedCount,
   batchDeleteImages,
   batchDeleteMemories,
@@ -50,6 +54,7 @@ export function ChatsSectionDialogs({
         memoriesCount={batchMemoriesCount}
         isBatch
         isConfirming={isBatchDeleting}
+        progress={batchDeleteProgress}
         onCancel={onBatchCancel}
         onConfirm={onBatchConfirm}
         onDeleteImagesChange={onBatchImagesChange}

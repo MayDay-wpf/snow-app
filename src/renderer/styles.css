@@ -1944,6 +1944,37 @@ body.is-panel-resizing * {
   transition: width 0.15s ease;
 }
 
+/* 批量删除进度：复用导入进度条的视觉，确认弹窗与多选工具条共用 */
+.chat-delete-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 10px;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.chat-delete-progress-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.chat-delete-progress-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-delete-progress-inline {
+  padding: 4px 10px 6px;
+}
+
+/* 正在删除的会话行：弱化显示，避免重复操作 */
+.chat-item.deleting {
+  opacity: 0.55;
+}
+
 /* 归档会话条目：不允许直接打开，整体弱化显示 */
 .chat-item.archived .chat-item-title {
   color: var(--text-muted);

@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 use std::fs;
 use std::path::Path;
+use std::time::{Duration, Instant};
 
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
@@ -25,6 +26,72 @@ pub struct UserMessageSummary {
 
 /// SQLite 默认变量数上限为 999，分块执行避免超出。
 const MAX_VARIABLES: usize = 400;
+
+/// 批量删除的进度回调：phase 为阶段（prepare/delete/cleanup），
+/// done/total 为真实工作单元数；total 为 0 表示总量尚未确定。
+pub type ConversationDeleteProgressSink<'a> = &'a dyn Fn(&str, usize, usize);
+
+/// 批量删除进度累加器：只按真正完成的工作单元推进，并做上报节流。
+struct DeleteProgress<'a> {
+    sink: Option<ConversationDeleteProgressSink<'a>>,
+    phase: &'static str,
+    done: usize,
+    total: usize,
+    last_emit: Option<Instant>,
+}
+
+impl<'a> DeleteProgress<'a> {
+    fn new(sink: Option<ConversationDeleteProgressSink<'a>>) -> Self {
+        let mut progress = Self {
+            sink,
+            phase: "prepare",
+            done: 0,
+            total: 0,
+            last_emit: None,
+        };
+        progress.emit(true);
+        progress
+    }
+
+    fn emit(&mut self, force: bool) {
+        let Some(sink) = self.sink else {
+            return;
+        };
+        if !force
+            && self
+                .last_emit
+                .is_some_and(|last| last.elapsed() < Duration::from_millis(80))
+        {
+            return;
+        }
+        self.last_emit = Some(Instant::now());
+        sink(self.phase, self.done, self.total);
+    }
+
+    /// 进入阶段并确定总量（总量在删除开始前一次性给出，进度不会回退）。
+    fn begin(&mut self, phase: &'static str, total: usize) {
+        self.phase = phase;
+        self.total = total;
+        self.emit(true);
+    }
+
+    fn switch(&mut self, phase: &'static str) {
+        self.phase = phase;
+        self.emit(true);
+    }
+
+    fn advance(&mut self, units: usize) {
+        if units == 0 {
+            return;
+        }
+        self.done += units;
+        self.emit(false);
+    }
+
+    fn finish(&mut self) {
+        self.emit(true);
+    }
+}
 
 pub fn update_conversation_status(
     database_path: &Path,
@@ -300,7 +367,7 @@ pub fn delete_conversation(database_path: &Path, conversation_id: &str, delete_m
         .map_err(|error| database::database_error(database_path, "delete conversation", error))?;
 
     // 清理不再被任何消息引用的内联图片文件（失败仅产生孤儿文件，不阻断删除）
-    cleanup_orphan_upload_files(&connection, database_path, &upload_paths);
+    cleanup_orphan_upload_files(&connection, database_path, &upload_paths, || {});
 
     // 清理不再被任何会话引用的 checkpoint 快照目录（失败仅产生孤儿目录，不阻断删除）
     cleanup_orphan_checkpoint_files(&checkpoint_ids);
@@ -316,7 +383,20 @@ pub fn delete_conversations(
     conversation_ids: &[String],
     delete_memories: bool,
 ) -> Result<()> {
+    delete_conversations_with_progress(database_path, conversation_ids, delete_memories, None)
+}
+
+/// 同 [delete_conversations]，并按真实完成的工作单元上报进度：
+/// prepare（准备）→ delete（会话数据）→ cleanup（孤儿附件与快照目录）。
+pub fn delete_conversations_with_progress(
+    database_path: &Path,
+    conversation_ids: &[String],
+    delete_memories: bool,
+    on_progress: Option<ConversationDeleteProgressSink<'_>>,
+) -> Result<()> {
+    let mut progress = DeleteProgress::new(on_progress);
     if conversation_ids.is_empty() {
+        progress.finish();
         return Ok(());
     }
 
@@ -329,6 +409,7 @@ pub fn delete_conversations(
         .collect();
 
     if unique_ids.is_empty() {
+        progress.finish();
         return Ok(());
     }
 
@@ -445,6 +526,14 @@ pub fn delete_conversations(
     let checkpoint_ids =
         collect_conversation_checkpoint_ids(&transaction, &all_target_ids).unwrap_or_default();
 
+    // 真实工作量：每个级联目标会话 6 轮表清理（勾选记忆再 +1 轮），
+    // 加上待检查/删除的附件文件与快照目录数。总量一次给出，进度不会回退。
+    let rounds = 6 + usize::from(delete_memories);
+    progress.begin(
+        "delete",
+        all_target_ids.len() * rounds + upload_paths.len() + checkpoint_ids.len(),
+    );
+
     for chunk in all_target_ids.chunks(MAX_VARIABLES) {
         let placeholders = in_clause_placeholders(chunk.len());
         transaction
@@ -461,6 +550,7 @@ pub fn delete_conversations(
                 params_from_iter(chunk.iter()),
             )
             .map_err(|error| database::database_error(database_path, "delete todo items", error))?;
+        progress.advance(chunk.len());
     }
 
     // 会话删除联动（Project Memory）：与单条删除一致，仅在用户勾选
@@ -473,6 +563,7 @@ pub fn delete_conversations(
         .map_err(|error| {
             database::database_error(database_path, "delete project memories", error)
         })?;
+        progress.advance(all_target_ids.len());
     }
 
     // 记忆注入快照属于会话自身（与「同时删除记忆」选项无关）：无条件随
@@ -481,6 +572,7 @@ pub fn delete_conversations(
         .map_err(|error| {
             database::database_error(database_path, "delete memory prompt snapshots", error)
         })?;
+    progress.advance(all_target_ids.len());
 
     // 系统提示词冻结快照（ROLE.md / API 档案系统提示词）同样属于会话自身：
     // 无条件随会话一并清理。
@@ -488,6 +580,7 @@ pub fn delete_conversations(
         .map_err(|error| {
             database::database_error(database_path, "delete system prompt snapshots", error)
         })?;
+    progress.advance(all_target_ids.len());
 
     // 删除子代理会话关联行：覆盖全部级联目标（父会话、子代理、
     // workflow 节点、节点派生的子代理）。
@@ -503,6 +596,7 @@ pub fn delete_conversations(
             .map_err(|error| {
                 database::database_error(database_path, "delete sub-agent sessions", error)
             })?;
+        progress.advance(chunk.len());
     }
 
     // 删除 workflow 节点 bookkeeping 行：覆盖全部级联目标
@@ -540,6 +634,7 @@ pub fn delete_conversations(
             .map_err(|error| {
                 database::database_error(database_path, "delete workflow canvases", error)
             })?;
+        progress.advance(chunk.len());
     }
 
     for chunk in all_target_ids.chunks(MAX_VARIABLES) {
@@ -562,6 +657,7 @@ pub fn delete_conversations(
             .map_err(|error| {
                 database::database_error(database_path, "delete conversation", error)
             })?;
+        progress.advance(chunk.len());
     }
 
     // 登记墓碑：覆盖全部级联目标，与单条删除一致。
@@ -573,11 +669,15 @@ pub fn delete_conversations(
         .map_err(|error| database::database_error(database_path, "delete conversations", error))?;
 
     // 清理不再被任何消息引用的内联图片文件（失败仅产生孤儿文件，不阻断删除）
-    cleanup_orphan_upload_files(&connection, database_path, &upload_paths);
+    progress.switch("cleanup");
+    cleanup_orphan_upload_files(&connection, database_path, &upload_paths, || {
+        progress.advance(1)
+    });
 
     // 清理不再被任何会话引用的 checkpoint 快照目录（失败仅产生孤儿目录，不阻断删除）
-    cleanup_orphan_checkpoint_files(&checkpoint_ids);
+    cleanup_orphan_checkpoint_files_with(&checkpoint_ids, || progress.advance(1));
 
+    progress.finish();
     Ok(())
 }
 
@@ -1331,35 +1431,49 @@ fn collect_referenced_upload_paths(
 
 /// 删除不再被任何消息引用的内联图片文件（孤儿清理）。
 /// 引用检查与物理删除失败仅记录日志，不阻断会话删除。
+/// 每个候选路径都会调用一次 `on_step`，供调用方按真实数量推进进度。
 fn cleanup_orphan_upload_files(
     connection: &rusqlite::Connection,
     database_path: &Path,
     relative_paths: &[String],
+    mut on_step: impl FnMut(),
 ) {
     if relative_paths.is_empty() {
         return;
     }
     let Some(parent) = database_path.parent() else {
+        drain_steps(&mut on_step, relative_paths.len());
         return;
     };
     let upload_root = parent.join("upload");
     let Ok(canonical_root) = upload_root.canonicalize() else {
+        drain_steps(&mut on_step, relative_paths.len());
         return;
     };
     // 一次（分块）扫描给出全部仍被引用的路径，替代按图片逐张全表 LIKE。
     let referenced = collect_referenced_upload_paths(connection, relative_paths);
     for relative in relative_paths {
         if referenced.contains(relative) {
+            on_step();
             continue;
         }
         // 防路径穿越：解析后必须仍位于 upload 根目录内
         let file_path = parent.join(relative);
         let Ok(canonical_file) = file_path.canonicalize() else {
+            on_step();
             continue;
         };
         if canonical_file.starts_with(&canonical_root) {
             let _ = fs::remove_file(&canonical_file);
         }
+        on_step();
+    }
+}
+
+/// 提前结束的清理路径补齐剩余进度单元，避免进度条停在中间。
+fn drain_steps(on_step: &mut impl FnMut(), count: usize) {
+    for _ in 0..count {
+        on_step();
     }
 }
 
@@ -1413,10 +1527,16 @@ pub fn collect_conversation_checkpoint_ids(
 /// 删除不再被任何会话引用的 checkpoint 快照目录（孤儿清理）。
 /// 物理删除失败仅产生孤儿目录，不阻断会话删除。
 pub fn cleanup_orphan_checkpoint_files(checkpoint_ids: &[String]) {
-    if checkpoint_ids.is_empty() {
-        return;
-    }
+    cleanup_orphan_checkpoint_files_with(checkpoint_ids, || {});
+}
+
+/// 同上，每个 checkpoint 目录都会调用一次 `on_step`，供调用方推进真实进度。
+fn cleanup_orphan_checkpoint_files_with(
+    checkpoint_ids: &[String],
+    mut on_step: impl FnMut(),
+) {
     for checkpoint_id in checkpoint_ids {
         let _ = crate::checkpoint::delete_checkpoint(checkpoint_id.clone());
+        on_step();
     }
 }

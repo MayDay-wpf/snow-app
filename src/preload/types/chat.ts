@@ -124,6 +124,16 @@ export type ConversationImportProgress = {
   error: string | null;
 };
 
+/**
+ * 批量删除的真实进度：阶段 prepare/images/delete/cleanup，
+ * done/total 为已处理/总工作单元数（total 为 0 表示总量未定）。
+ */
+export type ConversationDeleteProgress = {
+  phase: string;
+  done: number;
+  total: number;
+};
+
 export type ImportedConversationSummary = {
   conversationId: string;
   title: string;

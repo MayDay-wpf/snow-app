@@ -384,6 +384,21 @@ pub fn delete_conversations(conversation_ids: Vec<String>, delete_memories: bool
     )
 }
 
+/// 批量删除会话并按真实工作单元上报进度（阶段 + done/total）。
+pub fn delete_conversations_with_progress(
+    conversation_ids: Vec<String>,
+    delete_memories: bool,
+    on_progress: Option<&dyn Fn(&str, usize, usize)>,
+) -> Result<()> {
+    let database_path = ensure_database_file()?;
+    services::chat_conversations::delete_conversations_with_progress(
+        &database_path,
+        &conversation_ids,
+        delete_memories,
+        on_progress,
+    )
+}
+
 pub fn archive_conversations(conversation_ids: Vec<String>) -> Result<()> {
     let database_path = ensure_database_file()?;
     let archive_path = ensure_archive_database_file()?;

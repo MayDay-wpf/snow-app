@@ -5,6 +5,7 @@ import type { NativeBridge } from "../../native/types";
 import type { MessageOrigin } from "../../../preload/types/api";
 import { snowLog } from "../../../utils/snowLogger";
 import { safeSend } from "../../utils/safeSend";
+import { CONVERSATION_DELETE_PROGRESS_CHANNEL } from "../deleteProgressChannel";
 import { registerSubAgentRunHost } from "../../subAgents/subAgentRunHost";
 import {
   getSshWorkspaceProfileId,
@@ -662,7 +663,12 @@ export const registerConversationHandlers = (native: NativeBridge): void => {
   );
   ipcMain.handle(
     "chat-conversations:batch-delete",
-    async (_event, conversationIds: unknown, deleteMemories: unknown) => {
+    async (
+      event,
+      conversationIds: unknown,
+      deleteMemories: unknown,
+      progressStreamId: unknown,
+    ) => {
       if (!Array.isArray(conversationIds)) {
         throw new Error("Conversation IDs are required to batch delete");
       }
@@ -674,6 +680,8 @@ export const registerConversationHandlers = (native: NativeBridge): void => {
         return;
       }
       const shouldDeleteMemories = deleteMemories === true;
+      const streamId =
+        typeof progressStreamId === "string" ? progressStreamId.trim() : "";
 
       snowLog.warn({
         module: "ipc/conversation",
@@ -681,7 +689,18 @@ export const registerConversationHandlers = (native: NativeBridge): void => {
         message: "Conversations deleted",
         context: `count=${safeIds.length}; deleteMemories=${shouldDeleteMemories}`,
       });
-      await native.deleteConversations(safeIds, shouldDeleteMemories);
+      await native.deleteConversations(
+        safeIds,
+        shouldDeleteMemories,
+        streamId
+          ? (progress) => {
+              safeSend(event.sender, CONVERSATION_DELETE_PROGRESS_CHANNEL, {
+                streamId,
+                progress,
+              });
+            }
+          : undefined,
+      );
       if (shouldDeleteMemories) {
         broadcastMemoriesChanged();
       }

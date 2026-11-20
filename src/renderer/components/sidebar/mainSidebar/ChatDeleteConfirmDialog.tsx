@@ -1,5 +1,8 @@
+import { Loader2 } from "lucide-react";
+
 import { ConfirmDialog } from "../../common/ConfirmDialog";
 import { useI18n } from "../../../i18n";
+import type { BatchDeleteProgress } from "./chats/useConversationActions";
 
 type ChatDeleteConfirmDialogProps = {
   open: boolean;
@@ -17,6 +20,8 @@ type ChatDeleteConfirmDialogProps = {
   onCancel: () => void;
   /** 删除进行中：确认按钮显示 loading */
   isConfirming?: boolean;
+  /** 删除的真实进度（null = 未在删除中） */
+  progress?: BatchDeleteProgress | null;
 };
 
 /** 单条与批量会话删除共用的确认弹窗。 */
@@ -33,8 +38,31 @@ export function ChatDeleteConfirmDialog({
   onConfirm,
   onCancel,
   isConfirming = false,
+  progress = null,
 }: ChatDeleteConfirmDialogProps): React.JSX.Element {
   const { t } = useI18n();
+
+  const progressPercent = progress ? Math.round(progress.percent) : 0;
+  const progressLabel = progress
+    ? progress.phase === "images"
+      ? t("sidebar.chatDeleteProgressImages", {
+          defaultValue: "Deleting images {{percent}}%",
+          values: { percent: progressPercent },
+        })
+      : progress.phase === "delete"
+        ? t("sidebar.chatDeleteProgressData", {
+            defaultValue: "Deleting conversation data {{percent}}%",
+            values: { percent: progressPercent },
+          })
+        : progress.phase === "cleanup"
+          ? t("sidebar.chatDeleteProgressCleanup", {
+              defaultValue: "Cleaning attachments {{percent}}%",
+              values: { percent: progressPercent },
+            })
+          : t("sidebar.chatDeleteProgressPrepare", {
+              defaultValue: "Preparing deletion...",
+            })
+    : "";
 
   return (
     <ConfirmDialog
@@ -62,6 +90,22 @@ export function ChatDeleteConfirmDialog({
       })}
       variant="danger"
     >
+      {progress ? (
+        <div className="chat-delete-progress" role="status" aria-live="polite">
+          <div className="chat-delete-progress-head">
+            <Loader2 size={12} className="spin" aria-hidden="true" />
+            <span className="chat-delete-progress-label">{progressLabel}</span>
+          </div>
+          <div className="chat-import-progress-track" aria-hidden="true">
+            <div
+              className="chat-import-progress-bar"
+              style={{
+                width: `${Math.max(2, Math.min(100, progress.percent))}%`,
+              }}
+            />
+          </div>
+        </div>
+      ) : null}
       {imagesCount !== null && imagesCount > 0 ? (
         <label className="chat-item-menu-delete-images">
           <input

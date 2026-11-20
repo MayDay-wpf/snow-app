@@ -4,6 +4,7 @@ import type {
   ChatConversationRecord,
   ChatMessagePage,
   ChatMessageRecord,
+  ConversationDeleteProgress,
   ConversationImportProgress,
   ConversationImportSummary,
   ConversationSearchResult,
@@ -17,6 +18,10 @@ import type {
   WorkflowNodeSessionRecord,
   WorkflowRunRecord,
 } from "../types";
+import {
+  createDeleteProgressStreamId,
+  subscribeDeleteProgress,
+} from "./deleteProgressStream";
 
 const CONVERSATION_IMPORT_PROGRESS_CHANNEL =
   "chat-conversations:import-progress";
@@ -201,12 +206,26 @@ export const conversationApi = {
   deleteConversations: (
     conversationIds: string[],
     deleteMemories?: boolean,
-  ): Promise<void> =>
-    ipcRenderer.invoke(
-      "chat-conversations:batch-delete",
-      conversationIds,
-      deleteMemories,
-    ),
+    onProgress?: (progress: ConversationDeleteProgress) => void,
+  ): Promise<void> => {
+    if (!onProgress) {
+      return ipcRenderer.invoke(
+        "chat-conversations:batch-delete",
+        conversationIds,
+        deleteMemories,
+      );
+    }
+    const streamId = createDeleteProgressStreamId();
+    const unsubscribe = subscribeDeleteProgress(streamId, onProgress);
+    return ipcRenderer
+      .invoke(
+        "chat-conversations:batch-delete",
+        conversationIds,
+        deleteMemories,
+        streamId,
+      )
+      .finally(unsubscribe);
+  },
   archiveConversations: (conversationIds: string[]): Promise<void> =>
     ipcRenderer.invoke("chat-conversations:archive", conversationIds),
   /** keyword 非空时按标题/摘要/预览模糊过滤。 */
