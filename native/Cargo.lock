@@ -4341,7 +4341,7 @@ dependencies = [
 
 [[package]]
 name = "snow_native"
-version = "0.5.21"
+version = "0.5.22"
 dependencies = [
  "aes",
  "aes-gcm",

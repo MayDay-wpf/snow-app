@@ -1,5 +1,22 @@
 # Release Notes
 
+## v0.5.22
+
+### New Features
+
+- **Real Progress for Conversation Deletion**: batch deletion reports progress from the native storage layer based on the work actually completed (preparing, deleting images, deleting conversation data and cleaning attachments) instead of an indeterminate spinner; the delete confirmation dialog, the multi-select bar and the sidebar rows (list and tree views) all show it.
+
+### Improvements
+
+- OAuth model list and quota requests honor the profile-bound header scheme instead of hardcoded identity headers: scheme values take precedence, missing headers are filled with defaults, and tokens and account IDs always come from the current credentials; client versions are parsed from the scheme User-Agent, falling back to built-in versions.
+- The Codex default model is now `gpt-6-luna` and the Antigravity default model `gemini-3.1-pro-high`; ChatGPT model list parsing accepts `data` arrays and alternate id keys.
+- While scrolling fast, the user message rail skips visibility highlighting and recomputes once scrolling settles, and loading older messages is deferred, keeping scrolling smooth.
+
+### Bug Fixes
+
+- Fixed long conversations dead-ending at the top without loading older messages: the older-page cursor now always moves strictly backwards, stale in-flight flags are detected and reset, and paging recovers when a completion signal is lost.
+- Fixed the viewport staying at a stale height after the streaming growth transition was interrupted, which clipped content and shrank the scroll range.
+
 ## v0.5.21
 
 ### New Features
