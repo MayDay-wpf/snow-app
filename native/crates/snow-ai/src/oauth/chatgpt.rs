@@ -1,9 +1,11 @@
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::Duration;
 
 use napi::bindgen_prelude::*;
 use serde_json::{json, Value};
 
+use super::header_schemes::{remove_header, to_header_map, with_default_headers};
 use super::provider::{decode_jwt_payload, now_epoch_secs, OAuthTokenSet};
 use snow_net::http_client::{build_proxied_client_with_timeout, load_proxy_config_sync};
 
@@ -246,44 +248,55 @@ fn models_url(base_url: &str) -> String {
     format!("{base}/models")
 }
 
+/// 列表既可能是 Codex 风格的 `{models:[...]}`，也可能是标准 OpenAI 的
+/// `{data:[...]}`（或裸数组）；`visibility` 只在其存在时参与过滤。
 fn parse_models_payload(body: &str) -> Result<Vec<String>> {
     let parsed: Value = serde_json::from_str(body)
         .map_err(|error| Error::from_reason(format!("Invalid model list: {error}")))?;
     let items = parsed
         .get("models")
         .and_then(Value::as_array)
+        .or_else(|| parsed.get("data").and_then(Value::as_array))
+        .or_else(|| parsed.as_array())
         .cloned()
         .unwrap_or_default();
 
     let mut models = Vec::new();
     for item in items {
-        if item.get("visibility").and_then(Value::as_str) != Some("list") {
+        if item
+            .get("visibility")
+            .and_then(Value::as_str)
+            .is_some_and(|visibility| visibility != "list")
+        {
             continue;
         }
-        let slug = item
+        let id = item
             .get("slug")
+            .or_else(|| item.get("id"))
+            .or_else(|| item.get("model"))
+            .or_else(|| item.get("name"))
             .and_then(Value::as_str)
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .map(str::to_string);
-        if let Some(slug) = slug {
-            if !models.contains(&slug) {
-                models.push(slug);
+        if let Some(id) = id {
+            if !models.contains(&id) {
+                models.push(id);
             }
         }
     }
     Ok(models)
 }
 
-pub async fn fetch_models(access_token: &str) -> Result<Vec<String>> {
+pub async fn fetch_models(
+    access_token: &str,
+    custom_headers: &HashMap<String, String>,
+) -> Result<Vec<String>> {
     let client = build_proxied_client_with_timeout(Duration::from_secs(HTTP_TIMEOUT_SECS)).await?;
+    let headers = models_headers(access_token, custom_headers);
     let response = client
         .get(models_url(BACKEND_BASE_URL))
-        .header(reqwest::header::ACCEPT, "application/json")
-        .header(
-            reqwest::header::AUTHORIZATION,
-            format!("Bearer {access_token}"),
-        )
+        .headers(to_header_map(&headers)?)
         .send()
         .await
         .map_err(|error| Error::from_reason(format!("Model list request failed: {error}")))?;
@@ -299,7 +312,11 @@ pub async fn fetch_models(access_token: &str) -> Result<Vec<String>> {
     parse_models_payload(&body)
 }
 
-pub fn fetch_models_blocking(base_url: &str, access_token: &str) -> Result<Vec<String>> {
+pub fn fetch_models_blocking(
+    base_url: &str,
+    access_token: &str,
+    custom_headers: &HashMap<String, String>,
+) -> Result<Vec<String>> {
     let proxy_config = load_proxy_config_sync()?;
     let client = proxy_config
         .apply_blocking(
@@ -309,13 +326,10 @@ pub fn fetch_models_blocking(base_url: &str, access_token: &str) -> Result<Vec<S
         .build()
         .map_err(|error| Error::from_reason(format!("Failed to create HTTP client: {error}")))?;
 
+    let headers = models_headers(access_token, custom_headers);
     let response = client
         .get(models_url(base_url))
-        .header(reqwest::header::ACCEPT, "application/json")
-        .header(
-            reqwest::header::AUTHORIZATION,
-            format!("Bearer {access_token}"),
-        )
+        .headers(to_header_map(&headers)?)
         .send()
         .map_err(|error| Error::from_reason(format!("Model list request failed: {error}")))?;
 
@@ -328,4 +342,21 @@ pub fn fetch_models_blocking(base_url: &str, access_token: &str) -> Result<Vec<S
     }
 
     parse_models_payload(&body)
+}
+
+/// 模型列表请求吃档案绑定的请求头方案；令牌始终以本次凭证为准。
+fn models_headers(
+    access_token: &str,
+    custom_headers: &HashMap<String, String>,
+) -> HashMap<String, String> {
+    let mut headers = with_default_headers(
+        custom_headers,
+        vec![("Accept", "application/json".to_string())],
+    );
+    remove_header(&mut headers, "authorization");
+    headers.insert(
+        "Authorization".to_string(),
+        format!("Bearer {access_token}"),
+    );
+    headers
 }

@@ -1,5 +1,6 @@
 //! Antigravity（Google Code Assist）订阅与配额。
 
+use std::collections::HashMap;
 use std::time::Duration;
 
 use napi::bindgen_prelude::*;
@@ -14,25 +15,28 @@ use crate::oauth::antigravity::post_code_assist;
 const HTTP_TIMEOUT_SECS: u64 = 30;
 const CLAUDE_MARKERS: [&str; 4] = ["claude", "gpt", "openai", "anthropic"];
 
-pub async fn fetch(token: &str) -> Result<QuotaParts> {
+pub async fn fetch(token: &str, custom_headers: HashMap<String, String>) -> Result<QuotaParts> {
     let client = build_proxied_client_with_timeout(Duration::from_secs(HTTP_TIMEOUT_SECS)).await?;
     let status = post_code_assist(
         &client,
         "loadCodeAssist",
         token,
         &json!({ "metadata": { "ideType": "ANTIGRAVITY" } }),
+        &custom_headers,
     )
     .await
     .unwrap_or(Value::Null);
     let plan = plan_from_status(&status);
     let body = project_body(&status);
 
-    let summary = post_code_assist(&client, "retrieveUserQuotaSummary", token, &body).await;
+    let summary =
+        post_code_assist(&client, "retrieveUserQuotaSummary", token, &body, &custom_headers).await;
     let mut groups = summary
         .map(|payload| summary_groups(&payload))
         .unwrap_or_default();
     if groups.is_empty() {
-        let models = post_code_assist(&client, "fetchAvailableModels", token, &body).await?;
+        let models =
+            post_code_assist(&client, "fetchAvailableModels", token, &body, &custom_headers).await?;
         groups = model_groups(&models);
     }
     if groups.is_empty() {

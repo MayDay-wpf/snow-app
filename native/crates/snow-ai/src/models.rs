@@ -474,19 +474,32 @@ fn fetch_oauth_models(
     metadata: &OAuthProfileMetadata,
     base_url: &str,
     api_key: &str,
+    custom_headers: &HashMap<String, String>,
 ) -> Result<Vec<Model>> {
     // OAuth 订阅渠道的模型列表与 API key 渠道使用同一套重试口径。
     let ids = with_retry_sync(
         || match metadata.provider {
-            OAuthProviderId::Codex => {
-                codex_oauth::fetch_models_blocking(base_url, api_key, &metadata.account_id)
+            OAuthProviderId::Codex => codex_oauth::fetch_models_blocking(
+                base_url,
+                api_key,
+                &metadata.account_id,
+                custom_headers,
+            ),
+            OAuthProviderId::ChatGpt => {
+                chatgpt_oauth::fetch_models_blocking(base_url, api_key, custom_headers)
             }
-            OAuthProviderId::ChatGpt => chatgpt_oauth::fetch_models_blocking(base_url, api_key),
-            OAuthProviderId::Anthropic => anthropic_oauth::fetch_models_blocking(base_url, api_key),
-            OAuthProviderId::Antigravity => {
-                antigravity_oauth::fetch_models_blocking(base_url, api_key, &metadata.account_id)
+            OAuthProviderId::Anthropic => {
+                anthropic_oauth::fetch_models_blocking(base_url, api_key, custom_headers)
             }
-            OAuthProviderId::Xai => xai_oauth::fetch_models_blocking(base_url, api_key),
+            OAuthProviderId::Antigravity => antigravity_oauth::fetch_models_blocking(
+                base_url,
+                api_key,
+                &metadata.account_id,
+                custom_headers,
+            ),
+            OAuthProviderId::Xai => {
+                xai_oauth::fetch_models_blocking(base_url, api_key, custom_headers)
+            }
         },
         &RetryOptions::default(),
         &RetryLogContext {
@@ -527,7 +540,8 @@ pub fn fetch_available_models(
     }
 
     if let Some(metadata) = resolve_oauth_metadata(config, &base_url) {
-        let mut models = fetch_oauth_models(&metadata, &base_url, &config.api_key)?;
+        let mut models =
+            fetch_oauth_models(&metadata, &base_url, &config.api_key, custom_headers)?;
         models.sort_by(|a, b| a.id.cmp(&b.id));
         return Ok(models);
     }

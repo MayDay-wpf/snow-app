@@ -64,8 +64,14 @@ pub async fn fetch_snapshot(config: &ApiConfigRecord) -> Result<QuotaSnapshot> {
             let headers = resolve_profile_headers(config).await?;
             claude::fetch(token, headers).await?
         }
-        OAuthProviderId::Antigravity => antigravity::fetch(token).await?,
-        OAuthProviderId::Xai => xai::fetch(token, &metadata.account_id).await?,
+        OAuthProviderId::Antigravity => {
+            let headers = resolve_profile_headers(config).await?;
+            antigravity::fetch(token, headers).await?
+        }
+        OAuthProviderId::Xai => {
+            let headers = resolve_profile_headers(config).await?;
+            xai::fetch(token, &metadata.account_id, headers).await?
+        }
     };
 
     Ok(QuotaSnapshot {

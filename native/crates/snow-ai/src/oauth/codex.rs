@@ -4,13 +4,16 @@ use std::time::Duration;
 use napi::bindgen_prelude::*;
 use serde_json::Value;
 
+use super::header_schemes::{
+    remove_header, to_header_map, version_from_user_agent, with_default_headers,
+};
 use super::provider::{
     decode_jwt_payload, now_epoch_secs, OAuthClaims, OAuthProfileMetadata, OAuthTokenSet,
 };
 use snow_net::http_client::{build_proxied_client_with_timeout, load_proxy_config_sync};
 
 pub const CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
-pub const DEFAULT_MODEL: &str = "gpt-5.2-codex";
+pub const DEFAULT_MODEL: &str = "gpt-6-luna";
 pub const BACKEND_BASE_URL: &str = "https://chatgpt.com/backend-api/codex";
 pub const BACKEND_BASE_URL_MARKER: &str = "chatgpt.com/backend-api/codex";
 pub const CALLBACK_PATH: &str = "/auth/callback";
@@ -21,7 +24,8 @@ const TOKEN_URL: &str = "https://auth.openai.com/oauth/token";
 const AUTHORIZE_SCOPE: &str = "openid email profile offline_access";
 const REFRESH_SCOPE: &str = "openid profile email";
 const ORIGINATOR: &str = "codex_cli_rs";
-const CLIENT_VERSION: &str = "0.159.0";
+/// 兜底客户端版本：请求头方案未提供 `codex_cli_rs/<version>` 时使用。
+const CLIENT_VERSION: &str = "0.171.0";
 const HTTP_TIMEOUT_SECS: u64 = 30;
 const MODELS_TIMEOUT_SECS: u64 = 15;
 
@@ -32,6 +36,49 @@ pub fn user_agent() -> String {
         std::env::consts::OS,
         std::env::consts::ARCH
     )
+}
+
+/// 客户端版本取自请求头方案的 `codex_cli_rs/<version>`，不再写死在请求里。
+/// 方案未提供（或格式不合法）时回退到内置兜底版本。
+pub fn client_version_from_headers(headers: &HashMap<String, String>) -> String {
+    version_from_user_agent(headers, "codex_cli_rs/")
+        .unwrap_or_else(|| CLIENT_VERSION.to_string())
+}
+
+/// 方案里的请求头优先，缺失的身份头补默认值；令牌与账号头始终以本次凭证为准。
+fn build_request_headers(
+    access_token: &str,
+    account_id: &str,
+    custom_headers: &HashMap<String, String>,
+    client_version: &str,
+) -> HashMap<String, String> {
+    let mut headers = with_default_headers(
+        custom_headers,
+        vec![
+            ("Accept", "application/json".to_string()),
+            ("originator", ORIGINATOR.to_string()),
+            (
+                "User-Agent",
+                format!(
+                    "codex_cli_rs/{} ({}; {})",
+                    client_version,
+                    std::env::consts::OS,
+                    std::env::consts::ARCH
+                ),
+            ),
+        ],
+    );
+    remove_header(&mut headers, "authorization");
+    headers.insert(
+        "Authorization".to_string(),
+        format!("Bearer {access_token}"),
+    );
+    remove_header(&mut headers, "chatgpt-account-id");
+    let account_id = account_id.trim();
+    if !account_id.is_empty() {
+        headers.insert("chatgpt-account-id".to_string(), account_id.to_string());
+    }
+    headers
 }
 
 pub fn build_authorize_url(redirect_uri: &str, challenge: &str, state: &str) -> Result<String> {
@@ -155,14 +202,14 @@ pub async fn refresh_tokens(refresh_token: &str) -> Result<OAuthTokenSet> {
     parse_token_response(&body)
 }
 
-fn models_url(base_url: &str) -> String {
+fn models_url(base_url: &str, client_version: &str) -> String {
     let normalized = base_url.trim().trim_end_matches('/');
     let base = if normalized.is_empty() {
         BACKEND_BASE_URL
     } else {
         normalized
     };
-    format!("{base}/models?client_version={CLIENT_VERSION}")
+    format!("{base}/models?client_version={client_version}")
 }
 
 fn parse_models_payload(body: &str) -> Result<Vec<String>> {
@@ -194,23 +241,19 @@ fn parse_models_payload(body: &str) -> Result<Vec<String>> {
     Ok(models)
 }
 
-pub async fn fetch_models(access_token: &str, account_id: &str) -> Result<Vec<String>> {
+pub async fn fetch_models(
+    access_token: &str,
+    account_id: &str,
+    custom_headers: &HashMap<String, String>,
+) -> Result<Vec<String>> {
     let client = build_proxied_client_with_timeout(Duration::from_secs(HTTP_TIMEOUT_SECS)).await?;
-    let mut request = client
-        .get(models_url(BACKEND_BASE_URL))
-        .header(reqwest::header::ACCEPT, "application/json")
-        .header(
-            reqwest::header::AUTHORIZATION,
-            format!("Bearer {access_token}"),
-        )
-        .header("originator", ORIGINATOR)
-        .header(reqwest::header::USER_AGENT, user_agent());
-    let account_id = account_id.trim();
-    if !account_id.is_empty() {
-        request = request.header("chatgpt-account-id", account_id);
-    }
+    let client_version = client_version_from_headers(custom_headers);
+    let headers =
+        build_request_headers(access_token, account_id, custom_headers, &client_version);
 
-    let response = request
+    let response = client
+        .get(models_url(BACKEND_BASE_URL, &client_version))
+        .headers(to_header_map(&headers)?)
         .send()
         .await
         .map_err(|error| Error::from_reason(format!("Model list request failed: {error}")))?;
@@ -230,6 +273,7 @@ pub fn fetch_models_blocking(
     base_url: &str,
     access_token: &str,
     account_id: &str,
+    custom_headers: &HashMap<String, String>,
 ) -> Result<Vec<String>> {
     let proxy_config = load_proxy_config_sync()?;
     let client = proxy_config
@@ -241,21 +285,13 @@ pub fn fetch_models_blocking(
         .build()
         .map_err(|error| Error::from_reason(format!("Failed to create HTTP client: {error}")))?;
 
-    let mut request = client
-        .get(models_url(base_url))
-        .header(reqwest::header::ACCEPT, "application/json")
-        .header(
-            reqwest::header::AUTHORIZATION,
-            format!("Bearer {access_token}"),
-        )
-        .header("originator", ORIGINATOR)
-        .header(reqwest::header::USER_AGENT, user_agent());
-    let account_id = account_id.trim();
-    if !account_id.is_empty() {
-        request = request.header("chatgpt-account-id", account_id);
-    }
+    let client_version = client_version_from_headers(custom_headers);
+    let headers =
+        build_request_headers(access_token, account_id, custom_headers, &client_version);
 
-    let response = request
+    let response = client
+        .get(models_url(base_url, &client_version))
+        .headers(to_header_map(&headers)?)
         .send()
         .map_err(|error| Error::from_reason(format!("Model list request failed: {error}")))?;
 

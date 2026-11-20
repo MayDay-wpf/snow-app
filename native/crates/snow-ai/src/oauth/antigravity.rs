@@ -4,11 +4,14 @@ use std::time::Duration;
 use napi::bindgen_prelude::*;
 use serde_json::{json, Value};
 
+use super::header_schemes::{
+    remove_header, to_header_map, version_from_user_agent, with_default_headers,
+};
 use super::provider::{now_epoch_secs, OAuthClaims, OAuthTokenSet};
 use snow_net::http_client::{build_proxied_client_with_timeout, load_proxy_config_sync};
 
 pub const CLIENT_ID: &str = "1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com";
-pub const DEFAULT_MODEL: &str = "gemini-3-pro-high";
+pub const DEFAULT_MODEL: &str = "gemini-3.1-pro-high";
 pub const BACKEND_BASE_URL: &str = "https://cloudcode-pa.googleapis.com";
 pub const BACKEND_BASE_URL_MARKER: &str = "cloudcode-pa.googleapis.com";
 pub const CALLBACK_PATH: &str = "/oauth-callback";
@@ -44,6 +47,10 @@ const PREFERRED_MODELS: &[&str] = &[
 ];
 
 pub fn user_agent() -> String {
+    user_agent_for(CLI_VERSION)
+}
+
+fn user_agent_for(version: &str) -> String {
     let os = match std::env::consts::OS {
         "macos" => "darwin",
         other => other,
@@ -53,7 +60,35 @@ pub fn user_agent() -> String {
         "x86_64" => "amd64",
         other => other,
     };
-    format!("antigravity/cli/{CLI_VERSION} ({CLI_CLIENT_NAME}; os_type={os}; arch={arch})")
+    format!("antigravity/cli/{version} ({CLI_CLIENT_NAME}; os_type={os}; arch={arch})")
+}
+
+/// 客户端版本取自方案 UA 的 `antigravity/cli/x.y.z`，缺失时回退兜底常量。
+pub fn client_version_from_headers(headers: &HashMap<String, String>) -> String {
+    version_from_user_agent(headers, "antigravity/cli/")
+        .unwrap_or_else(|| CLI_VERSION.to_string())
+}
+
+/// Code Assist 请求头：方案优先，缺失的身份头补默认值，令牌始终以本次凭证为准。
+fn code_assist_headers(
+    access_token: &str,
+    custom_headers: &HashMap<String, String>,
+) -> HashMap<String, String> {
+    let version = client_version_from_headers(custom_headers);
+    let mut headers = with_default_headers(
+        custom_headers,
+        vec![
+            ("Accept", "application/json".to_string()),
+            ("User-Agent", user_agent_for(&version)),
+            ("x-goog-api-client", API_CLIENT.to_string()),
+        ],
+    );
+    remove_header(&mut headers, "authorization");
+    headers.insert(
+        "Authorization".to_string(),
+        format!("Bearer {access_token}"),
+    );
+    headers
 }
 
 pub fn build_authorize_url(redirect_uri: &str, challenge: &str, state: &str) -> Result<String> {
@@ -197,19 +232,15 @@ pub async fn post_code_assist(
     method: &str,
     access_token: &str,
     body: &Value,
+    custom_headers: &HashMap<String, String>,
 ) -> Result<Value> {
+    let headers = code_assist_headers(access_token, custom_headers);
     let mut last_error = String::new();
     for host in CODE_ASSIST_HOSTS {
         let url = format!("{host}/v1internal:{method}");
         let response = client
             .post(&url)
-            .header(reqwest::header::ACCEPT, "application/json")
-            .header(
-                reqwest::header::AUTHORIZATION,
-                format!("Bearer {access_token}"),
-            )
-            .header(reqwest::header::USER_AGENT, user_agent())
-            .header("x-goog-api-client", API_CLIENT)
+            .headers(to_header_map(&headers)?)
             .json(body)
             .send()
             .await;
@@ -236,7 +267,7 @@ pub async fn post_code_assist(
 
 async fn fetch_code_assist_status(client: &reqwest::Client, access_token: &str) -> (String, String) {
     let body = json!({ "metadata": { "ideType": "ANTIGRAVITY" } });
-    match post_code_assist(client, "loadCodeAssist", access_token, &body).await {
+    match post_code_assist(client, "loadCodeAssist", access_token, &body, &HashMap::new()).await {
         Ok(payload) => parse_code_assist_status(&payload),
         Err(_) => (String::new(), String::new()),
     }
@@ -374,13 +405,18 @@ fn models_body(project_id: &str) -> Value {
     }
 }
 
-pub async fn fetch_models(access_token: &str, project_id: &str) -> Result<Vec<String>> {
+pub async fn fetch_models(
+    access_token: &str,
+    project_id: &str,
+    custom_headers: &HashMap<String, String>,
+) -> Result<Vec<String>> {
     let client = build_proxied_client_with_timeout(Duration::from_secs(HTTP_TIMEOUT_SECS)).await?;
     let payload = post_code_assist(
         &client,
         "fetchAvailableModels",
         access_token,
         &models_body(project_id),
+        custom_headers,
     )
     .await?;
     Ok(parse_models_value(&payload))
@@ -390,12 +426,12 @@ pub fn fetch_models_blocking(
     base_url: &str,
     access_token: &str,
     project_id: &str,
+    custom_headers: &HashMap<String, String>,
 ) -> Result<Vec<String>> {
     let proxy_config = load_proxy_config_sync()?;
     let client = proxy_config
         .apply_blocking(
             reqwest::blocking::Client::builder()
-                .user_agent(user_agent())
                 .timeout(Duration::from_secs(MODELS_TIMEOUT_SECS)),
         )?
         .build()
@@ -413,17 +449,14 @@ pub fn fetch_models_blocking(
     }
 
     let body = models_body(project_id);
+    let headers = code_assist_headers(access_token, custom_headers);
+    let header_map = to_header_map(&headers)?;
     let mut last_error = String::new();
     for host in hosts {
         let url = format!("{host}/v1internal:fetchAvailableModels");
         let response = client
             .post(&url)
-            .header(reqwest::header::ACCEPT, "application/json")
-            .header(
-                reqwest::header::AUTHORIZATION,
-                format!("Bearer {access_token}"),
-            )
-            .header("x-goog-api-client", API_CLIENT)
+            .headers(header_map.clone())
             .json(&body)
             .send();
         match response {

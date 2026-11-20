@@ -399,11 +399,17 @@ pub async fn fetch_models(
     account_id: &str,
 ) -> Result<Vec<String>> {
     match provider {
-        OAuthProviderId::Codex => codex::fetch_models(access_token, account_id).await,
-        OAuthProviderId::ChatGpt => chatgpt::fetch_models(access_token).await,
-        OAuthProviderId::Anthropic => anthropic::fetch_models(access_token).await,
-        OAuthProviderId::Antigravity => antigravity::fetch_models(access_token, account_id).await,
-        OAuthProviderId::Xai => xai::fetch_models(access_token).await,
+        OAuthProviderId::Codex => {
+            codex::fetch_models(access_token, account_id, &HashMap::new()).await
+        }
+        OAuthProviderId::ChatGpt => chatgpt::fetch_models(access_token, &HashMap::new()).await,
+        OAuthProviderId::Anthropic => {
+            anthropic::fetch_models(access_token, &HashMap::new()).await
+        }
+        OAuthProviderId::Antigravity => {
+            antigravity::fetch_models(access_token, account_id, &HashMap::new()).await
+        }
+        OAuthProviderId::Xai => xai::fetch_models(access_token, &HashMap::new()).await,
     }
 }
 

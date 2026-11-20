@@ -8,6 +8,7 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use napi::bindgen_prelude::*;
+use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use serde_json::{Map, Value};
 
 use super::provider::{self, OAuthProfileMetadata, OAuthProviderId};
@@ -132,6 +133,81 @@ pub fn fill_missing_headers(
             headers.insert(name.to_string(), value);
         }
     }
+}
+
+/// 大小写不敏感地取请求头。
+pub fn find_header<'a>(headers: &'a HashMap<String, String>, name: &str) -> Option<&'a String> {
+    headers
+        .iter()
+        .find(|(key, _)| key.eq_ignore_ascii_case(name))
+        .map(|(_, value)| value)
+}
+
+/// 请求头缺失或值为空。
+pub fn header_is_missing(headers: &HashMap<String, String>, name: &str) -> bool {
+    find_header(headers, name).map_or(true, |value| value.trim().is_empty())
+}
+
+/// 大小写不敏感地移除请求头。
+pub fn remove_header(headers: &mut HashMap<String, String>, name: &str) {
+    headers.retain(|key, _| !key.eq_ignore_ascii_case(name));
+}
+
+/// 方案请求头优先：缺失或为空的身份头用默认值补齐。
+pub fn with_default_headers(
+    custom_headers: &HashMap<String, String>,
+    defaults: Vec<(&'static str, String)>,
+) -> HashMap<String, String> {
+    let mut headers = custom_headers.clone();
+    for (name, value) in defaults {
+        if header_is_missing(&headers, name) {
+            remove_header(&mut headers, name);
+            headers.insert(name.to_string(), value);
+        }
+    }
+    headers
+}
+
+/// 从 User-Agent 的 `<prefix>/x.y.z` 片段解析客户端版本（如 `codex_cli_rs/0.171.0`）。
+pub fn version_from_user_agent(
+    headers: &HashMap<String, String>,
+    prefix: &str,
+) -> Option<String> {
+    find_header(headers, "user-agent")
+        .and_then(|value| {
+            value
+                .split_whitespace()
+                .find_map(|token| token.strip_prefix(prefix))
+        })
+        .and_then(normalize_version)
+}
+
+fn normalize_version(raw: &str) -> Option<String> {
+    let mut parts = raw.trim().split(|ch: char| !ch.is_ascii_digit());
+    let major = parts.next()?;
+    let minor = parts.next()?;
+    let patch = parts.next()?;
+    let numeric = |part: &str| !part.is_empty() && part.chars().all(|ch| ch.is_ascii_digit());
+    if numeric(major) && numeric(minor) && numeric(patch) {
+        Some(format!("{major}.{minor}.{patch}"))
+    } else {
+        None
+    }
+}
+
+/// 把合并后的请求头转换成 reqwest 的 HeaderMap。
+pub fn to_header_map(headers: &HashMap<String, String>) -> Result<HeaderMap> {
+    let mut map = HeaderMap::new();
+    for (name, value) in headers {
+        let header_name = name
+            .parse::<HeaderName>()
+            .map_err(|error| Error::from_reason(format!("Invalid header name '{name}': {error}")))?;
+        let header_value = HeaderValue::from_str(value).map_err(|error| {
+            Error::from_reason(format!("Invalid header value for '{name}': {error}"))
+        })?;
+        map.insert(header_name, header_value);
+    }
+    Ok(map)
 }
 
 /// 解析订阅档案在非会话请求（如配额查询）中使用的请求头：

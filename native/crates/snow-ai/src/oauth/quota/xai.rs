@@ -9,13 +9,20 @@ use super::{
     first_value, get_json, json_f64, json_text, parse_reset_ms, remaining_from_used, QuotaBucket,
     QuotaGroup, QuotaParts,
 };
+use crate::oauth::header_schemes::{
+    remove_header, version_from_user_agent, with_default_headers,
+};
 
 const WEEKLY_BILLING_URL: &str = "https://cli-chat-proxy.grok.com/v1/billing?format=credits";
 const MONTHLY_BILLING_URL: &str = "https://cli-chat-proxy.grok.com/v1/billing";
 const GROK_CLIENT_VERSION: &str = "1.0.44";
 
-pub async fn fetch(token: &str, account_id: &str) -> Result<QuotaParts> {
-    let headers = identity_headers(account_id);
+pub async fn fetch(
+    token: &str,
+    account_id: &str,
+    custom_headers: HashMap<String, String>,
+) -> Result<QuotaParts> {
+    let headers = identity_headers(account_id, &custom_headers);
     let (weekly, monthly) = futures::future::join(
         get_json(WEEKLY_BILLING_URL, token, &headers),
         get_json(MONTHLY_BILLING_URL, token, &headers),
@@ -51,21 +58,30 @@ pub async fn fetch(token: &str, account_id: &str) -> Result<QuotaParts> {
     ))
 }
 
-fn identity_headers(account_id: &str) -> HashMap<String, String> {
-    let mut headers = HashMap::new();
-    headers.insert("x-xai-token-auth".to_string(), "xai-grok-cli".to_string());
-    headers.insert(
-        "x-grok-client-version".to_string(),
-        GROK_CLIENT_VERSION.to_string(),
+/// 配额请求也吃档案绑定的请求头方案；版本取自方案 UA，缺失时用兜底常量。
+fn identity_headers(
+    account_id: &str,
+    custom_headers: &HashMap<String, String>,
+) -> HashMap<String, String> {
+    let version = version_from_user_agent(custom_headers, "grok-pager/")
+        .or_else(|| version_from_user_agent(custom_headers, "grok-shell/"))
+        .unwrap_or_else(|| GROK_CLIENT_VERSION.to_string());
+    let mut headers = with_default_headers(
+        custom_headers,
+        vec![
+            ("x-xai-token-auth", "xai-grok-cli".to_string()),
+            ("x-grok-client-version", version.clone()),
+            (
+                "user-agent",
+                format!(
+                    "grok-pager/{version} grok-shell/{version} ({}; {})",
+                    std::env::consts::OS,
+                    std::env::consts::ARCH
+                ),
+            ),
+        ],
     );
-    headers.insert(
-        "user-agent".to_string(),
-        format!(
-            "grok-pager/{GROK_CLIENT_VERSION} grok-shell/{GROK_CLIENT_VERSION} ({}; {})",
-            std::env::consts::OS,
-            std::env::consts::ARCH
-        ),
-    );
+    remove_header(&mut headers, "x-userid");
     let account_id = account_id.trim();
     if !account_id.is_empty() {
         headers.insert("x-userid".to_string(), account_id.to_string());
