@@ -141,8 +141,28 @@ fn resolve_json_pointer<'a>(root: &'a Value, reference: &str) -> Option<&'a Valu
     Some(current)
 }
 
+/// Dialect meta keywords describe the schema document itself, not the accepted
+/// arguments, and no provider's function-schema dialect declares them. Gemini
+/// rejects any of them outright (`Unknown name "$schema" ... Cannot find field`,
+/// 400), which is exactly what MCP servers publishing a draft/2020-12 schema
+/// (dbx, for example) put at every object root.
+const SCHEMA_META_KEYWORDS: [&str; 9] = [
+    "$schema",
+    "$id",
+    "$comment",
+    "$anchor",
+    "$dynamicAnchor",
+    "$dynamicRef",
+    "$vocabulary",
+    "$recursiveAnchor",
+    "$recursiveRef",
+];
+
 fn sanitize_schema_node(node: &mut Value, is_root: bool) {
     if let Value::Object(map) = node {
+        for keyword in SCHEMA_META_KEYWORDS {
+            map.remove(keyword);
+        }
         if !map.contains_key("type") {
             if is_root || map.contains_key("properties") || map.contains_key("required") {
                 map.insert("type".to_string(), json!("object"));
