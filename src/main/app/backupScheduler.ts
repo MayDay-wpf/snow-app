@@ -13,6 +13,7 @@ import {
   DEFAULT_BACKUP_SCHEDULE,
   DEFAULT_BACKUP_SCHEDULE_RUNTIME,
   computeNextBackupAt,
+  isBackupCancelledError,
   isBackupR2Configured,
   normalizeBackupKeep,
   normalizeBackupSchedule,
@@ -184,14 +185,18 @@ const runBackup = async (
       }),
     });
   } catch (error) {
+    // 用户主动取消不算失败：只顺延到下一个计划时间
+    const cancelled = isBackupCancelledError(error);
     runtime.nextRunAt = computeNextBackupAt(settings, Date.now());
-    runtime.lastError = errorMessage(error);
+    runtime.lastError = cancelled ? null : errorMessage(error);
     await persistRuntime(native).catch(() => undefined);
     snowLog.warn({
       module: "backup/scheduler",
       func: "runBackup",
-      message: "Automatic backup failed",
-      error: runtime.lastError,
+      message: cancelled
+        ? "Automatic backup cancelled by user"
+        : "Automatic backup failed",
+      error: runtime.lastError ?? undefined,
     });
   } finally {
     running = false;

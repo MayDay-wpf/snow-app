@@ -1,4 +1,4 @@
-import { Gauge, LoaderCircle, Minimize2 } from "lucide-react";
+import { CircleStop, Gauge, LoaderCircle, Minimize2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { useI18n } from "../../i18n";
@@ -7,9 +7,11 @@ import { ConfirmDialog } from "../common/ConfirmDialog";
 import {
   backupTaskPercent,
   backupTaskSpeed,
+  cancelBackupTask,
   discardBackupPendingTask,
   dismissBackupTaskOutcome,
   formatBytes,
+  isCancellableBackupTask,
   refreshBackupPendingTask,
   resumeBackupPendingTask,
   setBackupTaskDialogOpen,
@@ -87,7 +89,8 @@ const TASK_TEXT: Record<
  */
 export function BackupTaskHost(): React.JSX.Element {
   const { t } = useI18n();
-  const { running, progress, dialogOpen, outcome, pending } = useBackupTask();
+  const { running, progress, dialogOpen, outcome, pending, cancelling } =
+    useBackupTask();
   const percent = backupTaskPercent(progress);
   const speed = backupTaskSpeed(progress);
   const phase = PHASE_TEXT[progress?.phase ?? ""];
@@ -126,6 +129,16 @@ export function BackupTaskHost(): React.JSX.Element {
   const outcomeMessage = ((): string => {
     if (!outcome) {
       return "";
+    }
+    if (outcome.cancelled) {
+      return outcome.kind === "delete"
+        ? t("settings.backupDeleteCancelled", {
+            defaultValue:
+              "Deletion stopped. Leftover data will be cleaned up on the next backup or deletion.",
+          })
+        : t("settings.backupCancelled", {
+            defaultValue: "Backup cancelled.",
+          });
     }
     if (outcome.error !== null) {
       return t("settings.backupFailed", {
@@ -186,7 +199,7 @@ export function BackupTaskHost(): React.JSX.Element {
     <>
       <AutoDismissNotice
         message={outcomeMessage}
-        tone={failed ? "error" : "success"}
+        tone={failed ? "error" : outcome?.cancelled ? "info" : "success"}
         durationMs={failed ? 5000 : 3500}
         onDismiss={dismissBackupTaskOutcome}
       />
@@ -304,18 +317,56 @@ export function BackupTaskHost(): React.JSX.Element {
               </div>
               <div className="storage-migration-footer">
                 <span className="storage-migration-count">{progressCount}</span>
-                <button
-                  type="button"
-                  className="general-storage-action"
-                  onClick={() => setBackupTaskDialogOpen(false)}
-                >
-                  <Minimize2 size={11} strokeWidth={1.8} aria-hidden="true" />
-                  <span>
-                    {t("settings.backupRunInBackground", {
-                      defaultValue: "Run in background",
-                    })}
-                  </span>
-                </button>
+                <div className="general-storage-actions">
+                  {isCancellableBackupTask(running) && (
+                    <button
+                      type="button"
+                      className="general-storage-action"
+                      onClick={() => void cancelBackupTask()}
+                      disabled={cancelling}
+                    >
+                      {cancelling ? (
+                        <LoaderCircle
+                          size={11}
+                          strokeWidth={1.8}
+                          className="tool-call-icon-spinning"
+                          aria-hidden="true"
+                        />
+                      ) : (
+                        <CircleStop
+                          size={11}
+                          strokeWidth={1.8}
+                          aria-hidden="true"
+                        />
+                      )}
+                      <span>
+                        {cancelling
+                          ? t("settings.backupCancelling", {
+                              defaultValue: "Cancelling...",
+                            })
+                          : running === "delete"
+                            ? t("settings.backupCancelDelete", {
+                                defaultValue: "Stop deleting",
+                              })
+                            : t("settings.backupCancel", {
+                                defaultValue: "Cancel backup",
+                              })}
+                      </span>
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="general-storage-action"
+                    onClick={() => setBackupTaskDialogOpen(false)}
+                  >
+                    <Minimize2 size={11} strokeWidth={1.8} aria-hidden="true" />
+                    <span>
+                      {t("settings.backupRunInBackground", {
+                        defaultValue: "Run in background",
+                      })}
+                    </span>
+                  </button>
+                </div>
               </div>
               <p className="storage-migration-note">
                 {t(taskText.note, { defaultValue: taskText.noteFallback })}

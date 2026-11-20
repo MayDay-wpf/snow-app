@@ -4019,6 +4019,7 @@ export const en = {
   "settings.backupListTitle": "Existing backups",
   "settings.backupListCount": "{{count}} total",
   "settings.backupEmpty": "No backups yet.",
+  "settings.backupListFailed": "Failed to load backups: {{error}}",
   "settings.backupFileCount": "{{count}} files",
   "settings.backupRestore": "Restore",
   "settings.backupDelete": "Delete",
@@ -4053,6 +4054,12 @@ export const en = {
   "settings.backupProgressDeleteNote":
     "You can keep using the app in the background. If you quit midway, the deletion can be resumed next time.",
   "settings.backupRunInBackground": "Run in background",
+  "settings.backupCancel": "Cancel backup",
+  "settings.backupCancelling": "Cancelling...",
+  "settings.backupCancelled": "Backup cancelled.",
+  "settings.backupCancelDelete": "Stop deleting",
+  "settings.backupDeleteCancelled":
+    "Deletion stopped. Leftover data will be cleaned up on the next backup or deletion.",
   "settings.backupRunningInBackgroundCreate": "Backing up in the background",
   "settings.backupRunningInBackgroundRestore": "Restoring in the background",
   "settings.backupRunningInBackgroundDelete": "Deleting in the background",

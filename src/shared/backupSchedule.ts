@@ -59,6 +59,15 @@ export type BackupTarget = {
   dir?: string;
 };
 
+/** 用户取消备份时 Rust 侧返回的错误原因（与 progress.rs CANCELLED_REASON 一致）。 */
+export const BACKUP_CANCELLED_REASON = "Backup cancelled";
+
+/** 错误是否来自用户取消备份（IPC 会给 message 包一层前缀，按包含判断）。 */
+export const isBackupCancelledError = (error: unknown): boolean =>
+  (error instanceof Error ? error.message : String(error)).includes(
+    BACKUP_CANCELLED_REASON,
+  );
+
 /** Cloudflare R2 配置（读取与保存共用同一结构）。 */
 export type BackupR2Config = {
   accountId: string;

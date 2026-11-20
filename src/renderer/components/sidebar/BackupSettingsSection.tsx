@@ -1,5 +1,7 @@
 import {
+  AlertCircle,
   CalendarClock,
+  CircleStop,
   Clock,
   Cloud,
   DatabaseBackup,
@@ -43,8 +45,10 @@ import { ApiSettingsHintIcon } from "./apiSettings/ApiSettingsFieldLabel";
 import {
   backupTaskPercent,
   backupTaskSpeed,
+  cancelBackupTask,
   discardBackupPendingTask,
   formatBytes,
+  isCancellableBackupTask,
   resumeBackupPendingTask,
   runBackupTask,
   setBackupTaskDialogOpen,
@@ -86,8 +90,8 @@ const BACKGROUND_TEXT: Record<
 type BusyKind = "plan" | null;
 type R2BusyKind = "save" | "test" | null;
 
-/** R2 保存 / 测试连接的弹出提示。 */
-type R2Notice = { message: string; tone: "success" | "error" };
+/** 弹出提示（R2 保存 / 测试、操作失败）。 */
+type ToastNotice = { message: string; tone: "success" | "error" };
 
 const EMPTY_R2_CONFIG: BackupR2Config = {
   accountId: "",
@@ -100,8 +104,12 @@ const EMPTY_R2_CONFIG: BackupR2Config = {
 const formatTime = (timestampMs: number): string =>
   new Date(timestampMs).toLocaleString();
 
+// 去掉 Electron IPC 包装前缀，只保留真实原因
 const readErrorMessage = (error: unknown): string =>
-  error instanceof Error ? error.message : String(error);
+  (error instanceof Error ? error.message : String(error)).replace(
+    /^Error invoking remote method '[^']+':\s*(?:Error:\s*)?/,
+    "",
+  );
 
 /**
  * 数据备份设置区块（通用设置 → 存储与资源）。
@@ -123,18 +131,21 @@ export function BackupSettingsSection(): React.JSX.Element {
   const [r2Config, setR2Config] = useState<BackupR2Config | null>(null);
   const [r2Form, setR2Form] = useState<BackupR2Config>(EMPTY_R2_CONFIG);
   const [r2Busy, setR2Busy] = useState<R2BusyKind>(null);
-  const [r2Notice, setR2Notice] = useState<R2Notice | null>(null);
+  const [toast, setToast] = useState<ToastNotice | null>(null);
   const [showR2Secret, setShowR2Secret] = useState(false);
   const [keep, setKeep] = useState(DEFAULT_BACKUP_KEEP);
   const [scheduleState, setScheduleState] =
     useState<BackupScheduleState | null>(null);
   const [scheduleSaving, setScheduleSaving] = useState(false);
+  /** 已请求取消自动备份，等待主进程推送结束状态 */
+  const [scheduleCancelling, setScheduleCancelling] = useState(false);
   const [backups, setBackups] = useState<BackupSummary[]>([]);
   const [busy, setBusy] = useState<BusyKind>(null);
   /** 手动备份 / 恢复任务（模块级状态，设置页卸载后继续执行） */
   const backupTask = useBackupTask();
   const [notice, setNotice] = useState("");
-  const [error, setError] = useState("");
+  /** 已有备份列表读取失败的原因，显示在列表面板内 */
+  const [listError, setListError] = useState("");
   const [pendingRestore, setPendingRestore] = useState<BackupSummary | null>(
     null,
   );
@@ -162,16 +173,32 @@ export function BackupSettingsSection(): React.JSX.Element {
   const refreshList = useCallback(async (current: BackupTarget | null) => {
     if (!current) {
       setBackups([]);
+      setListError("");
       return;
     }
     try {
       const list = await window.snow.backupList(current);
       setBackups(list);
-    } catch (listError) {
+      setListError("");
+    } catch (listFailure) {
       setBackups([]);
-      setError(readErrorMessage(listError));
+      setListError(readErrorMessage(listFailure));
     }
   }, []);
+
+  /** 操作失败统一走弹出提示，不占用表单区域。 */
+  const showError = useCallback(
+    (failure: unknown): void => {
+      setToast({
+        tone: "error",
+        message: t("settings.backupFailed", {
+          values: { error: readErrorMessage(failure) },
+          defaultValue: "Operation failed: {{error}}",
+        }),
+      });
+    },
+    [t],
+  );
 
   // 读取已保存的备份位置、R2 配置、保留份数与自动备份计划。
   useEffect(() => {
@@ -215,8 +242,11 @@ export function BackupSettingsSection(): React.JSX.Element {
   useEffect(() => {
     const unsubscribe = window.snow.onBackupScheduleChanged((next) => {
       setScheduleState(next);
-      if (!next.running && targetRef.current) {
-        void refreshList(targetRef.current);
+      if (!next.running) {
+        setScheduleCancelling(false);
+        if (targetRef.current) {
+          void refreshList(targetRef.current);
+        }
       }
     });
     return unsubscribe;
@@ -257,7 +287,7 @@ export function BackupSettingsSection(): React.JSX.Element {
     }
     setTargetKind(nextKind);
     setBackups([]);
-    setError("");
+    setListError("");
     setNotice("");
     await window.snow.setSystemSetting(
       BACKUP_SETTINGS_CODES.targetKindName,
@@ -275,7 +305,6 @@ export function BackupSettingsSection(): React.JSX.Element {
       return;
     }
     setTargetDir(selected);
-    setError("");
     setNotice("");
     await window.snow.setSystemSetting(
       BACKUP_SETTINGS_CODES.targetDirName,
@@ -297,13 +326,13 @@ export function BackupSettingsSection(): React.JSX.Element {
       return;
     }
     setR2Busy("save");
-    setR2Notice(null);
+    setToast(null);
     try {
       await window.snow.backupSetR2Config(r2Form);
       const saved = await window.snow.backupGetR2Config();
       setR2Config(saved);
       setR2Form(saved);
-      setR2Notice({
+      setToast({
         tone: "success",
         message: t("settings.backupR2Saved", {
           defaultValue: "Cloudflare R2 settings saved.",
@@ -311,13 +340,7 @@ export function BackupSettingsSection(): React.JSX.Element {
       });
       await rescheduleIfEnabled();
     } catch (saveError) {
-      setR2Notice({
-        tone: "error",
-        message: t("settings.backupFailed", {
-          values: { error: readErrorMessage(saveError) },
-          defaultValue: "Operation failed: {{error}}",
-        }),
-      });
+      showError(saveError);
     } finally {
       setR2Busy(null);
     }
@@ -328,17 +351,17 @@ export function BackupSettingsSection(): React.JSX.Element {
       return;
     }
     setR2Busy("test");
-    setR2Notice(null);
+    setToast(null);
     try {
       await window.snow.backupTestR2Config(r2Form);
-      setR2Notice({
+      setToast({
         tone: "success",
         message: t("settings.backupR2TestOk", {
           defaultValue: "Connected to Cloudflare R2.",
         }),
       });
     } catch (testError) {
-      setR2Notice({
+      setToast({
         tone: "error",
         message: t("settings.backupR2TestFailed", {
           values: { error: readErrorMessage(testError) },
@@ -358,15 +381,10 @@ export function BackupSettingsSection(): React.JSX.Element {
       const root = await window.snow.backupLocalRoot(targetDir);
       const openError = await window.snow.openStorageDirectory(root);
       if (openError) {
-        setError(openError);
+        showError(openError);
       }
     } catch (openFailure) {
-      setError(
-        t("settings.backupFailed", {
-          values: { error: readErrorMessage(openFailure) },
-          defaultValue: "Operation failed: {{error}}",
-        }),
-      );
+      showError(openFailure);
     }
   };
 
@@ -385,21 +403,23 @@ export function BackupSettingsSection(): React.JSX.Element {
       return;
     }
     setScheduleSaving(true);
-    setError("");
     try {
       const state = await window.snow.setBackupSchedule(
         normalizeBackupSchedule(next),
       );
       setScheduleState(state);
     } catch (scheduleError) {
-      setError(
-        t("settings.backupFailed", {
-          values: { error: readErrorMessage(scheduleError) },
-          defaultValue: "Operation failed: {{error}}",
-        }),
-      );
+      showError(scheduleError);
     } finally {
       setScheduleSaving(false);
+    }
+  };
+
+  /** 取消正在执行的自动备份；结束状态由主进程推送。 */
+  const handleCancelScheduled = async (): Promise<void> => {
+    setScheduleCancelling(true);
+    if (!(await cancelBackupTask())) {
+      setScheduleCancelling(false);
     }
   };
 
@@ -470,7 +490,6 @@ export function BackupSettingsSection(): React.JSX.Element {
       return;
     }
     setBusy("plan");
-    setError("");
     setNotice("");
     try {
       const plan = await window.snow.backupPlan(target);
@@ -486,12 +505,7 @@ export function BackupSettingsSection(): React.JSX.Element {
         }),
       );
     } catch (planError) {
-      setError(
-        t("settings.backupFailed", {
-          values: { error: readErrorMessage(planError) },
-          defaultValue: "Operation failed: {{error}}",
-        }),
-      );
+      showError(planError);
     } finally {
       setBusy(null);
     }
@@ -501,7 +515,6 @@ export function BackupSettingsSection(): React.JSX.Element {
     if (!target || isBlockedByPending) {
       return;
     }
-    setError("");
     setNotice("");
     runBackupTask("create", () => window.snow.backupCreate(target, keep));
   };
@@ -512,7 +525,6 @@ export function BackupSettingsSection(): React.JSX.Element {
       return;
     }
     setPendingRestore(null);
-    setError("");
     setNotice("");
     runBackupTask("restore", () =>
       window.snow.backupRestore(target, backup.id),
@@ -525,7 +537,6 @@ export function BackupSettingsSection(): React.JSX.Element {
       return;
     }
     setPendingDelete(null);
-    setError("");
     setNotice("");
     runBackupTask("delete", () => window.snow.backupDelete(target, backup.id));
   };
@@ -628,15 +639,40 @@ export function BackupSettingsSection(): React.JSX.Element {
               </span>
             )}
           </span>
-          <button
-            type="button"
-            className="general-storage-action"
-            onClick={() => setBackupTaskDialogOpen(true)}
-          >
-            {t("settings.backupShowProgress", {
-              defaultValue: "Show progress",
-            })}
-          </button>
+          <div className="general-storage-actions">
+            {isCancellableBackupTask(backupTask.running) && (
+              <button
+                type="button"
+                className="general-storage-action"
+                onClick={() => void cancelBackupTask()}
+                disabled={backupTask.cancelling}
+              >
+                <CircleStop size={11} strokeWidth={1.8} aria-hidden="true" />
+                <span>
+                  {backupTask.cancelling
+                    ? t("settings.backupCancelling", {
+                        defaultValue: "Cancelling...",
+                      })
+                    : backupTask.running === "delete"
+                      ? t("settings.backupCancelDelete", {
+                          defaultValue: "Stop deleting",
+                        })
+                      : t("settings.backupCancel", {
+                          defaultValue: "Cancel backup",
+                        })}
+                </span>
+              </button>
+            )}
+            <button
+              type="button"
+              className="general-storage-action"
+              onClick={() => setBackupTaskDialogOpen(true)}
+            >
+              {t("settings.backupShowProgress", {
+                defaultValue: "Show progress",
+              })}
+            </button>
+          </div>
         </div>
         <div
           className="storage-migration-progress"
@@ -663,10 +699,10 @@ export function BackupSettingsSection(): React.JSX.Element {
   return (
     <div className="storage-card">
       <AutoDismissNotice
-        message={r2Notice?.message ?? ""}
-        tone={r2Notice?.tone ?? "success"}
-        durationMs={r2Notice?.tone === "error" ? 5000 : undefined}
-        onDismiss={() => setR2Notice(null)}
+        message={toast?.message ?? ""}
+        tone={toast?.tone ?? "success"}
+        durationMs={toast?.tone === "error" ? 5000 : undefined}
+        onDismiss={() => setToast(null)}
       />
       <div className="storage-card-row">
         <div className="storage-card-text">
@@ -1019,6 +1055,38 @@ export function BackupSettingsSection(): React.JSX.Element {
                 </div>
               </div>
               <div className="general-storage-actions">
+                {scheduleState?.running && (
+                  <button
+                    type="button"
+                    className="general-storage-action"
+                    onClick={() => void handleCancelScheduled()}
+                    disabled={scheduleCancelling}
+                  >
+                    {scheduleCancelling ? (
+                      <LoaderCircle
+                        size={11}
+                        strokeWidth={1.8}
+                        className="tool-call-icon-spinning"
+                        aria-hidden="true"
+                      />
+                    ) : (
+                      <CircleStop
+                        size={11}
+                        strokeWidth={1.8}
+                        aria-hidden="true"
+                      />
+                    )}
+                    <span>
+                      {scheduleCancelling
+                        ? t("settings.backupCancelling", {
+                            defaultValue: "Cancelling...",
+                          })
+                        : t("settings.backupCancel", {
+                            defaultValue: "Cancel backup",
+                          })}
+                    </span>
+                  </button>
+                )}
                 <div className="settings-close-behavior-select">
                   <CustomSelect
                     value={scheduleModeValue}
@@ -1228,11 +1296,6 @@ export function BackupSettingsSection(): React.JSX.Element {
             {renderBackupTaskInline("body")}
             {renderPendingTask("body")}
 
-            {error && (
-              <div role="alert" className="api-settings-error">
-                {error}
-              </div>
-            )}
             {notice && (
               <div className="settings-item-description">{notice}</div>
             )}
@@ -1251,7 +1314,17 @@ export function BackupSettingsSection(): React.JSX.Element {
                   })}
                 </span>
               </div>
-              {backups.length === 0 ? (
+              {listError ? (
+                <div role="alert" className="backup-list-empty error">
+                  <AlertCircle size={12} strokeWidth={1.8} aria-hidden="true" />
+                  <span>
+                    {t("settings.backupListFailed", {
+                      values: { error: listError },
+                      defaultValue: "Failed to load backups: {{error}}",
+                    })}
+                  </span>
+                </div>
+              ) : backups.length === 0 ? (
                 <div className="backup-list-empty">
                   {t("settings.backupEmpty", {
                     defaultValue: "No backups yet.",

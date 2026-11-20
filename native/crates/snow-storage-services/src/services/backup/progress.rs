@@ -4,10 +4,18 @@
 //! 快照来绘制进度条，因此进度上报不会阻塞 Electron 主进程。
 
 use std::collections::VecDeque;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
+use napi::bindgen_prelude::{Error, Result, Status};
 use napi_derive::napi;
+
+/// 取消备份时的错误原因（TS 侧 BACKUP_CANCELLED_REASON 与之一致）。
+const CANCELLED_REASON: &str = "Backup cancelled";
+
+/// 取消请求标志：任务在检查点读取，开始新任务时复位。
+static CANCEL_REQUESTED: AtomicBool = AtomicBool::new(false);
 
 /// 传输速度的统计窗口：取最近这段时间内实际传输的字节计算平均速度。
 const SPEED_WINDOW: Duration = Duration::from_secs(5);
@@ -121,12 +129,30 @@ pub fn task_progress() -> BackupTaskProgress {
     snapshot
 }
 
+/// 请求取消正在执行的备份或删除（恢复不可取消），返回是否已受理。
+pub fn request_cancel() -> bool {
+    let current = state()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if current.progress.active && matches!(current.progress.kind.as_str(), "create" | "delete") {
+        CANCEL_REQUESTED.store(true, Ordering::Release);
+        return true;
+    }
+    false
+}
+
+/// 错误是否由取消请求产生。
+pub(crate) fn is_cancelled(error: &Error) -> bool {
+    error.status == Status::Cancelled
+}
+
 /// 任务进度写入句柄；离开作用域自动把快照复位为空闲。
 pub(crate) struct TaskProgress;
 
 impl TaskProgress {
     pub(crate) fn begin(kind: &str, phase: &str) -> Self {
         update(|current| {
+            CANCEL_REQUESTED.store(false, Ordering::Release);
             current.reset(BackupTaskProgress {
                 active: true,
                 kind: kind.to_string(),
@@ -139,6 +165,14 @@ impl TaskProgress {
 
     pub(crate) fn phase(&self, phase: &str) {
         update(|current| current.progress.phase = phase.to_string());
+    }
+
+    /// 取消检查点：已请求取消时返回 Cancelled 错误。
+    pub(crate) fn ensure_not_cancelled(&self) -> Result<()> {
+        if CANCEL_REQUESTED.load(Ordering::Acquire) {
+            return Err(Error::new(Status::Cancelled, CANCELLED_REASON));
+        }
+        Ok(())
     }
 
     pub(crate) fn set_totals(&self, total_bytes: i64, total_files: u32) {
@@ -175,6 +209,7 @@ impl TaskProgress {
 impl Drop for TaskProgress {
     fn drop(&mut self) {
         update(|current| {
+            CANCEL_REQUESTED.store(false, Ordering::Release);
             current.progress.active = false;
             current.progress.kind.clear();
             current.progress.phase = "idle".to_string();

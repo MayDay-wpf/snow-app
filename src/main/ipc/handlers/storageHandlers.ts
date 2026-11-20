@@ -340,6 +340,10 @@ export const registerStorageHandlers = (native: NativeBridge): void => {
     native.backupDiscardTask(),
   );
 
+  ipcMain.handle("storage:backup-cancel-task", async (): Promise<boolean> =>
+    native.backupCancelTask(),
+  );
+
   ipcMain.handle(
     "storage:backup-root",
     async (_event, targetDir: unknown): Promise<string> =>

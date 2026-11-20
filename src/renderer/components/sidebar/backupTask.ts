@@ -4,6 +4,7 @@ import type {
   BackupPendingTask,
   BackupTaskProgress,
 } from "../../../preload";
+import { isBackupCancelledError } from "../../../shared/backupSchedule";
 
 /**
  * 手动备份 / 恢复 / 删除任务的模块级状态。
@@ -23,6 +24,8 @@ export type BackupTaskOutcome = {
   kind: BackupTaskKind;
   result: BackupCreateResult | null;
   error: string | null;
+  /** 用户主动取消（不当作失败提示） */
+  cancelled?: boolean;
 };
 
 export type BackupTaskState = {
@@ -32,6 +35,8 @@ export type BackupTaskState = {
   progress: BackupTaskProgress | null;
   /** 进度弹窗是否展开；false 表示任务在后台执行 */
   dialogOpen: boolean;
+  /** 已请求取消、等待 Rust 侧在检查点退出 */
+  cancelling: boolean;
   /** 待提示的任务结果，提示消失后清空 */
   outcome: BackupTaskOutcome | null;
   /** 已结束的任务计数，设置页据此刷新备份列表 */
@@ -46,6 +51,7 @@ let state: BackupTaskState = {
   running: null,
   progress: null,
   dialogOpen: false,
+  cancelling: false,
   outcome: null,
   finished: 0,
   pending: null,
@@ -102,6 +108,7 @@ const finish = (outcome: BackupTaskOutcome): void => {
     running: null,
     progress: null,
     dialogOpen: false,
+    cancelling: false,
     outcome,
     finished: state.finished + 1,
   });
@@ -124,8 +131,12 @@ export const refreshBackupPendingTask =
     return state.pending;
   };
 
+// 去掉 Electron IPC 包装前缀，提示里只保留真实原因
 const errorText = (error: unknown): string =>
-  error instanceof Error ? error.message : String(error);
+  (error instanceof Error ? error.message : String(error)).replace(
+    /^Error invoking remote method '[^']+':\s*(?:Error:\s*)?/,
+    "",
+  );
 
 /**
  * 启动备份 / 恢复 / 删除任务并展开进度弹窗；已有任务在执行时不重复启动。
@@ -142,6 +153,7 @@ export const runBackupTask = (
     running: kind,
     progress: null,
     dialogOpen: true,
+    cancelling: false,
     outcome: null,
     pending: null,
   });
@@ -149,8 +161,32 @@ export const runBackupTask = (
   run()
     .then((result) => finish({ kind, result: result ?? null, error: null }))
     .catch((error: unknown) =>
-      finish({ kind, result: null, error: errorText(error) }),
+      finish(
+        isBackupCancelledError(error)
+          ? { kind, result: null, error: null, cancelled: true }
+          : { kind, result: null, error: errorText(error) },
+      ),
     );
+};
+
+/** 可取消的任务类型（恢复中途停下会留下新旧混杂的文件，不允许取消）。 */
+export const isCancellableBackupTask = (kind: BackupTaskKind | null): boolean =>
+  kind === "create" || kind === "delete";
+
+/**
+ * 请求取消正在执行的备份或删除（手动或自动）。只置 Rust 侧标志，任务在
+ * 下一个检查点退出后由 run() 的 Promise 收尾；返回是否已受理。
+ */
+export const cancelBackupTask = async (): Promise<boolean> => {
+  try {
+    const accepted = await window.snow.backupCancelTask();
+    if (accepted && isCancellableBackupTask(state.running)) {
+      setState({ cancelling: true });
+    }
+    return accepted;
+  } catch {
+    return false;
+  }
 };
 
 /** 继续上次中断的任务（使用任务开始时的备份位置）。 */

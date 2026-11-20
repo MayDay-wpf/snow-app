@@ -3793,6 +3793,7 @@ export const zhTW = {
   "settings.backupListTitle": "現有備份",
   "settings.backupListCount": "共 {{count}} 個",
   "settings.backupEmpty": "還沒有備份。",
+  "settings.backupListFailed": "讀取備份清單失敗：{{error}}",
   "settings.backupFileCount": "{{count}} 個檔案",
   "settings.backupRestore": "還原",
   "settings.backupDelete": "刪除",
@@ -3827,6 +3828,12 @@ export const zhTW = {
   "settings.backupProgressDeleteNote":
     "可轉入背景繼續使用應用程式；中途結束應用程式的話，下次可以繼續完成刪除。",
   "settings.backupRunInBackground": "背景執行",
+  "settings.backupCancel": "取消備份",
+  "settings.backupCancelling": "正在取消...",
+  "settings.backupCancelled": "備份已取消。",
+  "settings.backupCancelDelete": "停止刪除",
+  "settings.backupDeleteCancelled":
+    "刪除已停止，殘留的資料區塊會在下次備份或刪除時自動清理。",
   "settings.backupRunningInBackgroundCreate": "正在背景備份",
   "settings.backupRunningInBackgroundRestore": "正在背景還原",
   "settings.backupRunningInBackgroundDelete": "正在背景刪除備份",

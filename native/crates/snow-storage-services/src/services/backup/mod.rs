@@ -167,7 +167,8 @@ fn with_operation_lock<T>(operation: impl FnOnce() -> Result<T>) -> Result<T> {
 /// 创建一次备份。
 ///
 /// 开始前写入任务日志，成功后删除；应用中途退出或失败时日志保留，
-/// 可通过 [resume_task] 续跑（已写入的块不会重复上传）。
+/// 可通过 [resume_task] 续跑（已写入的块不会重复上传）。用户取消时日志
+/// 一并清除，已写入的块由下一次备份或删除的块回收清理。
 pub fn create_backup(target: &BackupTarget, keep: Option<u32>) -> Result<BackupCreateResult> {
     with_operation_lock(|| {
         journal::ensure_none()?;
@@ -175,10 +176,25 @@ pub fn create_backup(target: &BackupTarget, keep: Option<u32>) -> Result<BackupC
         let repo = open_repo(target)?;
         let id = generate_backup_id();
         journal::save(&TaskJournal::create(target, id.clone(), keep))?;
-        let result = run_create(&repo, &id, keep)?;
+        let result = clear_journal_if_cancelled(run_create(&repo, &id, keep))?;
         journal::clear()?;
         Ok(result)
     })
+}
+
+/// 取消请求只放弃本次任务，不留下可续跑的日志。
+fn clear_journal_if_cancelled<T>(result: Result<T>) -> Result<T> {
+    if let Err(error) = &result {
+        if progress::is_cancelled(error) {
+            journal::clear()?;
+        }
+    }
+    result
+}
+
+/// 请求取消正在执行的备份或删除；返回是否已受理（没有可取消的任务时为 false）。
+pub fn cancel_task() -> bool {
+    progress::request_cancel()
 }
 
 /// 执行（或续跑）一次备份：同一个 id 重复执行是安全的。
@@ -196,6 +212,8 @@ fn run_create(repo: &BackupRepo, id: &str, keep: u32) -> Result<BackupCreateResu
     repo.remove_work_dir(id);
     let (manifest, result) = outcome?;
 
+    // 写清单前最后一次检查取消；此后的提交步骤不再中断。
+    task.ensure_not_cancelled()?;
     task.phase("finalize");
     repo.write_manifest(&manifest)?;
     repo.write_latest(&manifest.id, manifest.created_at_ms)?;
@@ -289,14 +307,15 @@ pub(crate) fn apply_pending_restore(app_dir: &Path) -> Result<()> {
 /// 删除一份备份并回收不再被任何备份引用的块。
 ///
 /// 与备份一样写入任务日志：应用中途退出时可通过 [resume_task] 继续，
-/// 删除的每一步都是幂等的。
+/// 删除的每一步都是幂等的。用户取消时清单已删除，只停止回收数据块，
+/// 剩余孤儿块由下一次备份或删除的回收清理。
 pub fn delete_backup(target: &BackupTarget, backup_id: &str) -> Result<()> {
     with_operation_lock(|| {
         validate_backup_id(backup_id)?;
         journal::ensure_none()?;
         let repo = open_repo(target)?;
         journal::save(&TaskJournal::delete(target, backup_id.to_string()))?;
-        run_delete(&repo, backup_id)?;
+        clear_journal_if_cancelled(run_delete(&repo, backup_id))?;
         journal::clear()
     })
 }
@@ -304,6 +323,8 @@ pub fn delete_backup(target: &BackupTarget, backup_id: &str) -> Result<()> {
 /// 执行（或续跑）一次删除：先删清单与指针，再按块回收并上报进度。
 fn run_delete(repo: &BackupRepo, backup_id: &str) -> Result<()> {
     let task = TaskProgress::begin("delete", "remove");
+    // 清单删除前取消则备份保持完整
+    task.ensure_not_cancelled()?;
     repo.delete_manifest(backup_id)?;
     repo.clear_latest_if(backup_id)?;
     gc::sweep_orphan_chunks(repo, Some(&task))?;
@@ -339,10 +360,14 @@ pub fn resume_task() -> Result<BackupResumeResult> {
             let keep = normalize_keep(task.keep);
             BackupResumeResult {
                 kind: task.kind.clone(),
-                created: Some(run_create(&repo, &task.backup_id, keep)?),
+                created: Some(clear_journal_if_cancelled(run_create(
+                    &repo,
+                    &task.backup_id,
+                    keep,
+                ))?),
             }
         } else {
-            run_delete(&repo, &task.backup_id)?;
+            clear_journal_if_cancelled(run_delete(&repo, &task.backup_id))?;
             BackupResumeResult {
                 kind: task.kind.clone(),
                 created: None,
@@ -400,7 +425,8 @@ fn write_backup(
     work_dir: &Path,
     task: &TaskProgress,
 ) -> Result<(BackupManifest, BackupCreateResult)> {
-    let snapshots = snapshot_databases(app_dir, work_dir, reuse)?;
+    let snapshots = snapshot_databases(app_dir, work_dir, reuse, task)?;
+    task.ensure_not_cancelled()?;
     task.phase("collect");
     let mut sources = source::collect(app_dir, snapshots, reuse)?;
     // 先处理小文件、最后处理数据库这类大文件：文件数只在单个文件写完后递增，
@@ -427,6 +453,7 @@ fn write_backup(
     let mut seen: HashSet<String> = HashSet::new();
 
     for source in sources {
+        task.ensure_not_cancelled()?;
         let SourceFile {
             source_path,
             relative_path,
@@ -447,6 +474,7 @@ fn write_backup(
             }
             None => {
                 let (chunks, written_size) = chunk_file(&source_path, |hash, bytes| {
+                    task.ensure_not_cancelled()?;
                     let written = store.put_chunk(hash, bytes)?;
                     if written {
                         progress.uploaded_bytes += bytes.len() as i64;

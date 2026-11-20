@@ -187,6 +187,7 @@ const requiredExports = [
   "backupPendingTask",
   "backupResumeTask",
   "backupDiscardTask",
+  "backupCancelTask",
   "backupLocalRoot",
   "backupTaskProgress",
   "backupGetR2Config",

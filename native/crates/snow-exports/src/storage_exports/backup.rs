@@ -97,6 +97,13 @@ pub async fn backup_discard_task() -> napi::Result<()> {
         .map_err(map_spawn_error)?
 }
 
+/// 请求取消正在执行的备份或删除（手动或自动），只置内存标志；返回是否已受理。
+/// 任务在下一个检查点以 "Backup cancelled" 失败返回，不留下可续跑的任务日志。
+#[napi]
+pub async fn backup_cancel_task() -> napi::Result<bool> {
+    Ok(crate::storage::services::backup::cancel_task())
+}
+
 /// 返回本地备份根目录的绝对路径，供 UI 展示或打开文件管理器。
 #[napi]
 pub async fn backup_local_root(target_dir: String) -> napi::Result<String> {

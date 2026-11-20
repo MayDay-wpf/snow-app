@@ -28,6 +28,7 @@ pub(crate) fn prune_manifests(repo: &BackupRepo, keep: u32) -> Result<u32> {
 /// 用户只能看到一个长时间不动的界面。
 ///
 /// 单个块删除失败（被占用、网络抖动等）不中断回收，留待下次再试。
+/// 传入 `task` 时每块前检查取消请求；未回收的孤儿块由下一次回收清理。
 pub(crate) fn sweep_orphan_chunks(repo: &BackupRepo, task: Option<&TaskProgress>) -> Result<u32> {
     if let Some(task) = task {
         task.phase("scan");
@@ -47,12 +48,16 @@ pub(crate) fn sweep_orphan_chunks(repo: &BackupRepo, task: Option<&TaskProgress>
         .collect();
 
     if let Some(task) = task {
+        task.ensure_not_cancelled()?;
         task.set_totals(0, orphans.len() as u32);
         task.phase("reclaim");
     }
 
     let mut removed = 0_u32;
     for hash in orphans {
+        if let Some(task) = task {
+            task.ensure_not_cancelled()?;
+        }
         if repo.delete_chunk(&hash).is_ok() {
             removed += 1;
         }

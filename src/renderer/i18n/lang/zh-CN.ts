@@ -3791,6 +3791,7 @@ export const zhCN = {
   "settings.backupListTitle": "已有备份",
   "settings.backupListCount": "共 {{count}} 个",
   "settings.backupEmpty": "还没有备份。",
+  "settings.backupListFailed": "读取备份列表失败：{{error}}",
   "settings.backupFileCount": "{{count}} 个文件",
   "settings.backupRestore": "恢复",
   "settings.backupDelete": "删除",
@@ -3825,6 +3826,12 @@ export const zhCN = {
   "settings.backupProgressDeleteNote":
     "可转入后台继续使用应用；中途退出应用的话，下次可以继续完成删除。",
   "settings.backupRunInBackground": "后台运行",
+  "settings.backupCancel": "取消备份",
+  "settings.backupCancelling": "正在取消...",
+  "settings.backupCancelled": "备份已取消。",
+  "settings.backupCancelDelete": "停止删除",
+  "settings.backupDeleteCancelled":
+    "删除已停止，残留的数据块会在下次备份或删除时自动清理。",
   "settings.backupRunningInBackgroundCreate": "正在后台备份",
   "settings.backupRunningInBackgroundRestore": "正在后台恢复",
   "settings.backupRunningInBackgroundDelete": "正在后台删除备份",

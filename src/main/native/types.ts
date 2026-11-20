@@ -4194,6 +4194,8 @@ export type NativeBridge = ImageGenerationNativeApi & {
   backupResumeTask: () => Promise<BackupResumeResult>;
   /** 备份：放弃上次中断的备份 / 删除任务 */
   backupDiscardTask: () => Promise<void>;
+  /** 备份：请求取消正在执行的备份；返回是否已受理 */
+  backupCancelTask: () => Promise<boolean>;
   /** 备份：返回本地备份根目录的绝对路径 */
   backupLocalRoot: (targetDir: string) => Promise<string>;
   /** 备份 / 恢复任务的当前进度（读取内存状态，供进度条轮询） */

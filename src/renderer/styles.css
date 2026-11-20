@@ -56745,6 +56745,21 @@ body.ctrl-held [data-path] {
   color: var(--text-muted);
 }
 
+/* 列表读取失败：显示在列表面板内 */
+.backup-list-empty.error {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  color: var(--danger);
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+.backup-list-empty.error > svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
 /* ---- 通用设置：自动备份时间（小时 + 分钟两个紧凑下拉） ---- */
 .backup-schedule-time {
   display: flex;

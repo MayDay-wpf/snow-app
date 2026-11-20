@@ -110,6 +110,10 @@ export const storageApi = {
   backupDiscardTask: (): Promise<void> =>
     ipcRenderer.invoke("storage:backup-discard-task"),
 
+  /** 备份：请求取消正在执行的备份（手动或自动）；返回是否已受理 */
+  backupCancelTask: (): Promise<boolean> =>
+    ipcRenderer.invoke("storage:backup-cancel-task"),
+
   /** 备份：返回本地备份根目录的绝对路径 */
   backupLocalRoot: (targetDir: string): Promise<string> =>
     ipcRenderer.invoke("storage:backup-root", targetDir),

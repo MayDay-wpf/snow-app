@@ -1,11 +1,17 @@
 use std::fs;
 use std::path::Path;
-use std::time::Duration;
 
 use napi::bindgen_prelude::*;
+use rusqlite::backup::StepResult;
 
 use super::manifest::ReuseIndex;
+use super::progress::TaskProgress;
 use super::source::{modified_ms, SourceFile};
+
+/// 每步复制的页数（4KB 页约 2MB），步间检查取消请求。
+const PAGES_PER_STEP: i32 = 512;
+/// 源库忙时的重试间隔。
+const BUSY_RETRY: std::time::Duration = std::time::Duration::from_millis(20);
 
 /// 生成两个数据库的一致性副本。
 ///
@@ -19,12 +25,13 @@ pub(crate) fn snapshot_databases(
     app_dir: &Path,
     work_dir: &Path,
     reuse: &ReuseIndex,
+    task: &TaskProgress,
 ) -> Result<Vec<SourceFile>> {
     let mut sources = Vec::new();
 
     let runtime = app_dir.join("snowapp.db");
     if runtime.is_file() {
-        sources.push(copy_database(&runtime, work_dir, "snowapp.db")?);
+        sources.push(copy_database(&runtime, work_dir, "snowapp.db", task)?);
     }
 
     let archive = app_dir.join("archive.db");
@@ -35,7 +42,7 @@ pub(crate) fn snapshot_databases(
         if source.reuse_chunks.is_some() {
             sources.push(source);
         } else {
-            sources.push(copy_database(&archive, work_dir, "archive.db")?);
+            sources.push(copy_database(&archive, work_dir, "archive.db", task)?);
         }
     }
 
@@ -43,7 +50,12 @@ pub(crate) fn snapshot_databases(
 }
 
 /// 用 Online Backup API 把数据库复制到工作区，返回指向副本的源文件条目。
-fn copy_database(database: &Path, work_dir: &Path, name: &str) -> Result<SourceFile> {
+fn copy_database(
+    database: &Path,
+    work_dir: &Path,
+    name: &str,
+    task: &TaskProgress,
+) -> Result<SourceFile> {
     let destination_path = work_dir.join(name);
     if destination_path.exists() {
         fs::remove_file(&destination_path).map_err(|error| {
@@ -74,14 +86,21 @@ fn copy_database(database: &Path, work_dir: &Path, name: &str) -> Result<SourceF
                 database.display()
             ))
         })?;
-        backup
-            .run_to_completion(512, Duration::ZERO, None)
-            .map_err(|error| {
+        // 手动逐步复制（等价于 run_to_completion），步间响应取消请求。
+        loop {
+            task.ensure_not_cancelled()?;
+            let step = backup.step(PAGES_PER_STEP).map_err(|error| {
                 Error::from_reason(format!(
                     "Failed to snapshot database '{}': {error}",
                     database.display()
                 ))
             })?;
+            match step {
+                StepResult::Done => break,
+                StepResult::More => {}
+                _ => std::thread::sleep(BUSY_RETRY),
+            }
+        }
     }
     drop(destination);
 
