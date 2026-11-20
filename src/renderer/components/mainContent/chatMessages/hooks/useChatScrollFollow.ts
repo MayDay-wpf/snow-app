@@ -12,6 +12,7 @@ import {
   type StreamGrowthSmoother,
 } from "../components/streamGrowthSmoother";
 import { registerMessageWindowViewGate } from "../utils/messageWindow";
+import { getToolCardStyle } from "../../../../utils/toolCardStyle";
 
 type PendingScrollRestore = {
   conversationId: string;
@@ -63,6 +64,9 @@ const SCROLL_FAST_VELOCITY_PX_PER_MS = 1.2;
 const SCROLL_VELOCITY_STALE_MS = 130;
 // 滚动停下后补查的延迟：略大于上面的有效期，第一次到点就能判定为已停下。
 const SCROLL_SETTLE_RECHECK_MS = 150;
+// 极简模式的默认页长：折叠后一页常常只有几十像素高，用 10 条的页长会让用户
+// 每滚一点就撞一次顶部、频繁触发翻页与滚动恢复（观感就是卡涩 + 位置回跳）。
+const MINIMAL_TRANSCRIPT_PAGE_SIZE = 40;
 
 const measureAnchorContentOffset = (
   container: HTMLDivElement,
@@ -465,6 +469,18 @@ export const useChatScrollFollow = ({
     }
     const residual = push - (container.scrollTop - lock.expectedScrollTop);
     if (Math.abs(residual) > 1) {
+      // 用户正在快速滚动：不写 scrollTop。程序写入会打断惯性滚动，边界附近
+      // 看起来就是「会话记录往回跳」；这段位移交给原生滚动锚定，等滚动停下后
+      // 由后续轮次用新基线补残差。
+      const sample = scrollSampleRef.current;
+      const fastScrolling =
+        sample.at !== 0 &&
+        performance.now() - sample.at <= SCROLL_VELOCITY_STALE_MS &&
+        sample.velocity > SCROLL_FAST_VELOCITY_PX_PER_MS;
+      if (fastScrolling) {
+        lock.expectedScrollTop = container.scrollTop;
+        return false;
+      }
       container.scrollTop += residual;
     }
     lock.anchors = lock.anchors.filter((candidate) =>
@@ -1131,9 +1147,16 @@ export const useChatScrollFollow = ({
       startScrollRestoreWatchdog();
 
       try {
-        await loadOlderMessages(
-          typeof pageSize === "number" ? pageSize : undefined,
-        );
+        // 极简模式折叠后一页常常只有几十像素高，10 条的默认页长会让用户每滚
+        // 一点就撞一次顶部、频繁触发翻页与滚动恢复；这里按当前显示模式加大
+        // 默认页长（定位等显式传入页长的调用不受影响）。
+        const effectivePageSize =
+          typeof pageSize === "number"
+            ? pageSize
+            : getToolCardStyle() === "minimal"
+              ? MINIMAL_TRANSCRIPT_PAGE_SIZE
+              : undefined;
+        await loadOlderMessages(effectivePageSize);
       } finally {
         // 正常路径由下方的恢复 layout effect 在「新页 commit」的渲染周期内
         // 消费 pending（paint 前校正，视觉零扰动）。此超时仅作兜底：新页为
@@ -1223,9 +1246,12 @@ export const useChatScrollFollow = ({
         return;
       }
 
-      // 快滚期间不翻页：新页落地的锚点校正要逐帧写 scrollTop，跟惯性滚动打架，
-      // 滚动很快时就是一顿一顿的。推迟到滚动停下后那次复查再做。
-      if (isScrollingFast()) {
+      // 快滚让位只在「上面还有可滚余量」时生效：极简模式一页常常只有几像素
+      // 高度，已经到顶还要推迟翻页，观感就变成「滚一下停一下」。
+      if (
+        container.scrollTop > LOAD_OLDER_SCROLL_THRESHOLD &&
+        isScrollingFast()
+      ) {
         armScrollSettleRecheck();
         return;
       }
