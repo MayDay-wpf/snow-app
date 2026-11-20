@@ -504,6 +504,19 @@ pub async fn update_conversation_api_profile(
     .map_err(map_spawn_error)?
 }
 
+/// 删除单个会话；delete_memories=true 时级联删除其保存的项目记忆。
+#[napi]
+pub async fn delete_conversation(
+    conversation_id: String,
+    delete_memories: Option<bool>,
+) -> napi::Result<()> {
+    tokio::task::spawn_blocking(move || {
+        crate::storage::delete_conversation(conversation_id, delete_memories.unwrap_or(false))
+    })
+    .await
+    .map_err(map_spawn_error)?
+}
+
 /// 批量删除的真实进度：phase 为阶段（prepare/delete/cleanup），
 /// done/total 为已处理/总工作单元数；total 为 0 表示总量尚未确定。
 #[napi(object)]

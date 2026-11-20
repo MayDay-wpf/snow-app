@@ -19,6 +19,8 @@ const platformMap = {
 const requiredExports = [
   // 核心存储与会话
   "initializeAppStorage",
+  // 单会话删除（IPC chat-conversations:delete 依赖；缺它会运行期崩 not a function）
+  "deleteConversation",
   // 对话请求代理层（用户脚本 onRequest / onResponseEvent 回调注册）
   "setRequestProxyHandler",
   "listCustomHeaderSchemes",
