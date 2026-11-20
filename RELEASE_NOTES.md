@@ -1,5 +1,27 @@
 # Release Notes
 
+## v0.5.21
+
+### New Features
+
+- **CodeMirror File Viewer**: the read-only code view and the editor are rebuilt on CodeMirror 6, replacing the custom virtual scroller, textarea and large-file fallback; highlight, theme, search, review and fold logic is shared by both modes, code files open directly in edit mode while Markdown and SVG keep the preview.
+- **Cloudflare R2 Backup and Resumable Tasks**: a shared object store abstraction lets the local directory and Cloudflare R2 backends reuse the same chunking, manifest, retention and restore logic; tasks write a journal so an interrupted run can be resumed or discarded on the next launch, with per-chunk progress, transfer speed and R2 connection testing.
+- **Backup Task Cancellation**: running backup and cleanup tasks can be cancelled; a cancelled task is not resumed and its leftover chunks are reclaimed by the next task, while automatic backups treat cancellation as success and reschedule silently.
+- **IM Character Card**: chat style settings gain a character card that can be written by hand or generated from the IM avatar with the advanced model of the selected API profile (streaming, cancellable), injected into the built-in system prompt in IM mode only.
+
+### Improvements
+
+- Aborting a streaming turn now requires a double ESC: the first press arms a 2s confirmation window and the second aborts, applied to global and detached-window shortcuts.
+- Same-tool group headers are redesigned with the tool name, call count, edit diff totals and the latest target; messages, tool groups and nodes share one entrance clock so animations no longer stack, and staggering only happens on manual expand.
+- The info header also covers workflow node conversations, with a dedicated badge and icon plus the first user prompt hidden from the list but reachable through message navigation.
+- The workflow canvas takes over wheel and pinch zoom only after a click, so hovering it no longer blocks chat scrolling.
+- A failed sub-agent request ends the run directly instead of offering retry or give up, leaving the reason to the parent conversation.
+
+### Bug Fixes
+
+- Lazy sidebar collapses settle through a timeout fallback when `transitionend` never fires, so rows no longer stay stuck on the loading placeholder.
+- Backup list load failures are reported inline while other errors go to a toast without the Electron IPC prefix.
+
 ## v0.5.20
 
 ### New Features
