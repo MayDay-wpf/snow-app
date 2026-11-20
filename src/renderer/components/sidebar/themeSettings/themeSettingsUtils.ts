@@ -564,6 +564,7 @@ export function normalizeThemeTypography(value: unknown): ThemeTypography {
 
 /** 空角色卡：角色名为空即视为未生成，不注入系统提示词。 */
 export const EMPTY_CHARACTER_CARD: ThemeCharacterCard = {
+  enabled: true,
   name: "",
   tagline: "",
   personality: "",
@@ -577,6 +578,8 @@ export function normalizeThemeCharacterCard(
 ): ThemeCharacterCard {
   const source = isRecord(value) ? value : {};
   return {
+    // 旧数据缺字段时视为启用
+    enabled: source.enabled !== false,
     name: toText(source.name).trim(),
     tagline: toText(source.tagline).trim(),
     personality: toText(source.personality).trim(),

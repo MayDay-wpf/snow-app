@@ -4251,6 +4251,10 @@ export const zhCN = {
   "settings.themeCharacterCardGreeting": "开场白",
   "settings.themeCharacterCardApplied": "角色卡已应用并注入系统提示词。",
   "settings.themeCharacterCardRemoved": "角色卡已移除，不再注入提示词。",
+  "settings.themeCharacterCardEnabledStatus":
+    "角色卡已启用，将注入系统提示词。",
+  "settings.themeCharacterCardDisabledStatus":
+    "角色卡已停用，内容保留但不再注入提示词。",
   "settings.themeCharacterCardModalTitle": "AI 角色卡",
   "settings.themeCharacterCardModalDescription":
     "根据 AI 头像生成角色卡并注入系统提示词，让 AI 以该人设对话；仅在启用 IM 风格时生效。",

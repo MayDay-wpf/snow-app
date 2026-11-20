@@ -4503,6 +4503,10 @@ export const en = {
     "Character card applied and injected into the system prompt.",
   "settings.themeCharacterCardRemoved":
     "Character card removed. It is no longer injected.",
+  "settings.themeCharacterCardEnabledStatus":
+    "Character card enabled and injected into the system prompt.",
+  "settings.themeCharacterCardDisabledStatus":
+    "Character card disabled. It is kept but no longer injected.",
   "settings.themeCharacterCardModalTitle": "AI character card",
   "settings.themeCharacterCardModalDescription":
     "Generate a character card from your AI avatar. The card is injected into the system prompt so the AI chats in that persona while IM style is enabled.",

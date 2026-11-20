@@ -547,6 +547,22 @@ export function ThemeSettingsPanel(): React.JSX.Element {
     );
   };
 
+  // 启停只切换注入状态，卡片内容保留。
+  const handleToggleCharacterCard = (enabled: boolean): void => {
+    persistCharacterCard(
+      { ...formRef.current.chatStyle.characterCard, enabled },
+      enabled
+        ? t("settings.themeCharacterCardEnabledStatus", {
+            defaultValue:
+              "Character card enabled and injected into the system prompt.",
+          })
+        : t("settings.themeCharacterCardDisabledStatus", {
+            defaultValue:
+              "Character card disabled. It is kept but no longer injected.",
+          }),
+    );
+  };
+
   const handleRemoveCharacterCard = (): void => {
     const nextSettings: ThemeSettings = {
       ...formRef.current,
@@ -1094,6 +1110,7 @@ export function ThemeSettingsPanel(): React.JSX.Element {
             onResetAvatar={handleResetChatAvatar}
             onGenerateCharacterCard={() => setCharacterCardOpen(true)}
             onSaveCharacterCard={handleSaveCharacterCard}
+            onToggleCharacterCard={handleToggleCharacterCard}
             onRemoveCharacterCard={handleRemoveCharacterCard}
           />
 

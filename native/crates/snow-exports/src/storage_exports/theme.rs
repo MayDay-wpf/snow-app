@@ -253,6 +253,8 @@ impl From<ThemeTypographyNapi> for ThemeTypography {
 
 #[napi(object)]
 pub struct ThemeCharacterCardNapi {
+    // 可选：旧调用方未携带时视为启用
+    pub enabled: Option<bool>,
     pub name: String,
     pub tagline: String,
     pub personality: String,
@@ -264,6 +266,7 @@ pub struct ThemeCharacterCardNapi {
 impl From<ThemeCharacterCard> for ThemeCharacterCardNapi {
     fn from(c: ThemeCharacterCard) -> Self {
         ThemeCharacterCardNapi {
+            enabled: Some(c.enabled),
             name: c.name,
             tagline: c.tagline,
             personality: c.personality,
@@ -277,6 +280,7 @@ impl From<ThemeCharacterCard> for ThemeCharacterCardNapi {
 impl From<ThemeCharacterCardNapi> for ThemeCharacterCard {
     fn from(c: ThemeCharacterCardNapi) -> Self {
         ThemeCharacterCard {
+            enabled: c.enabled.unwrap_or(true),
             name: c.name,
             tagline: c.tagline,
             personality: c.personality,

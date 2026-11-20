@@ -15,6 +15,7 @@ type ThemeChatStyleSectionProps = {
   onResetAvatar: (role: ChatAvatarRole) => Promise<void>;
   onGenerateCharacterCard: () => void;
   onSaveCharacterCard: (card: ThemeCharacterCard) => void;
+  onToggleCharacterCard: (enabled: boolean) => void;
   onRemoveCharacterCard: () => void;
 };
 
@@ -30,6 +31,7 @@ export function ThemeChatStyleSection({
   onResetAvatar,
   onGenerateCharacterCard,
   onSaveCharacterCard,
+  onToggleCharacterCard,
   onRemoveCharacterCard,
 }: ThemeChatStyleSectionProps): React.JSX.Element {
   const { t } = useI18n();
@@ -106,6 +108,7 @@ export function ThemeChatStyleSection({
 
   const card = chatStyle.characterCard;
   const hasCard = Boolean(card.name);
+  const cardEnabled = card.enabled;
 
   const characterFields: Array<{
     key: CharacterCardFieldKey;
@@ -216,7 +219,11 @@ export function ThemeChatStyleSection({
             {renderAvatarCard("ai")}
             {renderAvatarCard("user")}
           </div>
-          <div className="theme-character-card">
+          <div
+            className={`theme-character-card${
+              hasCard && !cardEnabled ? " is-disabled" : ""
+            }`}
+          >
             <div className="theme-character-card-head">
               <div className="theme-character-card-identity">
                 <span className="theme-character-card-title">
@@ -230,6 +237,25 @@ export function ThemeChatStyleSection({
                     })}
                   />
                 </span>
+                {hasCard ? (
+                  <label className="toggle-switch">
+                    <input
+                      type="checkbox"
+                      checked={cardEnabled}
+                      onChange={(event) =>
+                        onToggleCharacterCard(event.target.checked)
+                      }
+                      disabled={disabled}
+                      hidden
+                    />
+                    <span className="toggle-slider" />
+                    <span>
+                      {cardEnabled
+                        ? t("settings.enabled", { defaultValue: "Enabled" })
+                        : t("settings.disabled", { defaultValue: "Disabled" })}
+                    </span>
+                  </label>
+                ) : null}
               </div>
               <div className="theme-character-card-actions">
                 {editingCard ? (

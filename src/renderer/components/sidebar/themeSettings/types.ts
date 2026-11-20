@@ -92,6 +92,8 @@ export type ThemeTypography = {
 
 /** IM 风格角色卡：AI 根据图片生成的角色设定（注入系统提示词）。 */
 export type ThemeCharacterCard = {
+  /** 启停开关；停用时保留卡片但不注入提示词。 */
+  enabled: boolean;
   name: string;
   tagline: string;
   personality: string;

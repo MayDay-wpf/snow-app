@@ -10,6 +10,7 @@ export const DEFAULT_CHAT_STYLE: ThemeChatStyle = {
   aiAvatarPath: "",
   userAvatarPath: "",
   characterCard: {
+    enabled: true,
     name: "",
     tagline: "",
     personality: "",

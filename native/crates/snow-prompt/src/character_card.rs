@@ -7,7 +7,7 @@
 
 use snow_storage_services::get_theme_settings;
 
-/// 渲染角色卡章节；未启用 IM 风格、未生成角色卡或读取失败时返回空串。
+/// 渲染角色卡章节；未启用 IM 风格、角色卡停用/未生成或读取失败时返回空串。
 pub fn build_character_card_section() -> String {
     let Ok(settings) = get_theme_settings() else {
         return String::new();
@@ -17,7 +17,7 @@ pub fn build_character_card_section() -> String {
         return String::new();
     }
     let card = chat_style.character_card;
-    if !card.is_active() {
+    if !card.enabled || !card.is_active() {
         return String::new();
     }
 

@@ -4253,6 +4253,10 @@ export const zhTW = {
   "settings.themeCharacterCardGreeting": "開場白",
   "settings.themeCharacterCardApplied": "角色卡已套用並注入系統提示詞。",
   "settings.themeCharacterCardRemoved": "角色卡已移除，不再注入提示詞。",
+  "settings.themeCharacterCardEnabledStatus":
+    "角色卡已啟用，將注入系統提示詞。",
+  "settings.themeCharacterCardDisabledStatus":
+    "角色卡已停用，內容保留但不再注入提示詞。",
   "settings.themeCharacterCardModalTitle": "AI 角色卡",
   "settings.themeCharacterCardModalDescription":
     "依 AI 頭像生成角色卡並注入系統提示詞，讓 AI 以該人設對話；僅在啟用 IM 風格時生效。",

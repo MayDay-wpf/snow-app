@@ -351,15 +351,31 @@ impl ThemeTypography {
 }
 
 /// IM 风格角色卡：AI 根据图片生成的角色设定，注入系统提示词。
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct ThemeCharacterCard {
+    /// 启停开关；旧数据缺字段时视为启用。
+    pub enabled: bool,
     pub name: String,
     pub tagline: String,
     pub personality: String,
     pub speaking_style: String,
     pub background: String,
     pub greeting: String,
+}
+
+impl Default for ThemeCharacterCard {
+    fn default() -> Self {
+        ThemeCharacterCard {
+            enabled: true,
+            name: String::new(),
+            tagline: String::new(),
+            personality: String::new(),
+            speaking_style: String::new(),
+            background: String::new(),
+            greeting: String::new(),
+        }
+    }
 }
 
 impl ThemeCharacterCard {

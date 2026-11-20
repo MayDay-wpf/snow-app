@@ -719,8 +719,9 @@
 .theme-character-card-identity {
   display: flex;
   min-width: 0;
-  flex-direction: column;
-  gap: 2px;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
 }
 
 .theme-character-card-title {
@@ -755,6 +756,12 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
+  transition: opacity 0.15s;
+}
+
+/* 停用态：保留卡片内容但弱化显示 */
+.theme-character-card.is-disabled .theme-character-card-body {
+  opacity: 0.5;
 }
 
 /* 角色名与简介同一行：名字在前，简介作为次级说明随行排布 */
