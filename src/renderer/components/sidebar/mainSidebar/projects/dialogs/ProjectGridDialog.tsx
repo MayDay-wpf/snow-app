@@ -5,7 +5,6 @@ import {
   Link2,
   Link2Off,
   Search,
-  Server,
   X,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -13,6 +12,7 @@ import type { DragEvent } from "react";
 
 import { useI18n } from "../../../../../i18n";
 import { getFileTypeIcon } from "../../../../../utils/fileIcons";
+import { useSshConnectionStatus } from "../../../../../ssh/sshConnectionStore";
 import type {
   ProjectCollectionRecord,
   WorkspaceDirectoryRecord,
@@ -20,6 +20,7 @@ import type {
 import { FormDialog } from "../../../../common/FormDialog";
 import { Tooltip } from "../../../../common/Tooltip";
 import { buildDirectoryDisplayNames } from "../../directoryDisplayName";
+import { getDirectoryIcon } from "../../WorkspaceDirectoryRow";
 import type { DirectoryDragDropController } from "../useDirectoryDragDrop";
 
 type ProjectGridDialogProps = {
@@ -38,6 +39,18 @@ type ProjectGridGroup = {
   collection: ProjectCollectionRecord | null;
   directories: WorkspaceDirectoryRecord[];
 };
+
+/** 项目网格卡片里的 SSH 图标：订阅连接状态，配色与目录行一致。 */
+function ProjectGridSshIcon({
+  directory,
+}: {
+  directory: WorkspaceDirectoryRecord;
+}): React.JSX.Element {
+  return getDirectoryIcon(directory, {
+    sshStatus: useSshConnectionStatus(directory),
+    sshIconSize: 16,
+  });
+}
 
 export function ProjectGridDialog({
   activeDirectoryId,
@@ -320,7 +333,7 @@ export function ProjectGridDialog({
           ) : null}
           <span className="project-grid-card-icon">
             {directory.kind === "ssh" ? (
-              <Server className="list-icon list-icon--ssh" size={16} />
+              <ProjectGridSshIcon directory={directory} />
             ) : (
               getFileTypeIcon(directory.name, true, directory.isActive, {
                 size: 16,

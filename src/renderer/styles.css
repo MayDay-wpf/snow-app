@@ -1434,9 +1434,15 @@ body.is-panel-resizing * {
   flex-shrink: 0;
 }
 
-/* 项目列表图标语义配色：SSH=红 / 合集=绿（本地文件夹沿用资源管理器配色） */
+/* 项目列表图标语义配色：SSH 只表达连接状态（未连接=灰、已连接=绿），
+   合集=绿；本地文件夹沿用资源管理器配色。两种配色都取自主题文本色，
+   深浅主题下的对比度由主题变量保证 */
 .list-icon--ssh {
-  color: var(--accent-red-text);
+  color: var(--text-muted);
+}
+
+.list-icon--ssh.list-icon--ssh-connected {
+  color: var(--accent-green-text);
 }
 
 .list-icon--collection {

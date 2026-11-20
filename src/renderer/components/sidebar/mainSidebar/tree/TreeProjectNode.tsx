@@ -226,7 +226,10 @@ export function TreeProjectNode({
       >
         {isEditing ? (
           <div className="list-item tree-project-row-edit">
-            {getDirectoryIcon(directory, { currentProject: isActive })}
+            {getDirectoryIcon(directory, {
+              currentProject: isActive,
+              sshStatus,
+            })}
             <input
               className="workspace-directory-rename-input"
               type="text"
@@ -275,7 +278,10 @@ export function TreeProjectNode({
               title={directory.path}
               type="button"
             >
-              {getDirectoryIcon(directory, { currentProject: isActive })}
+              {getDirectoryIcon(directory, {
+                currentProject: isActive,
+                sshStatus,
+              })}
               <span className="list-label">
                 {displayName ?? directory.name}
               </span>

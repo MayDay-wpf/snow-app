@@ -28,6 +28,7 @@ import { setChatDragData } from "./chatDrag";
 import { formatTooltipTimeLabel, parseDbTimestamp } from "./chatTimeGroup";
 import { useDirectoryInfo } from "./useDirectoryInfo";
 import { getDirectoryIcon } from "./WorkspaceDirectoryRow";
+import { useSshConnectionStatus } from "../../../ssh/sshConnectionStore";
 
 /** 悬浮详情延迟：避免鼠标划过列表时不断弹出卡片。 */
 const HOVER_TOOLTIP_DELAY = 120;
@@ -137,6 +138,8 @@ export function ChatItem({
   const cancelledRef = useRef(false);
   const [isDragSource, setIsDragSource] = useState(false);
   const directoryInfo = useDirectoryInfo(conversation.directoryId);
+  // 非 SSH 目录返回 null：悬浮详情里的 Server 图标配色与目录行一致
+  const sshStatus = useSshConnectionStatus(directoryInfo?.record ?? null);
   const overlayOpen = useOverlayOpen();
 
   useEffect(() => {
@@ -688,6 +691,7 @@ export function ChatItem({
                 <div className="chat-item-tooltip-project">
                   {getDirectoryIcon(directoryInfo.record, {
                     currentProject: directoryInfo.record.isActive,
+                    sshStatus,
                   })}
                   <span className="chat-item-tooltip-project-name">
                     {directoryInfo.name}

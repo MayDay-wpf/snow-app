@@ -15,9 +15,33 @@ const SPLIT_MAX = 0.85;
 const SPLIT_DEFAULT = 0.5;
 /** 拖拽位移小于该值（px）时视为点击，用于切换提交图收起状态。 */
 const DRAG_THRESHOLD = 4;
+/** 提交图高度比例在浏览器端的持久化键名，重启后据此复原。 */
+const SPLIT_STORAGE_KEY = "git-panel-split-ratio";
 
 const clamp = (value: number, min: number, max: number): number =>
   Math.min(Math.max(value, min), max);
+
+/** 读取上次拖拽保存的提交图高度比例；不可用时回退默认值。 */
+const readStoredSplitRatio = (): number => {
+  try {
+    const raw = window.localStorage.getItem(SPLIT_STORAGE_KEY);
+    const parsed = raw === null ? Number.NaN : Number.parseFloat(raw);
+    return Number.isFinite(parsed)
+      ? clamp(parsed, SPLIT_MIN, SPLIT_MAX)
+      : SPLIT_DEFAULT;
+  } catch {
+    return SPLIT_DEFAULT;
+  }
+};
+
+/** 保存提交图高度比例；存储不可用时忽略，当前会话内仍然生效。 */
+const writeStoredSplitRatio = (ratio: number): void => {
+  try {
+    window.localStorage.setItem(SPLIT_STORAGE_KEY, String(ratio));
+  } catch {
+    // 忽略存储失败
+  }
+};
 
 export function GitPanelContent({
   activeDirectory,
@@ -31,7 +55,9 @@ export function GitPanelContent({
 }): React.JSX.Element {
   const { t } = useI18n();
   const [gitStatus, setGitStatus] = useState<GitStatusResult | null>(null);
-  const [splitRatio, setSplitRatio] = useState(SPLIT_DEFAULT);
+  const [splitRatio, setSplitRatio] = useState(readStoredSplitRatio);
+  // 拖拽过程中的最新比例：松手时据此写入 localStorage。
+  const splitRatioRef = useRef(splitRatio);
   // 提交图区域是否收起：点击分隔条切换，收起时上方变更区占满，分隔条保留
   // 在原位供再次点击展开（展开后恢复收起前的高度比例）。
   const [graphCollapsed, setGraphCollapsed] = useState(false);
@@ -153,13 +179,13 @@ export function GitPanelContent({
           container.clientHeight - resizer.offsetHeight,
         );
         const ratio = (pointerEvent.clientY - rect.top - grabOffset) / height;
-        setSplitRatio(
-          clamp(
-            ratio,
-            SPLIT_MIN,
-            wasCollapsed ? 1 : Math.max(SPLIT_MAX, splitRatio),
-          ),
+        const nextRatio = clamp(
+          ratio,
+          SPLIT_MIN,
+          wasCollapsed ? 1 : Math.max(SPLIT_MAX, splitRatio),
         );
+        splitRatioRef.current = nextRatio;
+        setSplitRatio(nextRatio);
       };
 
       const cleanup = (): void => {
@@ -168,6 +194,8 @@ export function GitPanelContent({
         document.removeEventListener("pointercancel", handlePointerCancel);
         window.removeEventListener("blur", cleanup);
         resizeCleanupRef.current = null;
+        // 仅在真正拖拽过时持久化，点击折叠不改变记住的高度。
+        if (moved) writeStoredSplitRatio(splitRatioRef.current);
         // 在最终一帧布局完成后再恢复过渡，避免松手时分割线反弹。
         resumeFrameRef.current = requestAnimationFrame(() => {
           document.body.classList.remove("is-git-pane-resizing");
