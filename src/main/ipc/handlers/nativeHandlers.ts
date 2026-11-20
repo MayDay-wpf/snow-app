@@ -991,6 +991,39 @@ export const registerNativeHandlers = (native: NativeBridge): void => {
 
     return native.listMcpServerTools(configServerId.trim());
   });
+  // 远程 MCP 的 OAuth 授权：Rust 侧负责元数据发现、客户端注册、本机回调
+  // 监听与令牌交换，主进程只做参数校验。
+  ipcMain.handle(
+    "mcp:oauth-login-start",
+    (_event, projectId: unknown, configServerId: unknown) => {
+      if (typeof configServerId !== "string" || !configServerId.trim()) {
+        throw new Error("MCP server id is required");
+      }
+      if (
+        projectId !== undefined &&
+        projectId !== null &&
+        (typeof projectId !== "string" || !projectId.trim())
+      ) {
+        throw new Error("Project id must be a non-empty string");
+      }
+      return native.startMcpOAuthLogin(
+        typeof projectId === "string" ? projectId.trim() : undefined,
+        configServerId.trim(),
+      );
+    },
+  );
+  ipcMain.handle("mcp:oauth-login-status", (_event, sessionId: unknown) => {
+    if (typeof sessionId !== "string" || !sessionId.trim()) {
+      throw new Error("OAuth session id is required");
+    }
+    return native.getMcpOAuthLoginStatus(sessionId.trim());
+  });
+  ipcMain.handle("mcp:oauth-login-cancel", (_event, sessionId: unknown) => {
+    if (typeof sessionId !== "string" || !sessionId.trim()) {
+      throw new Error("OAuth session id is required");
+    }
+    return native.cancelMcpOAuthLogin(sessionId.trim());
+  });
   // 自定义 API MCP：按草稿发送测试请求
   ipcMain.handle("mcp:test-api-endpoint", (_event, input: unknown) => {
     if (!input || typeof input !== "object") {

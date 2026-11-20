@@ -1,5 +1,6 @@
 import {
   ChevronRight,
+  KeyRound,
   Loader2,
   Pencil,
   Search,
@@ -22,6 +23,8 @@ export type McpSettingsListItem = {
   /** 由项目内有效启用的工具插件派生，不提供独立启停。 */
   automatic?: boolean;
   unavailableReason?: string;
+  /** 远程 HTTP 服务器：支持 OAuth 浏览器授权。 */
+  authSupported?: boolean;
 };
 
 const formatToolSchema = (inputSchemaJson: string): string => {
@@ -41,6 +44,7 @@ type McpSettingsListProps = {
   fetchingToolServerIds: ReadonlySet<string>;
   onToggleEnabled: (server: McpSettingsListItem) => void;
   onFetchTools: (server: McpSettingsListItem) => void;
+  onAuthorize: (server: McpSettingsListItem) => void;
   onToggleTool: (
     server: McpSettingsListItem,
     tool: McpServerTool,
@@ -60,6 +64,7 @@ export function McpSettingsList({
   fetchingToolServerIds,
   onToggleEnabled,
   onFetchTools,
+  onAuthorize,
   onToggleTool,
   onToggleAllTools,
   onEdit,
@@ -208,6 +213,22 @@ export function McpSettingsList({
                     )}
                     <span>{toolCount ?? "-"}</span>
                   </button>
+                  {server.authSupported && (
+                    <button
+                      className="icon-btn ghost"
+                      onClick={() => onAuthorize(server)}
+                      type="button"
+                      aria-label={t("settings.mcpOAuthAction", {
+                        defaultValue: "OAuth sign-in",
+                      })}
+                      title={t("settings.mcpOAuthAction", {
+                        defaultValue: "OAuth sign-in",
+                      })}
+                      disabled={isBusy}
+                    >
+                      <KeyRound size={14} strokeWidth={1.9} />
+                    </button>
+                  )}
                   {server.canManage && (
                     <>
                       <button

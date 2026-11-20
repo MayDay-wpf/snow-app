@@ -3303,6 +3303,21 @@ export const zhTW = {
     "MCP 伺服器連線初始化失敗，伺服器可能不相容目前協定。",
   "settings.mcpErrorHttpConnectFailed":
     "無法連線 MCP HTTP 伺服器。請檢查 URL 與網路。",
+  "settings.mcpErrorAuthRequired":
+    "此伺服器需要 OAuth 授權，請點擊伺服器列上的「OAuth 授權」完成瀏覽器登入。",
+  "settings.mcpOAuthAction": "OAuth 授權",
+  "settings.mcpOAuthTitle": "MCP OAuth 授權",
+  "settings.mcpOAuthWaiting": "等待瀏覽器完成授權…",
+  "settings.mcpOAuthHint":
+    "請在瀏覽器中完成登入，授權後伺服器工具會自動重新載入。",
+  "settings.mcpOAuthOpenBrowser": "開啟授權頁面",
+  "settings.mcpOAuthSuccess": "授權成功",
+  "settings.mcpOAuthSuccessHint": "正在使用新的授權重新載入此伺服器的工具。",
+  "settings.mcpOAuthFailed": "OAuth 授權失敗，請重試。",
+  "settings.mcpOAuthCancelled": "OAuth 授權已取消。",
+  "settings.mcpOAuthCancel": "取消授權",
+  "settings.mcpOAuthClose": "關閉",
+  "settings.mcpOAuthDone": "完成",
   "settings.mcpErrorMissingCommand": "此 MCP 伺服器未設定啟動命令。",
   "settings.mcpErrorMissingUrl": "此 MCP 伺服器未設定 URL。",
   "settings.mcpErrorNotConfigured":

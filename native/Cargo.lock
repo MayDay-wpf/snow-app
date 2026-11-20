@@ -1514,8 +1514,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ff2abc00be7fca6ebc474524697ae276ad847ad0a6b3faa4bcb027e9a4614ad0"
 dependencies = [
  "cfg-if",
+ "js-sys",
  "libc",
  "wasi",
+ "wasm-bindgen",
 ]
 
 [[package]]
@@ -2492,6 +2494,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "oauth2"
+version = "5.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "51e219e79014df21a225b1860a479e2dcd7cbd9130f4defd4bd0e191ea31d67d"
+dependencies = [
+ "base64 0.21.7",
+ "chrono",
+ "getrandom 0.2.17",
+ "http",
+ "rand 0.8.8",
+ "serde",
+ "serde_json",
+ "serde_path_to_error",
+ "sha2",
+ "thiserror 1.0.69",
+ "url",
+]
+
+[[package]]
 name = "objc2"
 version = "0.6.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3340,6 +3361,7 @@ dependencies = [
  "chrono",
  "futures",
  "http",
+ "oauth2",
  "pin-project-lite",
  "process-wrap",
  "reqwest 0.13.4",
@@ -3351,6 +3373,7 @@ dependencies = [
  "tokio-stream",
  "tokio-util",
  "tracing",
+ "url",
 ]
 
 [[package]]
@@ -4313,6 +4336,7 @@ dependencies = [
 name = "snow-tools"
 version = "0.5.16"
 dependencies = [
+ "async-trait",
  "blake3",
  "chrono",
  "futures",

@@ -89,6 +89,10 @@ const requiredExports = [
   "listMemorySourceConversations",
   // MCP 设置面板保存链路（快速列表：只读发现缓存，保存不再等全量工具发现）
   "listMcpProjectServersCached",
+  // 远程 MCP 服务器的 OAuth 授权（浏览器登录 + 回调会话轮询）
+  "startMcpOAuthLogin",
+  "getMcpOAuthLoginStatus",
+  "cancelMcpOAuthLogin",
   // 全局子代理工具目录（不依赖项目）
   "listMcpGlobalServers",
   // 子代理白名单不可用工具诊断

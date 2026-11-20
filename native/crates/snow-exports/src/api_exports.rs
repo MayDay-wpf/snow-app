@@ -389,6 +389,30 @@ pub async fn list_mcp_server_tools(
     list_server_tools(config_server_id).await
 }
 
+/// 启动远程 MCP 服务器的 OAuth 授权：返回会话 id 与浏览器授权地址。
+#[napi(js_name = "startMcpOAuthLogin")]
+pub async fn start_mcp_oauth_login(
+    project_id: Option<String>,
+    config_server_id: String,
+) -> napi::Result<crate::mcp::external::oauth::McpOAuthStart> {
+    let project_id = project_id.filter(|value| !value.trim().is_empty());
+    crate::mcp::external::oauth::start_login(project_id.as_deref(), config_server_id.trim()).await
+}
+
+/// 查询 MCP OAuth 授权会话状态（pending / success / error / cancelled）。
+#[napi(js_name = "getMcpOAuthLoginStatus")]
+pub fn get_mcp_oauth_login_status(
+    session_id: String,
+) -> napi::Result<Option<crate::mcp::external::oauth::McpOAuthStatus>> {
+    Ok(crate::mcp::external::oauth::login_status(session_id.trim()))
+}
+
+/// 取消仍在等待的 MCP OAuth 授权会话。
+#[napi(js_name = "cancelMcpOAuthLogin")]
+pub fn cancel_mcp_oauth_login(session_id: String) -> napi::Result<bool> {
+    Ok(crate::mcp::external::oauth::cancel_login(session_id.trim()))
+}
+
 /// 自定义 API MCP：按草稿配置发送一次测试请求（无需先保存）。
 #[napi]
 pub async fn test_mcp_api_endpoint(

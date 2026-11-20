@@ -1,5 +1,6 @@
 pub mod api;
 mod http;
+pub mod oauth;
 mod stdio;
 
 use std::collections::{HashMap, HashSet};
@@ -665,7 +666,9 @@ async fn discover_config_tools(
         }
     }
 
-    let tools = discover_config_tools_inner(config, server_name.clone()).await?;
+    let tools = discover_config_tools_inner(config, server_name.clone())
+        .await
+        .map_err(oauth::normalize_error)?;
 
     if !force {
         if let Ok(mut guard) = discovery_cache().lock() {

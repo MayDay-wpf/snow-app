@@ -41,6 +41,14 @@ export const formatMcpError = (error: unknown, t: McpTranslate): string => {
     });
   }
 
+  // 远程服务器要求 OAuth 授权：界面提供授权入口，这里给出可操作提示。
+  if (message.startsWith("mcp:auth_required")) {
+    return t("settings.mcpErrorAuthRequired", {
+      defaultValue:
+        "This server requires OAuth authorization. Use the OAuth sign-in action to finish the browser login.",
+    });
+  }
+
   // 协议握手阶段连接被关闭：服务器可能不支持新版 MCP 协议（2026-07-28
   // 无状态协议的 discover 握手），旧服务器收到 discover 请求后直接退出。
   if (message.includes("connection closed: discover response")) {

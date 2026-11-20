@@ -42,6 +42,8 @@ import type {
   CodebaseSyncResult,
   McpApiTestInput,
   McpApiTestResult,
+  McpOAuthLoginStart,
+  McpOAuthLoginStatus,
   McpProjectServerStatus,
   McpProjectToolStatus,
   McpToolDefinition,
@@ -839,6 +841,21 @@ export const systemApi = {
     ipcRenderer.invoke("skills:list-github"),
   listMcpServerTools: (configServerId: string): Promise<McpToolStatus[]> =>
     ipcRenderer.invoke("mcp:list-server-tools", configServerId),
+  /**
+   * 启动远程 MCP 服务器的 OAuth 授权：返回浏览器授权地址与会话 id，
+   * 之后轮询 `getMcpOAuthLoginStatus` 等待回调完成。
+   */
+  startMcpOAuthLogin: (
+    projectId: string | undefined,
+    configServerId: string,
+  ): Promise<McpOAuthLoginStart> =>
+    ipcRenderer.invoke("mcp:oauth-login-start", projectId, configServerId),
+  getMcpOAuthLoginStatus: (
+    sessionId: string,
+  ): Promise<McpOAuthLoginStatus | null> =>
+    ipcRenderer.invoke("mcp:oauth-login-status", sessionId),
+  cancelMcpOAuthLogin: (sessionId: string): Promise<boolean> =>
+    ipcRenderer.invoke("mcp:oauth-login-cancel", sessionId),
   /** 自定义 API MCP：按草稿发送测试请求。 */
   testMcpApiEndpoint: (input: McpApiTestInput): Promise<McpApiTestResult> =>
     ipcRenderer.invoke("mcp:test-api-endpoint", input),

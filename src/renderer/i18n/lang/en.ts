@@ -3478,6 +3478,22 @@ export const en = {
     "Failed to initialize the MCP server connection. The server may not be compatible with the current protocol.",
   "settings.mcpErrorHttpConnectFailed":
     "Failed to connect to the MCP HTTP server. Check the URL and network.",
+  "settings.mcpErrorAuthRequired":
+    "This server requires OAuth authorization. Use the OAuth sign-in action on the server row to finish the browser login.",
+  "settings.mcpOAuthAction": "OAuth sign-in",
+  "settings.mcpOAuthTitle": "MCP OAuth authorization",
+  "settings.mcpOAuthWaiting": "Waiting for the browser sign-in to complete...",
+  "settings.mcpOAuthHint":
+    "Finish the sign-in in the browser. The server tools reload automatically once it completes.",
+  "settings.mcpOAuthOpenBrowser": "Open authorization page",
+  "settings.mcpOAuthSuccess": "Signed in successfully",
+  "settings.mcpOAuthSuccessHint":
+    "Reloading this server's tools with the new authorization.",
+  "settings.mcpOAuthFailed": "OAuth sign-in failed. Please try again.",
+  "settings.mcpOAuthCancelled": "The OAuth sign-in was cancelled.",
+  "settings.mcpOAuthCancel": "Cancel sign-in",
+  "settings.mcpOAuthClose": "Close",
+  "settings.mcpOAuthDone": "Done",
   "settings.mcpErrorMissingCommand":
     "This MCP server has no command configured.",
   "settings.mcpErrorMissingUrl": "This MCP server has no URL configured.",

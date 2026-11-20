@@ -15,6 +15,7 @@ snow-text = { path = "../snow-text" }
 snow-process = { path = "../snow-process" }
 napi.workspace = true
 napi-derive = "3.2.4"
+async-trait = "0.1"
 tokio.workspace = true
 serde = { version = "1.0.204", features = ["derive"] }
 serde_json.workspace = true
@@ -29,6 +30,7 @@ url = "2"
 reqwest = { version = "0.12.5", features = ["json", "stream"] }
 rmcp = { version = "3.0.1", default-features = false, features = [
     "client",
+    "auth",
     "transport-child-process",
     "transport-streamable-http-client-reqwest",
     "reqwest-native-tls",

@@ -4,6 +4,7 @@ use http::header::{HeaderName, HeaderValue};
 use napi::{Error, Result};
 use rmcp::model::ClientInfo;
 use rmcp::service::{ClientLifecycleMode, ClientServiceExt, RunningService};
+use rmcp::transport::auth::{AuthClient, AuthorizationManager, InMemoryStateStore};
 use rmcp::transport::{
     streamable_http_client::StreamableHttpClientTransportConfig, StreamableHttpClientTransport,
 };
@@ -13,18 +14,22 @@ use snow_storage_core::models::McpServerConfigRecord;
 use crate::protocol::RemoteMcpTool;
 
 pub(super) type HttpRunningClient = RunningService<rmcp::RoleClient, ClientInfo>;
+pub(super) type HttpTransport =
+    StreamableHttpClientTransport<AuthClient<rmcp_reqwest::Client>>;
 
-/// 构建外部 MCP 的 HTTP 客户端。
+/// 构建 HTTP 客户端。MCP 传输与 OAuth 端点共用应用代理（设置 → 代理与浏览器）
+/// 与统一 User-Agent。
 ///
-/// 保留 rmcp 默认客户端的连接池 / 重定向策略，并叠加应用代理
-/// （设置 → 代理与浏览器）与统一 User-Agent：远程 MCP 端点与 AI API
-/// 请求遵循同一套代理配置，本地回环与内网端点由 NO_PROXY 语义直连。
-async fn build_transport_http_client() -> Result<rmcp_reqwest::Client> {
+/// `follow_redirects` 为 false 时禁用重定向：MCP 请求不应被端点悄悄改写；
+/// OAuth 端点常经 CDN 跳转，登录流程使用 true。
+pub(super) async fn build_http_client(follow_redirects: bool) -> Result<rmcp_reqwest::Client> {
     let proxy_config = snow_net::http_client::load_proxy_config().await?;
     let mut builder = rmcp_reqwest::Client::builder()
         .user_agent(snow_net::http_client::app_user_agent())
-        .pool_max_idle_per_host(0)
-        .redirect(rmcp_reqwest::redirect::Policy::none());
+        .pool_max_idle_per_host(0);
+    if !follow_redirects {
+        builder = builder.redirect(rmcp_reqwest::redirect::Policy::none());
+    }
 
     if let Some(proxy_url) = proxy_config.proxy_url() {
         let proxy = rmcp_reqwest::Proxy::all(proxy_url)
@@ -45,14 +50,50 @@ async fn build_transport_http_client() -> Result<rmcp_reqwest::Client> {
 fn build_transport(
     url: &str,
     custom_headers: HashMap<HeaderName, HeaderValue>,
-    client: rmcp_reqwest::Client,
-) -> StreamableHttpClientTransport<rmcp_reqwest::Client> {
+    client: AuthClient<rmcp_reqwest::Client>,
+) -> HttpTransport {
     let mut transport_config = StreamableHttpClientTransportConfig::with_uri(url);
     if !custom_headers.is_empty() {
         transport_config = transport_config.custom_headers(custom_headers);
     }
     StreamableHttpClientTransport::with_client(client, transport_config)
 }
+
+/// 构建带 OAuth 能力的传输层。
+///
+/// `AuthClient` 在没有凭据时以无认证方式发送请求（服务器的 401 会以
+/// `AuthRequired` 暴露给调用方，前端据此引导授权）；存在凭据时自动附带
+/// Bearer 令牌，令牌被拒绝时静默刷新并重试一次。
+async fn build_oauth_transport(
+    url: &str,
+    custom_headers: HashMap<HeaderName, HeaderValue>,
+) -> Result<HttpTransport> {
+    let http_client = build_http_client(false).await?;
+    let credential_store = super::oauth::FileCredentialStore::for_url(url)?;
+    let mut manager = AuthorizationManager::new(url).await.map_err(|error| {
+        Error::from_reason(format!(
+            "Failed to prepare external MCP OAuth client: {error}"
+        ))
+    })?;
+    manager.with_client(http_client.clone()).map_err(|error| {
+        Error::from_reason(format!(
+            "Failed to prepare external MCP OAuth client: {error}"
+        ))
+    })?;
+    manager.set_credential_store(credential_store.clone());
+    manager.set_state_store(InMemoryStateStore::new());
+    if credential_store.has_credentials().await {
+        // 元数据发现失败时退化为无认证连接，由服务器 401 驱动重新授权。
+        let _ = manager.initialize_from_store().await;
+    }
+
+    Ok(build_transport(
+        url,
+        custom_headers,
+        AuthClient::new(http_client, manager),
+    ))
+}
+
 
 pub(super) struct HttpMcpClient {
     client: HttpRunningClient,
@@ -91,11 +132,7 @@ impl HttpMcpClient {
 
         let client_info = ClientInfo::default();
 
-        let transport = build_transport(
-            url,
-            custom_headers,
-            build_transport_http_client().await?,
-        );
+        let transport = build_oauth_transport(url, custom_headers).await?;
 
         // 旧 SDK 服务器（如 fastmcp 构建的 firecrawl-mcp）对带 `_meta` 的
         // `server/discover` 探测会静默不响应——既不返回 JSON-RPC 错误也不
@@ -114,7 +151,18 @@ impl HttpMcpClient {
 
         match auto_result {
             Ok(Ok(running)) => Ok(Self { client: running }),
-            Ok(Err(error)) if super::should_retry_with_legacy_handshake(&error) => {
+            Ok(Err(error)) => {
+                // 401 / 403：服务器要求 OAuth 授权。此时任何协议回退都没有
+                // 意义，直接以稳定错误前缀上报，由界面引导浏览器授权。
+                if let Some(auth_error) = super::oauth::auth_required_from_client_error(&error) {
+                    return Err(auth_error);
+                }
+                if !super::should_retry_with_legacy_handshake(&error) {
+                    return Err(Error::from_reason(format!(
+                        "Failed to connect external MCP HTTP server {}: {error}",
+                        config.name
+                    )));
+                }
                 // 服务器不支持 server/discover（规范 JSON-RPC 错误 / discover
                 // 阶段传输失败，如仅支持 2024-11-05 会话式的服务器对 discover
                 // 探测回 HTTP 400 非 JSON-RPC 响应，issue #119）。记录回退
@@ -129,17 +177,9 @@ impl HttpMcpClient {
                         super::remember_legacy_handshake(&memory_key);
                         Ok(client)
                     }
-                    // 重试失败时保留原始 Auto 错误(含版本协商诊断信息)
-                    Err(_) => Err(Error::from_reason(format!(
-                        "Failed to connect external MCP HTTP server {}: {error}",
-                        config.name
-                    ))),
+                    Err(error) => Err(super::oauth::normalize_error(error)),
                 }
             }
-            Ok(Err(error)) => Err(Error::from_reason(format!(
-                "Failed to connect external MCP HTTP server {}: {error}",
-                config.name
-            ))),
             Err(_elapsed) => {
                 // server/discover 探测超时：服务器静默不响应（如 fastmcp 构建的
                 // firecrawl-mcp），回退 legacy 握手。
@@ -148,10 +188,7 @@ impl HttpMcpClient {
                         super::remember_legacy_handshake(&memory_key);
                         Ok(client)
                     }
-                    Err(_) => Err(Error::from_reason(format!(
-                        "Failed to connect external MCP HTTP server {}: Auto negotiate timed out (no response to server/discover), legacy initialize handshake also failed",
-                        config.name
-                    ))),
+                    Err(error) => Err(super::oauth::normalize_error(error)),
                 }
             }
         }
@@ -172,21 +209,19 @@ impl HttpMcpClient {
 
         let custom_headers = parse_headers(&config.headers_json)?;
 
-        let transport = build_transport(
-            url,
-            custom_headers,
-            build_transport_http_client().await?,
-        );
+        let transport = build_oauth_transport(url, custom_headers).await?;
 
         let client_info = ClientInfo::default();
         let running = client_info
             .serve_with_lifecycle(transport, ClientLifecycleMode::Initialize)
             .await
             .map_err(|error| {
-                Error::from_reason(format!(
-                    "Failed to connect external MCP HTTP server {}: {error}",
-                    config.name
-                ))
+                super::oauth::auth_required_from_client_error(&error).unwrap_or_else(|| {
+                    Error::from_reason(format!(
+                        "Failed to connect external MCP HTTP server {}: {error}",
+                        config.name
+                    ))
+                })
             })?;
 
         Ok(Self { client: running })
@@ -242,7 +277,8 @@ fn call_tool_result_to_value(result: rmcp::model::CallToolResult) -> serde_json:
         .unwrap_or_else(|_| serde_json::json!({ "content": [], "isError": false }))
 }
 
-fn parse_headers(value: &str) -> Result<HashMap<HeaderName, HeaderValue>> {
+/// 解析配置里的自定义请求头 JSON（env/headers 编辑器写入的表单）。
+pub(super) fn parse_headers(value: &str) -> Result<HashMap<HeaderName, HeaderValue>> {
     let headers: HashMap<String, String> = serde_json::from_str(value).map_err(|error| {
         Error::from_reason(format!("Invalid external MCP headers JSON: {error}"))
     })?;

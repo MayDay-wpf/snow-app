@@ -3303,6 +3303,21 @@ export const zhCN = {
     "MCP 服务器连接初始化失败，服务器可能不兼容当前协议。",
   "settings.mcpErrorHttpConnectFailed":
     "无法连接 MCP HTTP 服务器。请检查 URL 和网络。",
+  "settings.mcpErrorAuthRequired":
+    "该服务器需要 OAuth 授权，请点击服务器行上的「OAuth 授权」完成浏览器登录。",
+  "settings.mcpOAuthAction": "OAuth 授权",
+  "settings.mcpOAuthTitle": "MCP OAuth 授权",
+  "settings.mcpOAuthWaiting": "等待浏览器完成授权…",
+  "settings.mcpOAuthHint":
+    "请在浏览器中完成登录，授权后服务器工具会自动重新加载。",
+  "settings.mcpOAuthOpenBrowser": "打开授权页面",
+  "settings.mcpOAuthSuccess": "授权成功",
+  "settings.mcpOAuthSuccessHint": "正在使用新的授权重新加载该服务器的工具。",
+  "settings.mcpOAuthFailed": "OAuth 授权失败，请重试。",
+  "settings.mcpOAuthCancelled": "OAuth 授权已取消。",
+  "settings.mcpOAuthCancel": "取消授权",
+  "settings.mcpOAuthClose": "关闭",
+  "settings.mcpOAuthDone": "完成",
   "settings.mcpErrorMissingCommand": "此 MCP 服务器未配置启动命令。",
   "settings.mcpErrorMissingUrl": "此 MCP 服务器未配置 URL。",
   "settings.mcpErrorNotConfigured":

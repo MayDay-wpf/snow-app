@@ -1,6 +1,8 @@
 import {
   Boxes,
+  CheckCircle2,
   Download,
+  ExternalLink,
   Folder,
   Globe2,
   Loader2,
@@ -60,6 +62,19 @@ type McpSettingsPanelProps = {
 
 type McpScope = "global" | "project";
 type McpCategory = "external" | "builtin";
+
+/** 远程 MCP 服务器 OAuth 授权的界面状态。 */
+type McpOAuthFlow = {
+  sessionId: string;
+  configServerId: string;
+  serverName: string;
+  authUrl: string;
+  phase: "waiting" | "success" | "error";
+  error: string;
+};
+
+/** 授权状态轮询间隔；Rust 侧 5 分钟后自动让会话超时。 */
+const MCP_OAUTH_POLL_INTERVAL_MS = 1500;
 
 /** 全局内置列表项 id 前缀，避免与项目内置项（builtin:x）共用工具缓存键。 */
 const GLOBAL_BUILTIN_KEY_PREFIX = "global:";
@@ -146,6 +161,7 @@ export function McpSettingsPanel({
     askProject: boolean;
   } | null>(null);
   const [draft, setDraft] = useState<McpServerDraft | null>(null);
+  const [oauthFlow, setOauthFlow] = useState<McpOAuthFlow | null>(null);
   const [toolsByServerId, setToolsByServerId] = useState<
     Record<string, McpServerTool[]>
   >({});
@@ -908,6 +924,7 @@ export function McpSettingsPanel({
     globalEnabled: true,
     detail: `${server.transportType} · ${getMcpServerEndpoint(server) || "-"}`,
     canManage: true,
+    authSupported: server.transportType === "http",
   }));
   const projectListItems: McpSettingsListItem[] = projectServers.map(
     (server) => {
@@ -922,6 +939,18 @@ export function McpSettingsPanel({
         server.error === "toolSearch:no_enabled_plugins"
           ? t("settings.mcpToolSearchNoPlugins")
           : undefined;
+      // 需 OAuth 授权的服务器：列表直接用文案提示，并始终提供授权入口。
+      const authRequired = (server.error ?? "").startsWith("mcp:auth_required");
+      const authHint = authRequired
+        ? t("settings.mcpErrorAuthRequired", {
+            defaultValue:
+              "This server requires OAuth authorization. Use the OAuth sign-in action to finish the browser login.",
+          })
+        : undefined;
+      // 继承的全局服务器也要按全局配置判断是否 HTTP 传输。
+      const transportType =
+        projectConfig?.transportType ??
+        servers.find((item) => item.serverId === configServerId)?.transportType;
       const sourceDetail =
         server.source === "system"
           ? t("settings.mcpProjectSystemServer", {
@@ -945,12 +974,13 @@ export function McpSettingsPanel({
         name: server.name,
         enabled: server.enabled,
         globalEnabled: server.globalEnabled,
-        detail: [sourceDetail, builtinDescription, unavailableReason]
+        detail: [sourceDetail, builtinDescription, unavailableReason, authHint]
           .filter(Boolean)
           .join(" · "),
         canManage: server.source === "project",
         automatic: server.id === "builtin:toolSearch",
         unavailableReason,
+        authSupported: transportType === "http",
       };
     },
   );
@@ -1477,6 +1507,127 @@ export function McpSettingsPanel({
       : findProjectServer(pendingDelete.server.serverId)?.source === "snow-cli"
     : false;
 
+  /**
+   * 启动远程 MCP 服务器的 OAuth 授权：Rust 侧准备元数据发现、客户端注册与
+   * 本机回调监听，这里只负责打开系统浏览器并轮询会话状态。
+   */
+  const handleAuthorize = async (
+    server: McpSettingsListItem,
+  ): Promise<void> => {
+    if (isBusy) {
+      return;
+    }
+    const configServerId = server.serverId.replace(/^external:/, "");
+    setError("");
+    setStatus("");
+    try {
+      const started = await window.snow.startMcpOAuthLogin(
+        activeScope === "project" ? activeDirectory?.directoryId : undefined,
+        configServerId,
+      );
+      setOauthFlow({
+        sessionId: started.sessionId,
+        configServerId,
+        serverName: server.name,
+        authUrl: started.authUrl,
+        phase: "waiting",
+        error: "",
+      });
+      window.open(started.authUrl, "_blank", "noopener,noreferrer");
+    } catch (startError) {
+      setError(formatMcpError(startError, t));
+    }
+  };
+
+  const closeOAuthFlow = (): void => {
+    const flow = oauthFlow;
+    setOauthFlow(null);
+    if (flow?.phase === "waiting") {
+      void window.snow.cancelMcpOAuthLogin(flow.sessionId).catch(() => false);
+    }
+  };
+
+  /** 授权成功后重新发现该服务器工具：项目列表刷新走快速路径 + 后台发现。 */
+  const refreshAfterAuthorize = async (
+    configServerId: string,
+  ): Promise<void> => {
+    const projectId = activeDirectory?.directoryId;
+    if (activeScope === "project" && projectId) {
+      await refreshProjectServers(projectId, loadGenerationRef.current);
+      return;
+    }
+    const globalServer = servers.find(
+      (item) => item.serverId === configServerId,
+    );
+    if (globalServer) {
+      await handleFetchTools(globalServer);
+    }
+  };
+
+  // 等待浏览器回调：轮询 Rust 侧会话状态，成功 / 失败后收敛界面状态。
+  useEffect(() => {
+    if (!oauthFlow || oauthFlow.phase !== "waiting") {
+      return;
+    }
+    let stopped = false;
+    const sessionId = oauthFlow.sessionId;
+
+    const poll = async (): Promise<void> => {
+      try {
+        const snapshot = await window.snow.getMcpOAuthLoginStatus(sessionId);
+        if (stopped || !snapshot) {
+          return;
+        }
+        if (snapshot.status === "success") {
+          stopped = true;
+          setOauthFlow((previous) =>
+            previous ? { ...previous, phase: "success" } : previous,
+          );
+          return;
+        }
+        if (snapshot.status === "error" || snapshot.status === "cancelled") {
+          stopped = true;
+          setOauthFlow((previous) =>
+            previous
+              ? {
+                  ...previous,
+                  phase: "error",
+                  error:
+                    snapshot.status === "cancelled"
+                      ? t("settings.mcpOAuthCancelled", {
+                          defaultValue: "The OAuth sign-in was cancelled.",
+                        })
+                      : (snapshot.error ?? ""),
+                }
+              : previous,
+          );
+        }
+      } catch {
+        // 轮询失败不终止会话：保持等待状态，下一次轮询继续。
+      }
+    };
+
+    const timer = window.setInterval(
+      () => void poll(),
+      MCP_OAUTH_POLL_INTERVAL_MS,
+    );
+    void poll();
+    return () => {
+      stopped = true;
+      window.clearInterval(timer);
+    };
+  }, [oauthFlow, t]);
+
+  // 授权成功后刷新列表并重新获取工具。
+  useEffect(() => {
+    if (oauthFlow?.phase !== "success") {
+      return;
+    }
+    void refreshAfterAuthorize(oauthFlow.configServerId);
+    // 依赖仅取会话阶段：回调函数随渲染重建，重复触发会多连一次服务器。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [oauthFlow?.phase, oauthFlow?.configServerId]);
+
   return (
     <div className="api-settings-page" role="region">
       <McpSettingsSummary
@@ -1657,6 +1808,7 @@ export function McpSettingsPanel({
             fetchingToolServerIds={fetchingToolServerIds}
             onToggleEnabled={handleListToggle}
             onFetchTools={handleListFetchTools}
+            onAuthorize={(server) => void handleAuthorize(server)}
             onToggleTool={handleListToggleTool}
             onToggleAllTools={handleListToggleAllTools}
             onEdit={handleListEdit}
@@ -1738,6 +1890,115 @@ export function McpSettingsPanel({
             onSave={(overrideDraft) => void saveDraft(overrideDraft)}
           />
         )}
+      </Modal>
+
+      <Modal
+        open={Boolean(oauthFlow)}
+        title={t("settings.mcpOAuthTitle", {
+          defaultValue: "MCP OAuth authorization",
+        })}
+        description={oauthFlow?.serverName ?? ""}
+        closeLabel={t("settings.close", { defaultValue: "Close" })}
+        onClose={closeOAuthFlow}
+        className="oauth-login-dialog"
+        footer={
+          oauthFlow?.phase === "success" ? (
+            <button
+              className="api-settings-form-btn primary"
+              type="button"
+              onClick={closeOAuthFlow}
+            >
+              <CheckCircle2 size={15} strokeWidth={1.9} />
+              <span>
+                {t("settings.mcpOAuthDone", { defaultValue: "Done" })}
+              </span>
+            </button>
+          ) : (
+            <>
+              {oauthFlow?.phase === "waiting" && (
+                <button
+                  className="api-settings-form-btn secondary"
+                  type="button"
+                  onClick={() =>
+                    window.open(
+                      oauthFlow.authUrl,
+                      "_blank",
+                      "noopener,noreferrer",
+                    )
+                  }
+                >
+                  <ExternalLink size={15} strokeWidth={1.9} />
+                  <span>
+                    {t("settings.mcpOAuthOpenBrowser", {
+                      defaultValue: "Open in browser",
+                    })}
+                  </span>
+                </button>
+              )}
+              <button
+                className="api-settings-form-btn secondary"
+                type="button"
+                onClick={closeOAuthFlow}
+              >
+                <span>
+                  {oauthFlow?.phase === "waiting"
+                    ? t("settings.mcpOAuthCancel", {
+                        defaultValue: "Cancel sign-in",
+                      })
+                    : t("settings.mcpOAuthClose", { defaultValue: "Close" })}
+                </span>
+              </button>
+            </>
+          )
+        }
+      >
+        <div className="oauth-login-body">
+          {oauthFlow?.phase === "waiting" && (
+            <>
+              <div className="oauth-login-status">
+                <Loader2 size={14} className="spin" />
+                <span>
+                  {t("settings.mcpOAuthWaiting", {
+                    defaultValue:
+                      "Waiting for the browser sign-in to complete...",
+                  })}
+                </span>
+              </div>
+              <p className="oauth-login-hint">
+                {t("settings.mcpOAuthHint", {
+                  defaultValue:
+                    "Finish the sign-in in the browser. The MCP server reloads automatically once it completes.",
+                })}
+              </p>
+            </>
+          )}
+          {oauthFlow?.phase === "success" && (
+            <>
+              <div className="oauth-login-status success">
+                <CheckCircle2 size={16} />
+                <span>
+                  {t("settings.mcpOAuthSuccess", {
+                    defaultValue: "Signed in successfully",
+                  })}
+                </span>
+              </div>
+              <p className="oauth-login-hint">
+                {t("settings.mcpOAuthSuccessHint", {
+                  defaultValue:
+                    "The server tools are being reloaded with the new authorization.",
+                })}
+              </p>
+            </>
+          )}
+          {oauthFlow?.phase === "error" && (
+            <p className="oauth-login-error">
+              {oauthFlow.error ||
+                t("settings.mcpOAuthFailed", {
+                  defaultValue: "OAuth sign-in failed. Please try again.",
+                })}
+            </p>
+          )}
+        </div>
       </Modal>
 
       <ConfirmDialog

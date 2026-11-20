@@ -2055,6 +2055,18 @@ export type McpToolStatus = McpToolDefinition & {
   enabled: boolean;
 };
 
+/** 远程 MCP 服务器 OAuth 授权的启动结果。 */
+export type McpOAuthLoginStart = {
+  sessionId: string;
+  authUrl: string;
+};
+
+/** 远程 MCP 服务器 OAuth 授权会话状态。 */
+export type McpOAuthLoginStatus = {
+  status: "pending" | "success" | "error" | "cancelled";
+  error?: string | null;
+};
+
 export type McpApiHeader = {
   name: string;
   value: string;
@@ -3434,6 +3446,17 @@ export type NativeBridge = ImageGenerationNativeApi & {
   ) => Promise<SkillUninstallResult>;
   listGithubSkills: () => Promise<GithubSkillRecord[]>;
   listMcpServerTools: (configServerId: string) => Promise<McpToolStatus[]>;
+  /** 启动远程 MCP 服务器的 OAuth 授权（浏览器登录 + 本地回调）。 */
+  startMcpOAuthLogin: (
+    projectId: string | undefined,
+    configServerId: string,
+  ) => Promise<McpOAuthLoginStart>;
+  /** 查询 MCP OAuth 授权会话状态。 */
+  getMcpOAuthLoginStatus: (
+    sessionId: string,
+  ) => Promise<McpOAuthLoginStatus | null>;
+  /** 取消仍在等待的 MCP OAuth 授权会话。 */
+  cancelMcpOAuthLogin: (sessionId: string) => Promise<boolean>;
   testMcpApiEndpoint: (input: McpApiTestInput) => Promise<McpApiTestResult>;
   listMcpProjectServers: (
     projectId: string,

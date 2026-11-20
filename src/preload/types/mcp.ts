@@ -8,6 +8,18 @@ export type McpToolStatus = McpToolDefinition & {
   enabled: boolean;
 };
 
+/** 远程 MCP 服务器 OAuth 授权的启动结果（前端负责打开 authUrl）。 */
+export type McpOAuthLoginStart = {
+  sessionId: string;
+  authUrl: string;
+};
+
+/** 远程 MCP 服务器 OAuth 授权会话状态。 */
+export type McpOAuthLoginStatus = {
+  status: "pending" | "success" | "error" | "cancelled";
+  error?: string | null;
+};
+
 export type SkillDefinition = {
   id: string;
   name: string;
