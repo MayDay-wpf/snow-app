@@ -86,6 +86,7 @@ pub fn list_tool_plugin_server_configs(
                     .get("headers")
                     .map(Value::to_string)
                     .unwrap_or_else(|| "{}".to_string()),
+                oauth: entry.get("oauth").and_then(Value::as_bool).unwrap_or(false),
                 enabled: true,
                 timeout_ms: entry
                     .get("timeoutMs")

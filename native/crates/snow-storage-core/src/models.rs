@@ -498,6 +498,8 @@ pub struct McpServerConfigInput {
     pub args_json: String,
     pub env_json: String,
     pub headers_json: String,
+    /// HTTP 传输是否走 OAuth 浏览器授权（非 HTTP 传输忽略该标记）。
+    pub oauth: bool,
     pub enabled: bool,
     pub timeout_ms: Option<i32>,
     pub sort_order: i32,
@@ -515,6 +517,8 @@ pub struct McpServerConfigRecord {
     pub args_json: String,
     pub env_json: String,
     pub headers_json: String,
+    /// HTTP 传输是否走 OAuth 浏览器授权（非 HTTP 传输忽略该标记）。
+    pub oauth: bool,
     pub enabled: bool,
     pub timeout_ms: Option<i32>,
     pub sort_order: i32,
@@ -560,6 +564,8 @@ pub struct ProjectMcpServerConfigRecord {
     pub args_json: String,
     pub env_json: String,
     pub headers_json: String,
+    /// HTTP 传输是否走 OAuth 浏览器授权（非 HTTP 传输忽略该标记）。
+    pub oauth: bool,
     pub enabled: bool,
     pub timeout_ms: Option<i32>,
     pub sort_order: i32,

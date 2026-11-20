@@ -45,6 +45,7 @@ pub(crate) fn query_mcp_server_configs(
                 args_json,
                 env_json,
                 headers_json,
+                oauth,
                 enabled,
                 timeout_ms,
                 sort_order,
@@ -55,7 +56,8 @@ pub(crate) fn query_mcp_server_configs(
     )?;
 
     let rows = statement.query_map([], |row| {
-        let enabled: i64 = row.get(9)?;
+        let oauth: i64 = row.get(9)?;
+        let enabled: i64 = row.get(10)?;
 
         Ok(McpServerConfigRecord {
             id: row.get(0)?,
@@ -67,11 +69,12 @@ pub(crate) fn query_mcp_server_configs(
             args_json: row.get(6)?,
             env_json: row.get(7)?,
             headers_json: row.get(8)?,
+            oauth: oauth != 0,
             enabled: enabled != 0,
-            timeout_ms: row.get(10)?,
-            sort_order: row.get(11)?,
-            source: row.get(12)?,
-            updated_at: row.get(13)?,
+            timeout_ms: row.get(11)?,
+            sort_order: row.get(12)?,
+            source: row.get(13)?,
+            updated_at: row.get(14)?,
         })
     })?;
 
@@ -93,6 +96,7 @@ pub(crate) fn upsert_mcp_server_config_with_connection(
            args_json,
            env_json,
            headers_json,
+           oauth,
            enabled,
            timeout_ms,
            sort_order,
@@ -100,7 +104,7 @@ pub(crate) fn upsert_mcp_server_config_with_connection(
            created_at,
            updated_at
          ) VALUES (
-           ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, datetime('now', 'localtime'), datetime('now', 'localtime')
+           ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, datetime('now', 'localtime'), datetime('now', 'localtime')
          )
          ON CONFLICT(server_id) DO UPDATE SET
            name = excluded.name,
@@ -110,6 +114,7 @@ pub(crate) fn upsert_mcp_server_config_with_connection(
            args_json = excluded.args_json,
            env_json = excluded.env_json,
            headers_json = excluded.headers_json,
+           oauth = excluded.oauth,
            enabled = excluded.enabled,
            timeout_ms = excluded.timeout_ms,
            sort_order = excluded.sort_order,
@@ -125,6 +130,7 @@ pub(crate) fn upsert_mcp_server_config_with_connection(
             item.args_json,
             item.env_json,
             item.headers_json,
+            item.oauth as i32,
             item.enabled as i32,
             item.timeout_ms,
             item.sort_order,

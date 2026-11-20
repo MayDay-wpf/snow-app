@@ -19,6 +19,7 @@ import type {
   ModelConfigImportOutcome,
   ModelConfigImportPickResult,
   ModelConfigTransferKind,
+  ModelLimits,
   ModelUsageBreakdown,
   OAuthLoginStart,
   OAuthLoginStatus,
@@ -379,6 +380,18 @@ export const apiConfigApi = {
     ipcRenderer.invoke("api-models:fetch"),
   fetchAvailableModelsForConfig: (config: ApiModelsConfig): Promise<Model[]> =>
     ipcRenderer.invoke("api-models:fetch-for-config", config),
+  /** 解析指定模型的上下文 / 输出上限（渠道清单优先，缺失部分查公共规格源）。 */
+  resolveModelLimitsForConfig: (
+    config: ApiModelsConfig,
+    modelId: string,
+  ): Promise<ModelLimits | null> =>
+    ipcRenderer.invoke("api-models:resolve-limits", config, modelId),
+  /** 把指定 API 档案的上下文 / 输出上限同步到该模型，返回最新档案列表。 */
+  syncApiProfileModelLimits: (
+    profileName: string,
+    modelId: string,
+  ): Promise<ApiConfigRecord[]> =>
+    ipcRenderer.invoke("api-configs:sync-model-limits", profileName, modelId),
   createResponseStream: (
     request: ResponsesApiRequest,
     onChunk?: (chunk: ResponsesApiStreamChunk) => void,

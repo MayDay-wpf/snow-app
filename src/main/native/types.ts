@@ -1019,6 +1019,8 @@ export type McpServerConfigInput = {
   argsJson: string;
   envJson: string;
   headersJson: string;
+  /** HTTP 传输是否走 OAuth 浏览器授权（非 HTTP 传输忽略该标记）。 */
+  oauth: boolean;
   enabled: boolean;
   timeoutMs?: number;
   sortOrder: number;
@@ -1346,6 +1348,16 @@ export type Model = {
   object: string;
   created: number;
   ownedBy: string;
+  /** 模型上下文窗口（tokens）：渠道模型清单返回时填充。 */
+  contextLength?: number | null;
+  /** 单次请求的最大输出 tokens。 */
+  maxOutputTokens?: number | null;
+};
+
+/** 单个模型的上下文 / 输出上限；字段为 null 表示该来源没有提供。 */
+export type ModelLimits = {
+  contextLength: number | null;
+  maxOutputTokens: number | null;
 };
 export type ApiModelsConfig = {
   baseUrl: string;
@@ -3406,6 +3418,16 @@ export type NativeBridge = ImageGenerationNativeApi & {
   cancelConversationSummary: (conversationId: string) => boolean;
   fetchAvailableModels: () => Promise<Model[]>;
   fetchAvailableModelsForConfig: (config: ApiModelsConfig) => Promise<Model[]>;
+  /** 解析指定模型的上下文 / 输出上限（渠道清单优先，缺失部分查公共规格源）。 */
+  resolveModelLimitsForConfig: (
+    config: ApiModelsConfig,
+    modelId: string,
+  ) => Promise<ModelLimits | null>;
+  /** 把指定 API 档案的上下文 / 输出上限同步到该模型，返回最新档案列表。 */
+  syncApiProfileModelLimits: (
+    profileName: string,
+    modelId: string,
+  ) => Promise<ApiConfigRecord[]>;
   createResponseStream: (
     request: ResponsesApiRequest,
     onChunk: (chunk: ResponsesApiStreamChunk) => void,

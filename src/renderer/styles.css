@@ -8842,7 +8842,16 @@ body.is-panel-resizing * {
   display: flex;
   min-width: 0;
   flex-direction: column;
+}
+
+.api-model-test-selection {
   gap: 10px;
+}
+
+/* 右栏「响应内容」标题到文本框的间距对齐左栏「模型标签 → 下拉框」的 4px
+   （.api-settings-field 的 gap），否则两列首行控件的顶边会差 6px */
+.api-model-test-response {
+  gap: 4px;
 }
 
 .api-model-test-profile {
@@ -31884,6 +31893,19 @@ button.user-message-source:hover {
   text-overflow: ellipsis;
   white-space: nowrap;
   min-width: 0;
+}
+
+/* 模型上下文窗口徽章（如 1M / 128K） */
+.model-dropdown-context-badge {
+  flex-shrink: 0;
+  padding: 0 5px;
+  border-radius: var(--radius-sm, 4px);
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 16px;
+  font-variant-numeric: tabular-nums;
 }
 
 .thinking-option-icon {

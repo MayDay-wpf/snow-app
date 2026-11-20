@@ -20,3 +20,15 @@ export const formatTokens = (value: number, locale?: string): string => {
   }
   return value.toLocaleString(locale);
 };
+
+/** 模型上下文窗口的徽章文案：1,048,576 -> 1M，1,050,000 -> 1.1M，128,000 -> 128K。 */
+export const formatContextWindow = (value: number): string => {
+  if (value >= 1_000_000) {
+    const scaled = (value / 1_000_000).toFixed(1);
+    return `${scaled.endsWith(".0") ? scaled.slice(0, -2) : scaled}M`;
+  }
+  if (value >= 1_000) {
+    return `${Math.round(value / 1_000)}K`;
+  }
+  return String(value);
+};

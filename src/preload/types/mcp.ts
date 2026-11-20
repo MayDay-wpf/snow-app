@@ -154,6 +154,8 @@ export type McpServerConfigInput = {
   argsJson: string;
   envJson: string;
   headersJson: string;
+  /** HTTP 传输是否走 OAuth 浏览器授权（非 HTTP 传输忽略该标记）。 */
+  oauth: boolean;
   enabled: boolean;
   timeoutMs?: number;
   sortOrder: number;

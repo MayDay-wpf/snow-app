@@ -59,17 +59,18 @@ fn build_transport(
     StreamableHttpClientTransport::with_client(client, transport_config)
 }
 
-/// 构建带 OAuth 能力的传输层。
+/// 构建 HTTP 传输层。
 ///
-/// `AuthClient` 在没有凭据时以无认证方式发送请求（服务器的 401 会以
-/// `AuthRequired` 暴露给调用方，前端据此引导授权）；存在凭据时自动附带
-/// Bearer 令牌，令牌被拒绝时静默刷新并重试一次。
-async fn build_oauth_transport(
+/// 始终使用 `AuthClient` 包装（未开启 OAuth 时凭据存储为空，等价于普通客户端）：
+/// - `oauth_enabled` 为 true：从磁盘加载授权凭据，自动附带 / 刷新 Bearer 令牌，
+///   服务器的 401 会以 `AuthRequired` 暴露给调用方，由界面引导授权；
+/// - 为 false：不读凭据、不发 Authorization 头，行为与普通 HTTP 客户端一致。
+async fn build_http_transport(
     url: &str,
     custom_headers: HashMap<HeaderName, HeaderValue>,
+    oauth_enabled: bool,
 ) -> Result<HttpTransport> {
     let http_client = build_http_client(false).await?;
-    let credential_store = super::oauth::FileCredentialStore::for_url(url)?;
     let mut manager = AuthorizationManager::new(url).await.map_err(|error| {
         Error::from_reason(format!(
             "Failed to prepare external MCP OAuth client: {error}"
@@ -80,11 +81,14 @@ async fn build_oauth_transport(
             "Failed to prepare external MCP OAuth client: {error}"
         ))
     })?;
-    manager.set_credential_store(credential_store.clone());
     manager.set_state_store(InMemoryStateStore::new());
-    if credential_store.has_credentials().await {
-        // 元数据发现失败时退化为无认证连接，由服务器 401 驱动重新授权。
-        let _ = manager.initialize_from_store().await;
+    if oauth_enabled {
+        let credential_store = super::oauth::FileCredentialStore::for_url(url)?;
+        manager.set_credential_store(credential_store.clone());
+        if credential_store.has_credentials().await {
+            // 元数据发现失败时退化为无认证连接，由服务器 401 驱动重新授权。
+            let _ = manager.initialize_from_store().await;
+        }
     }
 
     Ok(build_transport(
@@ -132,7 +136,7 @@ impl HttpMcpClient {
 
         let client_info = ClientInfo::default();
 
-        let transport = build_oauth_transport(url, custom_headers).await?;
+        let transport = build_http_transport(url, custom_headers, config.oauth).await?;
 
         // 旧 SDK 服务器（如 fastmcp 构建的 firecrawl-mcp）对带 `_meta` 的
         // `server/discover` 探测会静默不响应——既不返回 JSON-RPC 错误也不
@@ -152,10 +156,13 @@ impl HttpMcpClient {
         match auto_result {
             Ok(Ok(running)) => Ok(Self { client: running }),
             Ok(Err(error)) => {
-                // 401 / 403：服务器要求 OAuth 授权。此时任何协议回退都没有
-                // 意义，直接以稳定错误前缀上报，由界面引导浏览器授权。
-                if let Some(auth_error) = super::oauth::auth_required_from_client_error(&error) {
-                    return Err(auth_error);
+                // 仅对开启了 OAuth 的服务器识别 401 / 403：服务器要求授权时
+                // 任何协议回退都没有意义，直接以稳定错误前缀上报，由界面引导
+                // 浏览器授权；未开启 OAuth 的服务器保持原有错误展示。
+                if config.oauth {
+                    if let Some(auth_error) = super::oauth::auth_required_from_client_error(&error) {
+                        return Err(auth_error);
+                    }
                 }
                 if !super::should_retry_with_legacy_handshake(&error) {
                     return Err(Error::from_reason(format!(
@@ -209,14 +216,18 @@ impl HttpMcpClient {
 
         let custom_headers = parse_headers(&config.headers_json)?;
 
-        let transport = build_oauth_transport(url, custom_headers).await?;
+        let transport = build_http_transport(url, custom_headers, config.oauth).await?;
 
         let client_info = ClientInfo::default();
         let running = client_info
             .serve_with_lifecycle(transport, ClientLifecycleMode::Initialize)
             .await
             .map_err(|error| {
-                super::oauth::auth_required_from_client_error(&error).unwrap_or_else(|| {
+                let auth_error = config
+                    .oauth
+                    .then(|| super::oauth::auth_required_from_client_error(&error))
+                    .flatten();
+                auth_error.unwrap_or_else(|| {
                     Error::from_reason(format!(
                         "Failed to connect external MCP HTTP server {}: {error}",
                         config.name

@@ -8,6 +8,7 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
 use super::{anthropic, antigravity, chatgpt, codex, header_schemes, xai};
+use crate::models::ModelLimits;
 use snow_storage::api_configs as api_configs_service;
 use snow_storage_core::app_logs::log_api_warning;
 use snow_storage_core::bootstrap::ensure_database_file;
@@ -446,10 +447,31 @@ pub fn prepare_profile(
     access_token: &str,
     advanced_model: &str,
     basic_model: &str,
+    model_limits: Option<ModelLimits>,
 ) -> PreparedProfile {
     let profile_name = build_profile_name(provider, claims);
     let display_name = build_display_name(provider, claims);
-    let config_json = build_config_json(provider, metadata, advanced_model, basic_model);
+    // 上下文 / 输出上限跟随所选模型：模型规格已解析时优先使用，解析不到才退回
+    // 服务商默认值（取代以往写死一条固定数值的做法）。
+    let max_context_tokens = model_limits
+        .as_ref()
+        .and_then(|limits| limits.context_length)
+        .and_then(|value| i32::try_from(value).ok())
+        .filter(|value| *value > 0)
+        .unwrap_or_else(|| provider.default_max_context_tokens());
+    let max_tokens = model_limits
+        .as_ref()
+        .and_then(|limits| limits.max_output_tokens)
+        .and_then(|value| i32::try_from(value).ok())
+        .filter(|value| *value > 0)
+        .or_else(|| provider.default_max_tokens());
+    let config_json = build_config_json(
+        provider,
+        metadata,
+        advanced_model,
+        basic_model,
+        max_context_tokens,
+    );
     let input = ApiConfigInput {
         profile_name: profile_name.clone(),
         previous_profile_name: None,
@@ -467,8 +489,8 @@ pub fn prepare_profile(
         vision_api_key: String::new(),
         vision_request_method: provider.request_method().to_string(),
         vision_model: String::new(),
-        max_context_tokens: Some(provider.default_max_context_tokens()),
-        max_tokens: provider.default_max_tokens(),
+        max_context_tokens: Some(max_context_tokens),
+        max_tokens,
         stream_idle_timeout_sec: None,
         enable_auto_compress: true,
         auto_compress_threshold: None,
@@ -539,6 +561,7 @@ fn build_config_json(
     metadata: &OAuthProfileMetadata,
     advanced_model: &str,
     basic_model: &str,
+    max_context_tokens: i32,
 ) -> String {
     let mut metadata = metadata.clone();
     metadata.provider = provider;
@@ -557,7 +580,7 @@ fn build_config_json(
             "visionRequestMethod": provider.request_method(),
             "visionModel": "",
             "enableAutoCompress": true,
-            "maxContextTokens": provider.default_max_context_tokens(),
+            "maxContextTokens": max_context_tokens,
             "source": provider.profile_source(),
         }),
     );

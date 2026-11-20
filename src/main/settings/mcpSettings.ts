@@ -209,6 +209,7 @@ const toNativeInput = (
   scope: McpScope,
   server: SnowCliMcpServer,
   sortOrder: number,
+  oauth: boolean,
 ): McpServerConfigInput => ({
   serverId: toServerId(scope, server.name),
   name: server.name,
@@ -218,6 +219,7 @@ const toNativeInput = (
   argsJson: JSON.stringify(server.args),
   envJson: JSON.stringify(server.env),
   headersJson: JSON.stringify(server.headers),
+  oauth,
   enabled: server.enabled,
   ...(server.timeoutMs ? { timeoutMs: server.timeoutMs } : {}),
   sortOrder,
@@ -229,16 +231,26 @@ const persistMcpConfigs = async (
   configs: SnowCliMcpConfig[],
 ): Promise<void> => {
   const nextIds = new Set<string>();
+  // Snow CLI 配置不含 OAuth 标记：同步时沿用同名旧配置，避免清掉用户开关。
+  const existing = await native.listMcpServerConfigs();
+  const oauthByServerId = new Map(
+    existing.map((item) => [item.serverId, item.oauth]),
+  );
 
   for (const config of configs) {
     for (const [index, server] of config.servers.entries()) {
-      const input = toNativeInput(config.scope, server, index);
+      const serverId = toServerId(config.scope, server.name);
+      const input = toNativeInput(
+        config.scope,
+        server,
+        index,
+        oauthByServerId.get(serverId) ?? false,
+      );
       nextIds.add(input.serverId);
       await native.upsertMcpServerConfig(input);
     }
   }
 
-  const existing = await native.listMcpServerConfigs();
   for (const item of existing) {
     if (item.source === MCP_SOURCE_SNOW_CLI && !nextIds.has(item.serverId)) {
       await native.deleteMcpServerConfig(item.serverId);
@@ -257,10 +269,16 @@ const persistProjectMcpConfigs = async (
 
     const projectId = config.projectId;
     const nextIds = new Set<string>();
+    // 旧项目配置里同名的 OAuth 开关需要保留（Snow CLI 文件没有该字段）。
+    const existing = await native.listProjectMcpServerConfigs(projectId);
+    const oauthByServerId = new Map(
+      existing.map((item) => [item.serverId, item.oauth]),
+    );
 
     for (const [index, server] of config.servers.entries()) {
+      const serverId = toServerId(`${PROJECT_SCOPE}:${projectId}`, server.name);
       const input: McpServerConfigInput = {
-        serverId: toServerId(`${PROJECT_SCOPE}:${projectId}`, server.name),
+        serverId,
         name: server.name,
         transportType: server.type,
         url: server.url,
@@ -268,6 +286,7 @@ const persistProjectMcpConfigs = async (
         argsJson: JSON.stringify(server.args),
         envJson: JSON.stringify(server.env),
         headersJson: JSON.stringify(server.headers),
+        oauth: oauthByServerId.get(serverId) ?? false,
         enabled: server.enabled,
         ...(server.timeoutMs ? { timeoutMs: server.timeoutMs } : {}),
         sortOrder: index,
@@ -277,7 +296,6 @@ const persistProjectMcpConfigs = async (
       await native.upsertProjectMcpServerConfig(projectId, input);
     }
 
-    const existing = await native.listProjectMcpServerConfigs(projectId);
     const scopePrefix = `${PROJECT_SCOPE}:${projectId}:`;
     for (const item of existing) {
       if (
@@ -408,6 +426,8 @@ export const normalizeMcpServerConfig = (
     argsJson,
     envJson,
     headersJson,
+    // OAuth 只对远程 HTTP 传输有意义；其他传输一律关闭。
+    oauth: transportType === "http" && toBoolean(source.oauth, false),
     enabled: source.enabled !== false,
     ...(timeoutMs && timeoutMs > 0 ? { timeoutMs } : {}),
     sortOrder: Number.isInteger(rawSortOrder) ? rawSortOrder : 0,

@@ -1,4 +1,5 @@
 use serde_json::Value;
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 use napi::bindgen_prelude::*;
@@ -12,7 +13,8 @@ use crate::api::file_search_agent::{
 };
 use crate::api::models::{
     fetch_available_models as fetch_models_with_config, fetch_available_models_for_active_config,
-    fetch_plugin_models, resolve_saved_oauth_profile, ApiConfigForModels, Model,
+    fetch_plugin_models, resolve_limits_for_config, resolve_saved_oauth_profile,
+    sync_profile_model_limits, ApiConfigForModels, Model, ModelLimits,
 };
 use crate::api::request_proxy::{self, ProxySession, RequestProxyCallback};
 use crate::api::responses::{ResponsesApiRequest, ResponsesApiResult, ResponsesApiStreamCallback};
@@ -97,6 +99,61 @@ pub async fn fetch_available_models_for_config(
             format!("Failed to execute fetch_available_models_for_config: {}", e),
         )
     })?
+}
+
+/// 解析指定模型在该 API 档案下的上下文 / 输出上限：优先使用渠道模型清单自带的数值，
+/// 缺失部分再查公共模型规格数据源（llm-specs）。返回 null 表示两边都没有该模型的信息。
+#[napi]
+pub async fn resolve_model_limits_for_config(
+    config: ApiConfigForModels,
+    model_id: String,
+) -> napi::Result<Option<ModelLimits>> {
+    let model_id = model_id.trim().to_string();
+    if model_id.is_empty() {
+        return Ok(None);
+    }
+    let config = resolve_saved_oauth_profile(config).await?;
+    if config
+        .config_json
+        .as_deref()
+        .is_some_and(crate::api::oauth::plugin::is_plugin_profile)
+    {
+        // 插件档案的模型清单由插件钩子提供，不含上下文 / 输出上限。
+        return Ok(None);
+    }
+
+    let scheme_id = config.custom_header_scheme_id.clone();
+    let custom_headers = tokio::task::spawn_blocking(move || -> napi::Result<HashMap<String, String>> {
+        let database_path =
+            PathBuf::from(initialize_app_storage()?.database_path);
+        let custom_header_schemes =
+            crate::storage::services::custom_header_schemes::list_custom_header_schemes(
+                &database_path,
+            )?;
+        Ok(get_api_config_custom_headers(
+            &custom_header_schemes,
+            &scheme_id,
+        ))
+    })
+    .await
+    .map_err(|e| {
+        Error::new(
+            Status::GenericFailure,
+            format!("Failed to load API custom headers: {}", e),
+        )
+    })??;
+
+    Ok(resolve_limits_for_config(&config, &custom_headers, &model_id).await)
+}
+
+/// 把指定 API 档案的上下文 / 输出上限同步到该模型（切换模型时调用）。
+/// 返回写入后的完整档案列表；模型规格无法解析时原样返回。
+#[napi]
+pub async fn sync_api_profile_model_limits(
+    profile_name: String,
+    model_id: String,
+) -> napi::Result<Vec<crate::storage::ApiConfigRecord>> {
+    sync_profile_model_limits(&profile_name, &model_id).await
 }
 
 #[napi(

@@ -291,6 +291,11 @@ pub async fn start_login(
             "OAuth sign-in is only available for HTTP MCP servers",
         ));
     }
+    if !config.oauth {
+        return Err(Error::from_reason(
+            "OAuth sign-in is not enabled for this MCP server",
+        ));
+    }
     let url = config.url.trim().to_string();
     if url.is_empty() {
         return Err(Error::from_reason(format!(

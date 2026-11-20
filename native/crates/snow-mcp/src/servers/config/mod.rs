@@ -1426,6 +1426,13 @@ impl ConfigService {
         };
 
         let mut next_ids = std::collections::HashSet::new();
+        // 同步前读取旧配置：Snow CLI 文件不含 OAuth 标记，沿用同 serverId 的旧开关。
+        let existing = mcp_store::list_mcp_server_configs(db_path).map_err(|error| {
+            Error::new(
+                Status::GenericFailure,
+                format!("Failed to list MCP server configs for sync: {error}"),
+            )
+        })?;
         for (index, (name, entry)) in servers.iter().enumerate() {
             let server = match entry {
                 Value::Object(server) => server,
@@ -1433,6 +1440,16 @@ impl ConfigService {
             };
             let server_id = format!("global:{name}");
             next_ids.insert(server_id.clone());
+            let oauth = server
+                .get("oauth")
+                .and_then(Value::as_bool)
+                .or_else(|| {
+                    existing
+                        .iter()
+                        .find(|item| item.server_id == server_id)
+                        .map(|item| item.oauth)
+                })
+                .unwrap_or(false);
 
             let input = crate::storage::McpServerConfigInput {
                 server_id,
@@ -1458,6 +1475,7 @@ impl ConfigService {
                     .unwrap_or_else(|_| "{}".to_string()),
                 headers_json: serde_json::to_string(server.get("headers").unwrap_or(&json!({})))
                     .unwrap_or_else(|_| "{}".to_string()),
+                oauth,
                 enabled: server
                     .get("enabled")
                     .and_then(Value::as_bool)
@@ -1480,12 +1498,6 @@ impl ConfigService {
         }
 
         // 差集删除：DB 中 source=snow-cli 的 global:* 孤儿条目。
-        let existing = mcp_store::list_mcp_server_configs(db_path).map_err(|error| {
-            Error::new(
-                Status::GenericFailure,
-                format!("Failed to list MCP server configs for sync: {error}"),
-            )
-        })?;
         for item in existing {
             if item.source == "snow-cli"
                 && item.server_id.starts_with("global:")
@@ -2257,6 +2269,7 @@ impl ConfigService {
                     "args": serde_json::from_str::<Value>(&server.args_json).unwrap_or(json!([])),
                     "env": Self::masked_json_pairs(&server.env_json),
                     "headers": Self::masked_json_pairs(&server.headers_json),
+                    "oauth": server.oauth,
                     "enabled": server.enabled,
                     "timeoutMs": server.timeout_ms,
                     "serverId": server.server_id,
@@ -2319,6 +2332,17 @@ impl ConfigService {
                         server.get("headers").unwrap_or(&json!({})),
                     )
                     .unwrap_or_else(|_| "{}".to_string()),
+                    // Snow CLI 配置不含 OAuth 标记：沿用同名旧配置，避免同步清掉用户开关。
+                    oauth: server
+                        .get("oauth")
+                        .and_then(Value::as_bool)
+                        .or_else(|| {
+                            existing
+                                .iter()
+                                .find(|item| item.name == *name)
+                                .map(|item| item.oauth)
+                        })
+                        .unwrap_or(false),
                     enabled: server
                         .get("enabled")
                         .and_then(Value::as_bool)

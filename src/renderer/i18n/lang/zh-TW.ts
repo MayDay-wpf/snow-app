@@ -886,6 +886,7 @@ export const zhTW = {
   "chat.manualModel": "手動輸入模型",
   "chat.manualModelPlaceholder": "例如 gpt-4.1",
   "chat.noModelsFound": "未找到模型",
+  "chat.modelContextWindow": "上下文視窗：{{value}} tokens",
   "chat.searchModels": "搜尋模型",
   "chat.noMatchingModels": "無符合的模型",
   "chat.searchApiProfiles": "搜尋 API 提供商",
@@ -3318,6 +3319,9 @@ export const zhTW = {
   "settings.mcpOAuthCancel": "取消授權",
   "settings.mcpOAuthClose": "關閉",
   "settings.mcpOAuthDone": "完成",
+  "settings.mcpOAuthEnabled": "需要 OAuth 授權",
+  "settings.mcpOAuthEnabledHint":
+    "開啟後會為此伺服器儲存 OAuth 登入狀態；儲存設定後在清單點「OAuth 授權」完成瀏覽器登入。",
   "settings.mcpErrorMissingCommand": "此 MCP 伺服器未設定啟動命令。",
   "settings.mcpErrorMissingUrl": "此 MCP 伺服器未設定 URL。",
   "settings.mcpErrorNotConfigured":
@@ -3338,7 +3342,7 @@ export const zhTW = {
     'JSON 必須是單個服務設定物件，或形如 { "context7": { ... } } 的單條目映射。',
   "settings.mcpJsonEditorLabel": "MCP 伺服器 JSON 設定",
   "settings.mcpJsonHint":
-    '以 JSON 形式編輯伺服器設定，例如 {"context7": {"url": "https://mcp.context7.com/mcp"}}。貼上內容自動相容：Markdown 程式碼區塊、mcpServers/servers 包裝、註解、尾隨逗號與全形空格均可識別。未填寫 type（http/stdio）時會根據 url 或 command 自動推斷。',
+    '以 JSON 形式編輯伺服器設定，例如 {"context7": {"url": "https://mcp.context7.com/mcp"}}。貼上內容自動相容：Markdown 程式碼區塊、mcpServers/servers 包裝、註解、尾隨逗號與全形空格均可識別。未填寫 type（http/stdio）時會根據 url 或 command 自動推斷。需要 OAuth 授權的遠端 HTTP 伺服器加上 "oauth": true。',
   "settings.mcpJsonValid": "JSON 有效",
   "settings.mcpToolDetailsCollapse": "收起詳情",
   "settings.mcpToolDetailsExpand": "檢視工具詳情",

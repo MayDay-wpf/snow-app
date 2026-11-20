@@ -69,6 +69,8 @@ export type McpServerDraft = {
   env: McpKeyValuePair[];
   headers: McpKeyValuePair[];
   api: McpApiSpecDraft;
+  /** HTTP 传输是否走 OAuth 浏览器授权（其他传输恒为 false）。 */
+  oauth: boolean;
   enabled: boolean;
   timeoutMs: string;
   sortOrder: number;

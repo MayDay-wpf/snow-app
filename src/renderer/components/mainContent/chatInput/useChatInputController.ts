@@ -826,15 +826,50 @@ export const useChatInputController = ({
     [handleSend, sendKeyMode, isStreaming, isAborting, busySendBehavior],
   );
 
-  const handleSelectModel = useCallback(async (modelId: string) => {
-    setSelectedModel(modelId);
-    setIsModelMenuOpen(false);
-    setIsManualMode(false);
-    // Conversation-scoped model selection: the model is remembered on the
-    // conversation row by the backend on the next exchange. It intentionally
-    // does NOT mutate the profile's global advanced_model — that default
-    // stays editable in the API settings panel.
-  }, []);
+  // 切换模型后把该模型的上下文 / 输出上限同步进当前 API 档案：Token 用量环与
+  // 自动压缩阈值都按档案里的窗口计算，不同模型的窗口差异必须在这里落地。
+  const syncProfileModelLimits = useCallback(
+    (modelId: string) => {
+      const profileName =
+        selectedApiProfile || runtimeApiConfig?.profileName || "";
+      const trimmed = modelId.trim();
+      if (!profileName || !trimmed) {
+        return;
+      }
+      void window.snow
+        .syncApiProfileModelLimits(profileName, trimmed)
+        .then((configs) => {
+          setApiConfigs(configs);
+          const updated = configs.find(
+            (config) => config.profileName === profileName,
+          );
+          setRuntimeApiConfig((previous) =>
+            updated && previous?.profileName === profileName
+              ? updated
+              : previous,
+          );
+        })
+        .catch(() => {
+          // 同步失败不影响模型切换本身，下一次切换会重新尝试。
+        });
+    },
+    [runtimeApiConfig?.profileName, selectedApiProfile],
+  );
+
+  const handleSelectModel = useCallback(
+    async (modelId: string) => {
+      setSelectedModel(modelId);
+      setIsModelMenuOpen(false);
+      setIsManualMode(false);
+      // Conversation-scoped model selection: the model is remembered on the
+      // conversation row by the backend on the next exchange. It intentionally
+      // does NOT mutate the profile's global advanced_model — that default
+      // stays editable in the API settings panel. Only the profile's context /
+      // output limits follow the selected model.
+      syncProfileModelLimits(modelId);
+    },
+    [syncProfileModelLimits],
+  );
 
   const handleOpenManualMode = useCallback(() => {
     setIsManualMode(true);
@@ -845,10 +880,11 @@ export const useChatInputController = ({
     const trimmed = manualValue.trim();
     if (trimmed) {
       setSelectedModel(trimmed);
+      syncProfileModelLimits(trimmed);
     }
     setIsManualMode(false);
     setIsModelMenuOpen(false);
-  }, [manualValue]);
+  }, [manualValue, syncProfileModelLimits]);
 
   const handleManualKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLInputElement>) => {

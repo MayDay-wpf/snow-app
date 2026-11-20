@@ -343,7 +343,13 @@ export function McpSettingsEditor({
               <CustomSelect
                 value={draft.transportType}
                 options={transportOptions}
-                onChange={(value) => onDraftChange({ transportType: value })}
+                onChange={(value) =>
+                  onDraftChange({
+                    transportType: value,
+                    // OAuth 只属于远程 HTTP 传输：切走时同步清掉开关。
+                    ...(value === "http" ? {} : { oauth: false }),
+                  })
+                }
                 disabled={isBusy}
               />
             </div>
@@ -403,7 +409,34 @@ export function McpSettingsEditor({
                 })}
               </span>
             </label>
+            {isHttp && (
+              <label className="toggle-switch mcp-enabled-switch">
+                <input
+                  type="checkbox"
+                  checked={draft.oauth}
+                  onChange={(event) =>
+                    onDraftChange({ oauth: event.target.checked })
+                  }
+                  disabled={isBusy}
+                />
+                <span className="toggle-slider" />
+                <span>
+                  {t("settings.mcpOAuthEnabled", {
+                    defaultValue: "OAuth sign-in",
+                  })}
+                </span>
+              </label>
+            )}
           </div>
+
+          {isHttp && draft.oauth && (
+            <div className="mcp-editor-json-hint">
+              {t("settings.mcpOAuthEnabledHint", {
+                defaultValue:
+                  "This server requires OAuth. Save it, then use the OAuth sign-in action on the server row to finish the browser login.",
+              })}
+            </div>
+          )}
 
           {!usesUrl && (
             <McpStringListEditor

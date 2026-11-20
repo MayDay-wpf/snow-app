@@ -706,6 +706,8 @@ async fn perform_builtin_login(
     let advanced_model = pick_model(provider, &session.advanced_model, &available_models);
     let basic_model = pick_model(provider, &session.basic_model, &available_models);
 
+    // 上下文 / 输出上限跟随先进模型本身，不再硬编码服务商默认值。
+    let model_limits = crate::models::resolve_external_model_limits(&advanced_model).await;
     let prepared = provider::prepare_profile(
         provider,
         &claims,
@@ -713,6 +715,7 @@ async fn perform_builtin_login(
         &tokens.access_token,
         &advanced_model,
         &basic_model,
+        model_limits,
     );
     let database_path = ensure_database_file()?;
     provider::persist_profile(database_path, provider, prepared.input).await?;

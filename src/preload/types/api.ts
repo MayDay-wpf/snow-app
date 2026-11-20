@@ -201,6 +201,16 @@ export type Model = {
   object: string;
   created: number;
   ownedBy: string;
+  /** 模型上下文窗口（tokens）：渠道模型清单返回时填充。 */
+  contextLength?: number | null;
+  /** 单次请求的最大输出 tokens。 */
+  maxOutputTokens?: number | null;
+};
+
+/** 单个模型的上下文 / 输出上限；字段为 null 表示该来源没有提供。 */
+export type ModelLimits = {
+  contextLength: number | null;
+  maxOutputTokens: number | null;
 };
 
 export type ApiModelsConfig = {

@@ -31,6 +31,8 @@ struct ProjectMcpServerConfig {
     args_json: String,
     env_json: String,
     headers_json: String,
+    /// HTTP 传输是否走 OAuth 浏览器授权（旧配置缺省为 false）。
+    oauth: bool,
     enabled: bool,
     timeout_ms: Option<i32>,
     sort_order: i32,
@@ -169,6 +171,7 @@ pub(crate) fn upsert_project_mcp_server_config_with_connection(
         server.args_json = item.args_json.clone();
         server.env_json = item.env_json.clone();
         server.headers_json = item.headers_json.clone();
+        server.oauth = item.oauth;
         server.enabled = item.enabled;
         server.timeout_ms = item.timeout_ms;
         server.sort_order = item.sort_order;
@@ -183,6 +186,7 @@ pub(crate) fn upsert_project_mcp_server_config_with_connection(
             args_json: item.args_json.clone(),
             env_json: item.env_json.clone(),
             headers_json: item.headers_json.clone(),
+            oauth: item.oauth,
             enabled: item.enabled,
             timeout_ms: item.timeout_ms,
             sort_order: item.sort_order,
@@ -358,6 +362,7 @@ fn to_project_record(server: &ProjectMcpServerConfig) -> ProjectMcpServerConfigR
         args_json: server.args_json.clone(),
         env_json: server.env_json.clone(),
         headers_json: server.headers_json.clone(),
+        oauth: server.oauth,
         enabled: server.enabled,
         timeout_ms: server.timeout_ms,
         sort_order: server.sort_order,
@@ -377,6 +382,7 @@ fn to_effective_record(server: &ProjectMcpServerConfig) -> McpServerConfigRecord
         args_json: server.args_json.clone(),
         env_json: server.env_json.clone(),
         headers_json: server.headers_json.clone(),
+        oauth: server.oauth,
         enabled: server.enabled,
         timeout_ms: server.timeout_ms,
         sort_order: server.sort_order,

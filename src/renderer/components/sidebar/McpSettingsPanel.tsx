@@ -924,7 +924,7 @@ export function McpSettingsPanel({
     globalEnabled: true,
     detail: `${server.transportType} · ${getMcpServerEndpoint(server) || "-"}`,
     canManage: true,
-    authSupported: server.transportType === "http",
+    authSupported: server.transportType === "http" && server.oauth,
   }));
   const projectListItems: McpSettingsListItem[] = projectServers.map(
     (server) => {
@@ -947,10 +947,13 @@ export function McpSettingsPanel({
               "This server requires OAuth authorization. Use the OAuth sign-in action to finish the browser login.",
           })
         : undefined;
-      // 继承的全局服务器也要按全局配置判断是否 HTTP 传输。
+      // 继承的全局服务器也要按全局配置判断是否 HTTP 传输与 OAuth 开关。
+      const globalConfig = servers.find(
+        (item) => item.serverId === configServerId,
+      );
       const transportType =
-        projectConfig?.transportType ??
-        servers.find((item) => item.serverId === configServerId)?.transportType;
+        projectConfig?.transportType ?? globalConfig?.transportType;
+      const oauthEnabled = projectConfig?.oauth ?? globalConfig?.oauth ?? false;
       const sourceDetail =
         server.source === "system"
           ? t("settings.mcpProjectSystemServer", {
@@ -980,7 +983,7 @@ export function McpSettingsPanel({
         canManage: server.source === "project",
         automatic: server.id === "builtin:toolSearch",
         unavailableReason,
-        authSupported: transportType === "http",
+        authSupported: transportType === "http" && oauthEnabled,
       };
     },
   );
@@ -1160,6 +1163,7 @@ export function McpSettingsPanel({
           argsJson: projectConfig.argsJson,
           envJson: projectConfig.envJson,
           headersJson: projectConfig.headersJson,
+          oauth: projectConfig.oauth,
           enabled: !projectConfig.enabled,
           ...(projectConfig.timeoutMs
             ? { timeoutMs: projectConfig.timeoutMs }
@@ -1331,6 +1335,7 @@ export function McpSettingsPanel({
           argsJson: globalServer.argsJson,
           envJson: globalServer.envJson,
           headersJson: globalServer.headersJson,
+          oauth: globalServer.oauth,
           enabled: nextEnabled,
           ...(globalServer.timeoutMs
             ? { timeoutMs: globalServer.timeoutMs }

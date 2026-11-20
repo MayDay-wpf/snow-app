@@ -38,6 +38,7 @@ export const EMPTY_MCP_SERVER_DRAFT: McpServerDraft = {
   env: [],
   headers: [],
   api: createEmptyApiSpec(),
+  oauth: false,
   enabled: true,
   timeoutMs: "",
   sortOrder: 0,
@@ -120,6 +121,7 @@ export const toDraft = (server: McpServerConfigLike): McpServerDraft => ({
     server.transportType === "api"
       ? apiSpecFromJson(server.argsJson)
       : createEmptyApiSpec(),
+  oauth: server.oauth,
   enabled: server.enabled,
   timeoutMs: server.timeoutMs ? String(server.timeoutMs) : "",
   sortOrder: server.sortOrder,
@@ -144,6 +146,8 @@ const toScopedInput = (
       : argsToJson(draft.args),
   envJson: pairsToJson(draft.env),
   headersJson: pairsToJson(draft.headers),
+  // OAuth 只对远程 HTTP 传输有意义；切换传输类型后自动落回 false。
+  oauth: draft.transportType === "http" && draft.oauth,
   enabled: draft.enabled,
   ...(draft.timeoutMs.trim() ? { timeoutMs: Number(draft.timeoutMs) } : {}),
   sortOrder: draft.serverId ? draft.sortOrder : fallbackSortOrder,
@@ -196,6 +200,10 @@ export const draftToJson = (draft: McpServerDraft): string => {
   if (draft.transportType === "http") {
     if (draft.url.trim()) {
       server.url = draft.url;
+    }
+    // 只在开启时输出：保持与主流 mcp.json 的兼容（无该键视为不启用）。
+    if (draft.oauth) {
+      server.oauth = true;
     }
   } else if (draft.transportType === "api") {
     if (draft.url.trim()) {
@@ -492,6 +500,7 @@ const SERVER_CONFIG_KEYS = new Set([
   "env",
   "environment",
   "headers",
+  "oauth",
   "enabled",
   "timeout",
   "timeoutMs",
@@ -629,6 +638,8 @@ export const parseDraftJson = (
     headers: asPairs(source.headers),
     api:
       transportType === "api" ? apiSpecFromValue(source) : createEmptyApiSpec(),
+    // `oauth: true` 只对 HTTP 传输生效；其他传输即使写了也忽略。
+    oauth: transportType === "http" && source.oauth === true,
     enabled: source.enabled !== false,
     timeoutMs: timeoutValue,
   };

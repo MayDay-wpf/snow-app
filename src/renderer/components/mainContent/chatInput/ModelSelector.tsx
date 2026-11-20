@@ -34,6 +34,7 @@ import {
   useApiConfigReorder,
 } from "../../sidebar/apiSettings/apiConfigReorder";
 import type { ApiConfigRecord } from "../../../../preload";
+import { formatContextWindow } from "../../../utils/formatTokens";
 
 type ModelSelectorProps = Pick<
   ChatInputState,
@@ -978,6 +979,20 @@ export const ModelSelector = ({
                             <span className="model-dropdown-item-name-text">
                               {model.id}
                             </span>
+                            {model.contextLength != null &&
+                              model.contextLength > 0 && (
+                                <span
+                                  className="model-dropdown-context-badge"
+                                  title={t("chat.modelContextWindow", {
+                                    values: {
+                                      value:
+                                        model.contextLength.toLocaleString(),
+                                    },
+                                  })}
+                                >
+                                  {formatContextWindow(model.contextLength)}
+                                </span>
+                              )}
                           </span>
                           {selectedModel === model.id && (
                             <Check size={14} className="model-dropdown-check" />

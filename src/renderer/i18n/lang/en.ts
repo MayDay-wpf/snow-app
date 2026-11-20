@@ -940,6 +940,7 @@ export const en = {
   "chat.manualModel": "Enter model manually",
   "chat.manualModelPlaceholder": "e.g. gpt-4.1",
   "chat.noModelsFound": "No models found",
+  "chat.modelContextWindow": "Context window: {{value}} tokens",
   "chat.searchModels": "Search models",
   "chat.noMatchingModels": "No matching models",
   "chat.searchApiProfiles": "Search API providers",
@@ -3494,6 +3495,9 @@ export const en = {
   "settings.mcpOAuthCancel": "Cancel sign-in",
   "settings.mcpOAuthClose": "Close",
   "settings.mcpOAuthDone": "Done",
+  "settings.mcpOAuthEnabled": "Require OAuth sign-in",
+  "settings.mcpOAuthEnabledHint":
+    "When enabled, the OAuth login state is stored for this server. Save the server, then run OAuth sign-in from the server row to finish the browser login.",
   "settings.mcpErrorMissingCommand":
     "This MCP server has no command configured.",
   "settings.mcpErrorMissingUrl": "This MCP server has no URL configured.",
@@ -3521,7 +3525,7 @@ export const en = {
     'JSON must be a server config object or a single-entry map like { "context7": { ... } }.',
   "settings.mcpJsonEditorLabel": "MCP server JSON configuration",
   "settings.mcpJsonHint":
-    'Edit the server configuration as JSON, e.g. {"context7": {"url": "https://mcp.context7.com/mcp"}}. Pasted configs with markdown fences, mcpServers/servers wrappers, comments, trailing commas or full-width spaces are tolerated. type (http/stdio) is inferred from url or command when omitted.',
+    'Edit the server configuration as JSON, e.g. {"context7": {"url": "https://mcp.context7.com/mcp"}}. Pasted configs with markdown fences, mcpServers/servers wrappers, comments, trailing commas or full-width spaces are tolerated. type (http/stdio) is inferred from url or command when omitted. Remote HTTP servers that need OAuth sign-in accept "oauth": true.',
   "settings.mcpJsonValid": "Valid JSON",
   "settings.mcpToolDetailsCollapse": "Collapse details",
   "settings.mcpToolDetailsExpand": "View tool details",

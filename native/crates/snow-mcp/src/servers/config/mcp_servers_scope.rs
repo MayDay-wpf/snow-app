@@ -92,6 +92,7 @@ fn server_view(
     args_json: &str,
     env_json: &str,
     headers_json: &str,
+    oauth: bool,
     enabled: bool,
     timeout_ms: Option<i32>,
     sort_order: i32,
@@ -107,6 +108,7 @@ fn server_view(
         "args": json_field(args_json, "[]"),
         "env": masked_object(env_json),
         "headers": masked_object(headers_json),
+        "oauth": oauth,
         "enabled": enabled,
         "timeoutMs": timeout_ms,
         "sortOrder": sort_order,
@@ -125,6 +127,7 @@ fn global_view(record: &McpServerConfigRecord) -> Value {
         &record.args_json,
         &record.env_json,
         &record.headers_json,
+        record.oauth,
         record.enabled,
         record.timeout_ms,
         record.sort_order,
@@ -143,6 +146,7 @@ fn project_view(record: &ProjectMcpServerConfigRecord) -> Value {
         &record.args_json,
         &record.env_json,
         &record.headers_json,
+        record.oauth,
         record.enabled,
         record.timeout_ms,
         record.sort_order,
@@ -416,6 +420,16 @@ fn set_server(
                 .and_then(Value::as_bool)
         })
         .unwrap_or(true);
+    let oauth = value
+        .get("oauth")
+        .and_then(Value::as_bool)
+        .or_else(|| {
+            existing
+                .as_ref()
+                .and_then(|server| server.get("oauth"))
+                .and_then(Value::as_bool)
+        })
+        .unwrap_or(false);
     let timeout_ms = value
         .get("timeoutMs")
         .and_then(Value::as_i64)
@@ -451,6 +465,7 @@ fn set_server(
         args_json,
         env_json,
         headers_json,
+        oauth,
         enabled,
         timeout_ms,
         sort_order,

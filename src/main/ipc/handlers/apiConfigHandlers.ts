@@ -111,6 +111,36 @@ const pickWindowFor = (
   event: Electron.IpcMainInvokeEvent,
 ): BrowserWindow | null => BrowserWindow.fromWebContents(event.sender);
 
+/** 校验渲染层传来的模型清单查询配置。 */
+const normalizeApiModelsConfig = (value: unknown): ApiModelsConfig => {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error("API model config is required");
+  }
+
+  const source = value as Partial<Record<keyof ApiModelsConfig, unknown>>;
+  return {
+    baseUrl: typeof source.baseUrl === "string" ? source.baseUrl : "",
+    baseUrlMode:
+      typeof source.baseUrlMode === "string" ? source.baseUrlMode : "auto",
+    apiKey: typeof source.apiKey === "string" ? source.apiKey : "",
+    requestMethod:
+      typeof source.requestMethod === "string" ? source.requestMethod : "chat",
+    customHeaderSchemeId:
+      typeof source.customHeaderSchemeId === "string"
+        ? source.customHeaderSchemeId
+        : "",
+    // OAuth 渠道的 configJson 原样透传：Rust 据此识别 provider 并拉取订阅账号模型。
+    configJson:
+      typeof source.configJson === "string" && source.configJson.trim()
+        ? source.configJson
+        : undefined,
+    profileName:
+      typeof source.profileName === "string" && source.profileName.trim()
+        ? source.profileName.trim()
+        : undefined,
+  };
+};
+
 export const registerApiConfigHandlers = (native: NativeBridge): void => {
   ipcMain.handle("api-configs:list", () => native.listApiConfigs());
   ipcMain.handle("api-configs:retry-defaults", () => native.getRetryDefaults());
@@ -413,41 +443,39 @@ export const registerApiConfigHandlers = (native: NativeBridge): void => {
   });
   ipcMain.handle(
     "api-models:fetch-for-config",
-    async (_event, config: unknown) => {
-      if (
-        typeof config !== "object" ||
-        config === null ||
-        Array.isArray(config)
-      ) {
-        throw new Error("API model config is required");
+    async (_event, config: unknown) =>
+      native.fetchAvailableModelsForConfig(normalizeApiModelsConfig(config)),
+  );
+
+  // 解析模型上下文 / 输出上限：渠道模型清单优先，缺失部分由 Rust 查询公共规格源。
+  ipcMain.handle(
+    "api-models:resolve-limits",
+    async (_event, config: unknown, modelId: unknown) => {
+      const normalizedConfig = normalizeApiModelsConfig(config);
+      if (typeof modelId !== "string" || !modelId.trim()) {
+        return null;
       }
+      return native.resolveModelLimitsForConfig(
+        normalizedConfig,
+        modelId.trim(),
+      );
+    },
+  );
 
-      const source = config as Partial<Record<keyof ApiModelsConfig, unknown>>;
-      const normalizedConfig: ApiModelsConfig = {
-        baseUrl: typeof source.baseUrl === "string" ? source.baseUrl : "",
-        baseUrlMode:
-          typeof source.baseUrlMode === "string" ? source.baseUrlMode : "auto",
-        apiKey: typeof source.apiKey === "string" ? source.apiKey : "",
-        requestMethod:
-          typeof source.requestMethod === "string"
-            ? source.requestMethod
-            : "chat",
-        customHeaderSchemeId:
-          typeof source.customHeaderSchemeId === "string"
-            ? source.customHeaderSchemeId
-            : "",
-        // OAuth 渠道的 configJson 原样透传：Rust 据此识别 provider 并拉取订阅账号模型。
-        configJson:
-          typeof source.configJson === "string" && source.configJson.trim()
-            ? source.configJson
-            : undefined,
-        profileName:
-          typeof source.profileName === "string" && source.profileName.trim()
-            ? source.profileName.trim()
-            : undefined,
-      };
-
-      return native.fetchAvailableModelsForConfig(normalizedConfig);
+  // 切换模型后同步档案的上下文 / 输出上限；空模型名直接返回当前列表。
+  ipcMain.handle(
+    "api-configs:sync-model-limits",
+    async (_event, profileName: unknown, modelId: unknown) => {
+      if (typeof profileName !== "string" || !profileName.trim()) {
+        throw new Error("API profile name is required");
+      }
+      if (typeof modelId !== "string" || !modelId.trim()) {
+        return native.listApiConfigs();
+      }
+      return native.syncApiProfileModelLimits(
+        profileName.trim(),
+        modelId.trim(),
+      );
     },
   );
 

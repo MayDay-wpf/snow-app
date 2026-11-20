@@ -22,6 +22,8 @@ type ApiModelComboboxProps = {
   noModelsText: string;
   retryText: string;
   onChange: (value: string) => void;
+  /** 用户从列表里明确选中某个模型时触发（键入式修改不触发）。 */
+  onSelectModel?: (modelId: string) => void;
   onRequestModels: () => void;
   onRetry: () => void;
   /**
@@ -60,6 +62,7 @@ export function ApiModelCombobox({
   noModelsText,
   retryText,
   onChange,
+  onSelectModel,
   onRequestModels,
   onRetry,
   knownModels,
@@ -144,6 +147,7 @@ export function ApiModelCombobox({
 
   const handleSelectModel = (modelId: string) => {
     onChange(modelId);
+    onSelectModel?.(modelId);
     setIsOpen(false);
   };
 

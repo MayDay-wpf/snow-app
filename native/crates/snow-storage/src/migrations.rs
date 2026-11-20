@@ -112,6 +112,7 @@ pub fn run_post_schema_migrations(connection: &Connection) -> rusqlite::Result<(
     migrate_git_worktrees(connection)?;
     migrate_app_logs_conversation_id(connection)?;
     migrate_file_review_annotations(connection)?;
+    migrate_mcp_server_oauth(connection)?;
     migrate_team_join_approval(connection)?;
     migrate_team_host_member(connection)?;
     // 模型注册表：旧 system_settings JSON / 自检快照与代码库内联字段迁入模型表
@@ -236,6 +237,17 @@ fn migrate_file_review_annotations(connection: &Connection) -> rusqlite::Result<
            ON file_review_annotations(source_key, file_path, annotation_id);
          CREATE INDEX IF NOT EXISTS idx_file_review_annotations_file
            ON file_review_annotations(source_key, file_path, created_at, id);",
+    )
+}
+
+/// MCP 服务器配置新增 OAuth 标记（远程 HTTP 服务器按需启用浏览器授权）。
+/// 旧配置默认关闭，保持既有的纯 URL / 自定义请求头连接方式不变。
+fn migrate_mcp_server_oauth(connection: &Connection) -> rusqlite::Result<()> {
+    add_column_if_missing(
+        connection,
+        "mcp_server_configs",
+        "oauth",
+        "INTEGER NOT NULL DEFAULT 0",
     )
 }
 
