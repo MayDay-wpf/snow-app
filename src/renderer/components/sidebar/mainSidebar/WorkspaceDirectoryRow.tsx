@@ -6,6 +6,7 @@ import { useI18n } from "../../../i18n";
 import { useSshConnectionStatus } from "../../../ssh/sshConnectionStore";
 import {
   getFileTypeIcon,
+  getLayeredFolderClosedIcon,
   getLayeredFolderIcon,
 } from "../../../utils/fileIcons";
 import { Tooltip } from "../../common/Tooltip";
@@ -64,10 +65,13 @@ export const getDirectoryIcon = (
   directory: WorkspaceDirectoryRecord,
   options?: { currentProject?: boolean },
 ): React.JSX.Element => {
-  // 当前打开的项目：多层立体文件夹图标（仅本地目录，SSH 用 Server 图标）。
+  // 目录行统一用多层立体文件夹图标（仅本地目录，SSH 用 Server 图标）：
+  // 当前打开的项目是「打开」形态，其余是同一套配色的「闭合」形态。
   // 填充版比描边版墨迹少一圈（20/24 vs 22/24），16 才与其它行的 15 视觉等宽
-  if (directory.kind !== "ssh" && options?.currentProject) {
-    return getLayeredFolderIcon(16);
+  if (directory.kind !== "ssh" && options) {
+    return options.currentProject
+      ? getLayeredFolderIcon(16)
+      : getLayeredFolderClosedIcon(16);
   }
 
   // SSH 目录始终用 Server 图标：图标表达类型，激活态由行高亮样式承担

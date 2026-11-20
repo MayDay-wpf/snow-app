@@ -686,7 +686,9 @@ export function ChatItem({
               </div>
               {directoryInfo ? (
                 <div className="chat-item-tooltip-project">
-                  {getDirectoryIcon(directoryInfo.record)}
+                  {getDirectoryIcon(directoryInfo.record, {
+                    currentProject: directoryInfo.record.isActive,
+                  })}
                   <span className="chat-item-tooltip-project-name">
                     {directoryInfo.name}
                   </span>

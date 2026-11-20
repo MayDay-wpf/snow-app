@@ -927,3 +927,59 @@ export const getLayeredFolderIcon = (size = 15): React.JSX.Element => (
     />
   </svg>
 );
+
+// 闭合状态的前面板：直立的主体轮廓，整体内缩一圈，露出的背板边即厚度
+const FOLDER_CLOSED_PATH =
+  "M3 17.4V5.6a1.6 1.6 0 0 1 1.6-1.6h3.05a1.6 1.6 0 0 1 1.26.61l1.1 1.4a1.6 1.6 0 0 0 1.26.61H19.4a1.6 1.6 0 0 1 1.6 1.6v9.18a1.6 1.6 0 0 1-1.6 1.6H4.6a1.6 1.6 0 0 1-1.6-1.6Z";
+
+/**
+ * 多层立体文件夹图标（闭合形态），非当前项目的目录使用。
+ * 与打开形态同一套叠色逻辑：深色背板露边＝厚度 → 一叠探出上沿的内页 → 主色前面板 → 上沿受光高光；
+ * 内页从前面板后面探出，表现出文件夹里装着文件的样子。
+ * 墨迹与打开形态等宽（20/24），故同样用 16 与其它行的 15 对齐。
+ */
+export const getLayeredFolderClosedIcon = (size = 16): React.JSX.Element => (
+  <svg
+    aria-hidden="true"
+    className="list-icon list-icon--layered-folder"
+    height={size}
+    viewBox="0 0 24 24"
+    width={size}
+    xmlns="http://www.w3.org/2000/svg"
+  >
+    {/* 背板：四周露出的暗边即文件夹厚度 */}
+    <path d={FOLDER_BODY_PATH} fill="var(--folder-back)" />
+    {/* 内页：两张错开、微微倾斜的文件，纸缘探出前面板上沿；后张压暗一档区分层次 */}
+    <g fill="var(--folder-sheet)">
+      <rect
+        height="5.6"
+        opacity="0.85"
+        rx="0.6"
+        transform="rotate(-8 14 6.4)"
+        width="5.4"
+        x="11.6"
+        y="3.1"
+      />
+      <rect
+        height="5.4"
+        rx="0.6"
+        stroke="var(--folder-back)"
+        strokeWidth="0.45"
+        transform="rotate(6 16.8 6.4)"
+        width="4.9"
+        x="14.7"
+        y="3.8"
+      />
+    </g>
+    {/* 前面板：闭合状态的主色块，盖住内页下半截 */}
+    <path d={FOLDER_CLOSED_PATH} fill="var(--folder-front)" />
+    {/* 口沿高光：前面板上沿的受光边 */}
+    <path
+      d="M12 6.62h5.7"
+      opacity="0.7"
+      stroke="var(--folder-highlight)"
+      strokeLinecap="round"
+      strokeWidth="0.7"
+    />
+  </svg>
+);

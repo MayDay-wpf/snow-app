@@ -2587,12 +2587,13 @@ body.is-panel-resizing * {
 .chat-item-tooltip-project {
   display: flex;
   align-items: center;
-  gap: 6px;
+  /* 间距与侧边栏目录行（.list-item）保持一致 */
+  gap: 8px;
   min-width: 0;
   color: var(--text-secondary);
 }
 
-/* 图标沿用目录列表配色（本地文件夹黄、SSH 红），不在此覆盖 color */
+/* 图标与侧边栏目录行一致（多层立体文件夹，SSH 为 Server），不在此覆盖 color */
 .chat-item-tooltip-project svg {
   flex-shrink: 0;
 }
@@ -2996,6 +2997,21 @@ body.is-panel-resizing * {
 :root[data-theme="dark"] .list-icon--current-project {
   --folder-back: color-mix(in srgb, var(--accent-blue) 40%, #08203f);
   --folder-sheet: color-mix(in srgb, var(--accent-blue) 52%, #fff);
+}
+
+/* 非当前项目的目录用闭合形态：沿用描边文件夹的金棕色做同一套分量层次，
+   蓝色只留给当前项目，避免两行图标抢眼 */
+.list-icon--layered-folder {
+  --folder-back: color-mix(in srgb, #dcb67a 52%, #3d2a08);
+  --folder-front: #dcb67a;
+  --folder-sheet: color-mix(in srgb, #dcb67a 16%, #fff);
+  --folder-highlight: color-mix(in srgb, #fff 60%, transparent);
+}
+
+/* 暗色主题：背板压得更沉，内页收暗一档，前面板保持原色 */
+:root[data-theme="dark"] .list-icon--layered-folder {
+  --folder-back: color-mix(in srgb, #dcb67a 32%, #1a1204);
+  --folder-sheet: color-mix(in srgb, #dcb67a 26%, #f4ecdb);
 }
 
 /* ===== 项目合集（project collections） ===== */

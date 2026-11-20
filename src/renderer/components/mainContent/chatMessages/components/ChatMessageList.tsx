@@ -284,14 +284,46 @@ export const ChatMessageList = ({
   // 历史轮的集合缓存：来源消息引用不变时复用同一个集合对象，避免流式期间
   // 击穿历史消息的 memo。
   const runCacheRef = useRef(new Map<string, RunCacheEntry>());
+  // 极简模式的分组边界：本窗口首次渲染时的最早一条消息。加载更早的历史时
+  // 边界之后（已渲染部分）的分组必须保持不变——否则窗口顶部那段没有正文的
+  // 工具集合会被并入新页的正文块，从视口里整段搬走：总高度几乎不变（滚动
+  // 锚定无从补偿），视口内容却一下跳过一整个集合的高度，观感就是「记录跳了
+  // 一大段」。边界只在窗口重置（会话切换、头部裁剪、消息被删）时重建。
+  const minimalBoundaryRef = useRef<{
+    headId: string | null;
+    boundaryId: string | null;
+  }>({ headId: null, boundaryId: null });
   useEffect(() => {
     runCacheRef.current = new Map();
+    minimalBoundaryRef.current = { headId: null, boundaryId: null };
   }, [activeConversationId]);
 
   const minimalLayout = useMemo<MinimalLayout | null>(() => {
     if (!isMinimalTranscript) {
       return null;
     }
+    const boundaryState = minimalBoundaryRef.current;
+    const headId = messages[0]?.id ?? null;
+    if (headId !== boundaryState.headId) {
+      const previousHeadIndex = boundaryState.headId
+        ? messages.findIndex((message) => message.id === boundaryState.headId)
+        : -1;
+      // 旧首条仍在列表中部 = 顶部插入（翻页）；沿用既有边界。旧边界已被裁剪
+      // 时退回到旧首条——它正是本轮新页的上一个起点。其余情况（首条未变、
+      // 窗口整体重建）都以当前首条重建边界。
+      if (previousHeadIndex > 0) {
+        const boundaryStillPresent =
+          boundaryState.boundaryId !== null &&
+          messages.some((message) => message.id === boundaryState.boundaryId);
+        if (!boundaryStillPresent) {
+          boundaryState.boundaryId = boundaryState.headId;
+        }
+      } else {
+        boundaryState.boundaryId = headId;
+      }
+      boundaryState.headId = headId;
+    }
+    const boundaryId = boundaryState.boundaryId;
     const runs = new Map<string, ToolCallRun>();
     const hidden = new Set<string>();
     const cache = runCacheRef.current;
@@ -356,6 +388,13 @@ export const ChatMessageList = ({
 
     let tailHost: string | null = null;
     for (const message of messages) {
+      // 窗口边界：更早的历史（翻页新插入的部分）在这里结算，边界及之后的
+      // 现场重新从零分组，于是它与上一轮渲染完全一致；不这样切断，边界之前
+      // 的工具会被并入边界消息所属的集合，边界消息整条变隐藏、DOM 连同它
+      // 承载的工具集合一起从视口搬走。
+      if (message.id === boundaryId) {
+        flush();
+      }
       if (message.role === "user") {
         flush();
         continue;
