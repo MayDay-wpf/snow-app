@@ -414,7 +414,8 @@ pub async fn fetch_models(
     }
 }
 
-/// 账号级动态请求头（随登录账号或令牌变化，无法写入共享的请求头方案）。
+/// 请求时注入、不写入共享请求头方案的请求头：账号级动态请求头（随登录账号或令牌变化），
+/// 以及方案未提供时才补上的兜底请求头（如 Claude 订阅的 User-Agent）。
 ///
 /// 固定的身份请求头由档案绑定的自定义请求头方案提供（见 `header_schemes`）。
 pub fn apply_request_headers(
@@ -427,10 +428,11 @@ pub fn apply_request_headers(
     };
     match metadata.provider {
         OAuthProviderId::Codex => codex::apply_request_headers(&metadata, headers),
+        OAuthProviderId::Anthropic => anthropic::apply_request_headers(headers),
         OAuthProviderId::Antigravity => {
             antigravity::apply_request_headers(&config.api_key, headers)
         }
-        OAuthProviderId::ChatGpt | OAuthProviderId::Anthropic | OAuthProviderId::Xai => {}
+        OAuthProviderId::ChatGpt | OAuthProviderId::Xai => {}
     }
 }
 

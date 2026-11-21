@@ -211,7 +211,7 @@ pub fn to_header_map(headers: &HashMap<String, String>) -> Result<HeaderMap> {
 }
 
 /// 解析订阅档案在非会话请求（如配额查询）中使用的请求头：
-/// 档案绑定的请求头方案 + 账号级动态请求头。
+/// 档案绑定的请求头方案 + 请求时注入的账号级动态请求头与兜底请求头。
 pub async fn resolve_profile_headers(config: &ApiConfigRecord) -> Result<HashMap<String, String>> {
     let scheme_id = config.custom_header_scheme_id.clone();
     let mut headers = tokio::task::spawn_blocking(move || -> Result<HashMap<String, String>> {

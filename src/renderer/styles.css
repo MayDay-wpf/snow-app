@@ -7238,6 +7238,12 @@ body.is-panel-resizing * {
   min-width: 0;
 }
 
+/* 直达入口紧跟标签，不推到行尾 */
+.api-settings-field-head.inline {
+  justify-content: flex-start;
+  gap: 10px;
+}
+
 /* 模型下拉旁的直达链接：跳到 API 设置页对应标签页维护模型 */
 .model-settings-jump {
   display: inline-flex;

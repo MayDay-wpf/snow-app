@@ -12,6 +12,7 @@ import { ApiSettingsFieldLabel } from "./ApiSettingsFieldLabel";
 import { CustomSelect } from "../../common/CustomSelect";
 import { RangeSlider } from "../../common/RangeSlider";
 import { RequestMethodIcon } from "./RequestMethodIcon";
+import { SettingsPageJumpButton } from "./SettingsPageJumpButton";
 import { SystemPromptSelect } from "./SystemPromptSelect";
 import { TokenPresetInput, type TokenPreset } from "./TokenPresetInput";
 import {
@@ -78,6 +79,8 @@ type ApiSettingsFormFieldsProps = {
   disabled: boolean;
   /** 已保存的配置（编辑时传入），仅 OAuth 档案展示配额。 */
   savedConfig?: ApiConfigRecord | null;
+  /** 传入时在系统提示词 / 自定义请求头旁显示设置页直达入口，跳转前调用（如关闭弹窗）。 */
+  onSettingsJump?: () => void;
 };
 
 export function ApiSettingsFormFields({
@@ -85,6 +88,7 @@ export function ApiSettingsFormFields({
   onChange,
   disabled,
   savedConfig = null,
+  onSettingsJump,
 }: ApiSettingsFormFieldsProps): React.JSX.Element {
   const { t } = useI18n();
   const [showApiKey, setShowApiKey] = useState(false);
@@ -634,16 +638,28 @@ export function ApiSettingsFormFields({
         </strong>
         <div className="api-settings-form-grid">
           <div className="api-settings-field">
-            <ApiSettingsFieldLabel
-              hint={t("settings.apiSystemPromptsHint", {
-                defaultValue:
-                  "Leave empty to inherit global active profile setting.",
-              })}
-            >
-              {t("settings.apiSystemPrompts", {
-                defaultValue: "System prompts",
-              })}
-            </ApiSettingsFieldLabel>
+            <div className="api-settings-field-head inline">
+              <ApiSettingsFieldLabel
+                hint={t("settings.apiSystemPromptsHint", {
+                  defaultValue:
+                    "Leave empty to inherit global active profile setting.",
+                })}
+              >
+                {t("settings.apiSystemPrompts", {
+                  defaultValue: "System prompts",
+                })}
+              </ApiSettingsFieldLabel>
+              {onSettingsJump && (
+                <SettingsPageJumpButton
+                  view="system-prompt-settings"
+                  label={t("settings.apiOpenSystemPromptSettings", {
+                    defaultValue: "Manage system prompts",
+                  })}
+                  disabled={disabled}
+                  onBeforeJump={onSettingsJump}
+                />
+              )}
+            </div>
             <SystemPromptSelect
               value={data.systemPromptIdsJson}
               prompts={systemPrompts}
@@ -651,12 +667,24 @@ export function ApiSettingsFormFields({
               disabled={disabled}
             />
           </div>
-          <label className="api-settings-field">
-            <span>
-              {t("settings.apiCustomHeaderScheme", {
-                defaultValue: "Custom header scheme",
-              })}
-            </span>
+          <div className="api-settings-field">
+            <div className="api-settings-field-head inline">
+              <span>
+                {t("settings.apiCustomHeaderScheme", {
+                  defaultValue: "Custom header scheme",
+                })}
+              </span>
+              {onSettingsJump && (
+                <SettingsPageJumpButton
+                  view="custom-headers-settings"
+                  label={t("settings.apiOpenCustomHeadersSettings", {
+                    defaultValue: "Manage custom headers",
+                  })}
+                  disabled={disabled}
+                  onBeforeJump={onSettingsJump}
+                />
+              )}
+            </div>
             <CustomSelect
               value={data.customHeaderSchemeId}
               options={[
@@ -680,7 +708,7 @@ export function ApiSettingsFormFields({
               onChange={(value) => onChange("customHeaderSchemeId", value)}
               disabled={disabled}
             />
-          </label>
+          </div>
         </div>
       </div>
 

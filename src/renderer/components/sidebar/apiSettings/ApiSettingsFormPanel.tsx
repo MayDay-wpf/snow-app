@@ -14,6 +14,8 @@ type ApiSettingsFormPanelProps = {
   asForm?: boolean;
   /** 已保存的配置（编辑时传入），用于展示 OAuth 配额。 */
   savedConfig?: ApiConfigRecord | null;
+  /** 传入时显示系统提示词 / 自定义请求头设置页直达入口，跳转前调用。 */
+  onSettingsJump?: () => void;
 };
 
 export function ApiSettingsFormPanel({
@@ -25,6 +27,7 @@ export function ApiSettingsFormPanel({
   saveLabel,
   asForm = false,
   savedConfig = null,
+  onSettingsJump,
 }: ApiSettingsFormPanelProps): React.JSX.Element {
   const { t } = useI18n();
   const fields = (
@@ -33,6 +36,7 @@ export function ApiSettingsFormPanel({
       onChange={onChange}
       disabled={isSaving}
       savedConfig={savedConfig}
+      onSettingsJump={onSettingsJump}
     />
   );
 

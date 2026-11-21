@@ -193,6 +193,7 @@ export function ApiSettingsEditModal({
           onChange={onFieldChange}
           onCancel={onClose}
           onSave={() => void handleSave()}
+          onSettingsJump={onClose}
           saveLabel={t("settings.saveApiConfig", {
             defaultValue: "Save API profile",
           })}

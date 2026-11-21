@@ -5,7 +5,9 @@ use napi::bindgen_prelude::*;
 use serde::Serialize;
 use serde_json::Value;
 
-use super::header_schemes::{remove_header, to_header_map, with_default_headers};
+use super::header_schemes::{
+    header_is_missing, remove_header, to_header_map, with_default_headers,
+};
 use super::provider::{now_epoch_secs, OAuthClaims, OAuthTokenSet};
 use snow_net::http_client::{build_proxied_client_with_timeout, load_proxy_config_sync};
 
@@ -25,7 +27,10 @@ const OAUTH_BETA: &str = "oauth-2025-04-20";
 /// 网关据此把请求识别为官方订阅客户端请求。
 const MESSAGES_BETA: &str = "claude-code-20250219,oauth-2025-04-20";
 /// Claude Code 客户端的 User-Agent 形状，订阅请求必须携带。
-const CLAUDE_CODE_USER_AGENT: &str = "claude-cli/2.1.280 (external, cli)";
+///
+/// 仅作兜底：请求头方案里已有 User-Agent 时一律以用户为准；该值只在缺失时于请求阶段
+/// 补上，不写入方案，避免与用户自填的 User-Agent 并存而相互覆盖。
+const CLAUDE_CODE_USER_AGENT: &str = "claude-cli/2.1.290 (external, cli)";
 const ANTHROPIC_VERSION: &str = "2023-06-01";
 const OAUTH_SCOPE: &str =
     "user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload";
@@ -324,6 +329,7 @@ fn models_headers(
             ("Accept", "application/json".to_string()),
             ("anthropic-version", ANTHROPIC_VERSION.to_string()),
             ("anthropic-beta", OAUTH_BETA.to_string()),
+            ("user-agent", CLAUDE_CODE_USER_AGENT.to_string()),
         ],
     );
     remove_header(&mut headers, "authorization");
@@ -340,13 +346,22 @@ fn models_headers(
 /// Messages 请求：`anthropic-beta` 必须同时声明 `claude-code-20250219`，并携带 CLI 的
 /// User-Agent、`x-app: cli` 与直接浏览器访问声明，请求才会被网关当作官方订阅客户端
 /// 放行（与 CLIProxyAPI 的上游伪装行为一致）。这些值作为默认值写入「Claude」自定义
-/// 请求头方案，由档案绑定后随请求下发，用户可在设置中调整。
+/// 请求头方案，由档案绑定后随请求下发，用户可在设置中调整。User-Agent 例外：它不写入
+/// 方案，只在请求时兜底（见 [`apply_request_headers`]）。
 pub fn required_headers() -> Vec<(&'static str, String)> {
     vec![
         ("anthropic-version", ANTHROPIC_VERSION.to_string()),
         ("anthropic-beta", MESSAGES_BETA.to_string()),
         ("anthropic-dangerous-direct-browser-access", "true".to_string()),
         ("x-app", "cli".to_string()),
-        ("user-agent", CLAUDE_CODE_USER_AGENT.to_string()),
     ]
+}
+
+/// 请求头方案未提供 User-Agent（缺失或为空）时补上 Claude Code 客户端 UA；
+/// 用户已提供则保持原值，不做覆盖。
+pub fn apply_request_headers(headers: &mut HashMap<String, String>) {
+    if header_is_missing(headers, "user-agent") {
+        remove_header(headers, "user-agent");
+        headers.insert("user-agent".to_string(), CLAUDE_CODE_USER_AGENT.to_string());
+    }
 }

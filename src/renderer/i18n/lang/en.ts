@@ -3096,6 +3096,8 @@ export const en = {
   "settings.codebaseRerankingModelHint":
     "Reranking models are managed in API configuration → Reranking models; only enabled ones can be selected here.",
   "settings.modelSelectOpenApiSettings": "Open API settings",
+  "settings.apiOpenSystemPromptSettings": "Manage system prompts",
+  "settings.apiOpenCustomHeadersSettings": "Manage custom headers",
   "settings.retryPanelTitle": "Retry policy",
   "settings.retryPanelInfo":
     "Configure which errors are retried. Applies to all API profiles. Changes are saved automatically.",

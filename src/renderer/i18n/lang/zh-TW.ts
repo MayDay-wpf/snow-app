@@ -2937,6 +2937,8 @@ export const zhTW = {
   "settings.codebaseRerankingModelHint":
     "重排模型在「API 設定 → 重排模型」中維護，這裡只能選擇已啟用的模型。",
   "settings.modelSelectOpenApiSettings": "前往 API 設定",
+  "settings.apiOpenSystemPromptSettings": "管理系統提示詞",
+  "settings.apiOpenCustomHeadersSettings": "管理自訂請求標頭",
   "settings.retryPanelTitle": "重試策略",
   "settings.retryPanelInfo":
     "配置哪些錯誤會觸發重試，對所有 API 檔案生效，修改自動儲存。",
