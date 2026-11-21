@@ -39,8 +39,12 @@ const MAX_CALLBACK_REQUEST_BYTES: usize = 16 * 1024;
 /// `resources/mcp-oauth/client-metadata.json`，授权服务器会按 URL 抓取它，
 /// 并把 URL 本身当作 client_id；没有 registration_endpoint 的授权服务器
 /// （如 ElevenLabs）只能走这条路径完成客户端识别。
+///
+/// 必须用 jsDelivr 而不是 raw.githubusercontent.com：后者的响应是
+/// `text/plain`，授权服务器会以「must be served as JSON」拒绝。文档内容变更后
+/// 需访问 `https://purge.jsdelivr.net/gh/MayDay-wpf/snow-app@main/...` 清缓存。
 const CLIENT_METADATA_URL: &str =
-    "https://raw.githubusercontent.com/MayDay-wpf/snow-app/main/resources/mcp-oauth/client-metadata.json";
+    "https://cdn.jsdelivr.net/gh/MayDay-wpf/snow-app@main/resources/mcp-oauth/client-metadata.json";
 
 /// 使用 CIMD 时的固定回调端口。文档里的 `redirect_uris` 是静态枚举，无法
 /// 表达系统分配的随机端口，只能在这组端口里逐个尝试；修改这里必须同步

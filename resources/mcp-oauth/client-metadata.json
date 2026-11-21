@@ -1,5 +1,5 @@
 {
-  "client_id": "https://raw.githubusercontent.com/MayDay-wpf/snow-app/main/resources/mcp-oauth/client-metadata.json",
+  "client_id": "https://cdn.jsdelivr.net/gh/MayDay-wpf/snow-app@main/resources/mcp-oauth/client-metadata.json",
   "client_name": "Snow App",
   "client_uri": "https://github.com/MayDay-wpf/snow-app",
   "logo_uri": "https://raw.githubusercontent.com/MayDay-wpf/snow-app/main/resources/icon.png",
