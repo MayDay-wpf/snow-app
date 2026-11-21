@@ -707,7 +707,7 @@ async fn perform_builtin_login(
     let basic_model = pick_model(provider, &session.basic_model, &available_models);
 
     // 上下文 / 输出上限跟随先进模型本身，不再硬编码服务商默认值。
-    let model_limits = crate::models::resolve_external_model_limits(&advanced_model).await;
+    let model_limits = crate::llm_specs::lookup(&advanced_model).await;
     let prepared = provider::prepare_profile(
         provider,
         &claims,

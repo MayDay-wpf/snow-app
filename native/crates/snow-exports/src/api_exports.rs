@@ -76,11 +76,12 @@ pub async fn fetch_available_models_for_config(
     // 已保存的 OAuth 档案以库内最新 token 为准（必要时先刷新），不信任渲染层快照
     let config = resolve_saved_oauth_profile(config).await?;
     // 插件档案优先使用插件的 models 钩子
-    if let Some(models) = fetch_plugin_models(&config).await? {
+    if let Some(mut models) = fetch_plugin_models(&config).await? {
+        crate::api::llm_specs::enrich_models_with_specs(&mut models).await;
         return Ok(models);
     }
     // 使用 spawn_blocking 确保 HTTP 请求和 SQLite I/O 不阻塞 Node.js 主线程
-    tokio::task::spawn_blocking(move || {
+    let mut models = tokio::task::spawn_blocking(move || {
         let storage_info = initialize_app_storage()?;
         let database_path = PathBuf::from(storage_info.database_path);
         let custom_header_schemes =
@@ -98,7 +99,10 @@ pub async fn fetch_available_models_for_config(
             Status::GenericFailure,
             format!("Failed to execute fetch_available_models_for_config: {}", e),
         )
-    })?
+    })??;
+    // 渠道清单没带上下文窗口的模型，用公共规格数据源补齐（模型菜单的上下文徽章依赖它）。
+    crate::api::llm_specs::enrich_models_with_specs(&mut models).await;
+    Ok(models)
 }
 
 /// 解析指定模型在该 API 档案下的上下文 / 输出上限：优先使用渠道模型清单自带的数值，
@@ -118,8 +122,8 @@ pub async fn resolve_model_limits_for_config(
         .as_deref()
         .is_some_and(crate::api::oauth::plugin::is_plugin_profile)
     {
-        // 插件档案的模型清单由插件钩子提供，不含上下文 / 输出上限。
-        return Ok(None);
+        // 插件档案的模型清单由插件钩子提供，不含上下文 / 输出上限，直接查公共规格源。
+        return Ok(crate::api::llm_specs::lookup(&model_id).await);
     }
 
     let scheme_id = config.custom_header_scheme_id.clone();

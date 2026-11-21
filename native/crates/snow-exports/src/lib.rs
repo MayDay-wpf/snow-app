@@ -39,7 +39,7 @@ pub(crate) mod core_compat {
         character_card, commit_message, conversation, ephemeral, file_search_agent, prompt_context,
         prompt_optimization, reply_prediction, repo_wiki, summary, theme_palette, tool_correction,
     };
-    pub use snow_ai::{config, models, oauth};
+    pub use snow_ai::{config, llm_specs, models, oauth};
     pub use snow_net::{request_proxy, retry};
     pub use snow_providers::responses;
     pub use snow_retrieval::{decision_model, embedding, model_health, reranking};

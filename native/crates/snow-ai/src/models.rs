@@ -47,11 +47,13 @@ pub struct ModelLimits {
     pub max_output_tokens: Option<i64>,
 }
 
+impl ModelLimits {
+    pub fn is_empty(&self) -> bool {
+        self.context_length.is_none() && self.max_output_tokens.is_none()
+    }
+}
+
 const MODEL_FETCH_TIMEOUT_SECS: u64 = 15;
-/// 公共模型规格数据源（llm-specs）的请求超时。
-const LLM_SPECS_TIMEOUT_SECS: u64 = 6;
-const LLM_SPECS_BASE_URL: &str = "https://api-llm-specs.axium-lab.com";
-const LLM_SPECS_MODELS_PATH: &str = "/v1/models";
 const CONTEXT_LIMIT_KEYS: &[&str] = &[
     "context_length",
     "context_window",
@@ -162,7 +164,7 @@ fn optional_timestamp(value: Option<&Value>) -> i64 {
     }
 }
 
-fn positive_integer(value: Option<&Value>) -> Option<i64> {
+pub(crate) fn positive_integer(value: Option<&Value>) -> Option<i64> {
     let number = value?.as_i64().or_else(|| {
         value?
             .as_f64()
@@ -653,141 +655,25 @@ pub fn fetch_available_models_for_active_config() -> Result<Vec<Model>> {
     fetch_available_models(&config, &context.custom_headers)
 }
 
-fn create_llm_specs_http_client() -> Option<Client> {
-    let proxy_config = snow_net::http_client::load_proxy_config_sync().ok()?;
-    let builder = Client::builder()
-        .user_agent(snow_net::http_client::app_user_agent())
-        .timeout(Duration::from_secs(LLM_SPECS_TIMEOUT_SECS));
-    proxy_config.apply_blocking(builder).ok()?.build().ok()
-}
-
-/// 规范化模型 id：去掉渠道前缀与大小写差异，只保留可比较的主体。
-fn normalize_model_id(value: &str) -> String {
-    let lowered = value.trim().to_ascii_lowercase();
-    let base = lowered.rsplit('/').next().unwrap_or(lowered.as_str());
-    base.chars()
-        .filter(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '.' | '-' | '_'))
-        .collect()
-}
-
-/// 两个模型 id 是否指同一模型（允许日期/版本后缀不同）。
-fn model_ids_related(target: &str, candidate: &str) -> bool {
-    if target == candidate {
-        return true;
-    }
-    for (short, long) in [(target, candidate), (candidate, target)] {
-        let Some(rest) = long.strip_prefix(short) else {
-            continue;
-        };
-        if !rest.is_empty()
-            && rest
-                .chars()
-                .all(|ch| ch.is_ascii_digit() || matches!(ch, '.' | '-' | '_'))
-        {
-            return true;
-        }
-    }
-    false
-}
-
-fn model_limits_from_spec(value: &Value) -> ModelLimits {
-    let context_length = positive_integer(value.get("max_input_tokens"))
-        .or_else(|| positive_integer(value.get("context_window")))
-        .or_else(|| positive_integer(value.get("context_length")));
-    ModelLimits {
-        context_length,
-        max_output_tokens: positive_integer(value.get("max_output_tokens")),
-    }
-}
-
-fn model_limits_empty(limits: &ModelLimits) -> bool {
-    limits.context_length.is_none() && limits.max_output_tokens.is_none()
-}
-
-/// 查询公共模型规格数据源（llm-specs）。同步阻塞，调用方必须在阻塞线程中执行。
-fn fetch_llm_spec_limits_blocking(model_id: &str) -> Option<ModelLimits> {
-    let model_id = model_id.trim();
-    if model_id.is_empty() {
-        return None;
-    }
-    let client = create_llm_specs_http_client()?;
-
-    let exact_url = format!(
-        "{LLM_SPECS_BASE_URL}{LLM_SPECS_MODELS_PATH}/{}",
-        model_id.trim_start_matches('/')
-    );
-    if let Ok(response) = client.get(&exact_url).send() {
-        if response.status().is_success() {
-            if let Ok(data) = parse_models_response(response) {
-                let limits = model_limits_from_spec(&data);
-                if !model_limits_empty(&limits) {
-                    return Some(limits);
-                }
-            }
-        }
-    }
-
-    // 精确 id 未命中（渠道前缀/日期后缀不同）时按模型名检索，只接受同一模型的变体。
-    let base_name = model_id.rsplit('/').next().unwrap_or(model_id).trim();
-    if base_name.is_empty() {
-        return None;
-    }
-    let keyword: String = url::form_urlencoded::byte_serialize(base_name.as_bytes()).collect();
-    let search_url = format!(
-        "{LLM_SPECS_BASE_URL}{LLM_SPECS_MODELS_PATH}?q={keyword}&limit=20&fields=id,max_input_tokens,max_output_tokens"
-    );
-    let response = client.get(&search_url).send().ok()?;
-    if !response.status().is_success() {
-        return None;
-    }
-    let data = parse_models_response(response).ok()?;
-    let items = data.get("data").and_then(Value::as_array)?;
-    let target = normalize_model_id(model_id);
-    for item in items {
-        let Some(candidate) = item.get("id").and_then(Value::as_str) else {
-            continue;
-        };
-        let limits = model_limits_from_spec(item);
-        if model_limits_empty(&limits) {
-            continue;
-        }
-        if model_ids_related(&target, &normalize_model_id(candidate)) {
-            return Some(limits);
-        }
-    }
-    None
-}
-
-pub async fn resolve_external_model_limits(model_id: &str) -> Option<ModelLimits> {
-    let model_id = model_id.trim().to_string();
-    if model_id.is_empty() {
-        return None;
-    }
-    tokio::task::spawn_blocking(move || fetch_llm_spec_limits_blocking(&model_id))
-        .await
-        .ok()
-        .flatten()
-}
-
 fn limits_from_catalog(models: &[Model], model_id: &str) -> Option<ModelLimits> {
     let target = model_id.trim();
     if target.is_empty() {
         return None;
     }
-    let normalized = normalize_model_id(target);
+    let normalized = crate::llm_specs::normalize_model_id(target);
     let model = models
         .iter()
         .find(|model| model.id.eq_ignore_ascii_case(target))
         .or_else(|| {
             models
                 .iter()
-                .find(|model| normalize_model_id(&model.id) == normalized)
+                .find(|model| crate::llm_specs::normalize_model_id(&model.id) == normalized)
         })?;
     let limits = ModelLimits {
         context_length: model.context_length,
         max_output_tokens: model.max_output_tokens,
     };
-    if model_limits_empty(&limits) {
+    if limits.is_empty() {
         return None;
     }
     Some(limits)
@@ -833,7 +719,7 @@ pub async fn resolve_limits_for_config(
         return from_catalog;
     }
 
-    let external = resolve_external_model_limits(&model_id).await;
+    let external = crate::llm_specs::lookup(&model_id).await;
     merge_limits(from_catalog, external)
 }
 
