@@ -25,14 +25,6 @@ type PendingScrollRestore = {
 
 type ScrollAnchorCandidate = {
   element: Element;
-  /**
-   * 极简模式的稳定内容身份（`run:<interactionId>` / `message:<messageId>`）。
-   * 极简分组会把「正文 + 后续工具集合」挂在同一个正文消息上；翻页插入更早
-   * 的历史时，原先承载这段工具集合的消息节点会被并入新页的正文集合而卸载，
-   * DOM 引用随之失效——只有内容身份跨重组不变。身份锚点每轮按它重新解析
-   * 元素，因而能跟着内容搬家，而不是把视口留下。
-   */
-  identity: string | null;
   contentOffset: number;
 };
 
@@ -76,9 +68,6 @@ const SCROLL_SETTLE_RECHECK_MS = 150;
 // 每滚一点就撞一次顶部、频繁触发翻页与滚动恢复（观感就是卡涩 + 位置回跳）。
 const MINIMAL_TRANSCRIPT_PAGE_SIZE = 40;
 
-/** 极简模式的稳定锚点节点：正文/用户消息节点与同名工具行。 */
-const MINIMAL_ANCHOR_SELECTOR = "[data-minimal-stable],[data-minimal-run]";
-
 const measureAnchorContentOffset = (
   container: HTMLDivElement,
   anchor: Element,
@@ -87,109 +76,10 @@ const measureAnchorContentOffset = (
   container.getBoundingClientRect().top +
   container.scrollTop;
 
-const anchorIdentityOf = (node: HTMLElement): string | null => {
-  const runId = node.dataset.minimalRun;
-  if (runId) {
-    return `run:${runId}`;
-  }
-  const messageId = node.dataset.messageId;
-  return node.dataset.minimalStable && messageId
-    ? `message:${messageId}`
-    : null;
-};
-
-/** 同名工具行合并后首个 id 会变，按成员关系找「同一段内容」现在的行。 */
-const resolveRunRow = (
-  container: HTMLDivElement,
-  interactionId: string,
-): Element | null => {
-  const exact = container.querySelector(
-    `[data-minimal-run="${CSS.escape(interactionId)}"]`,
-  );
-  if (exact) {
-    return exact;
-  }
-  const member = ` ${interactionId} `;
-  for (const row of container.querySelectorAll<HTMLElement>(
-    "[data-minimal-run-ids]",
-  )) {
-    if (row.dataset.minimalRunIds?.includes(member)) {
-      return row;
-    }
-  }
-  return null;
-};
-
-/** 按内容身份重新解析锚点元素；无身份的老锚点退回元素引用。 */
-const resolveAnchorElement = (
-  container: HTMLDivElement,
-  anchor: ScrollAnchorCandidate,
-): Element | null => {
-  if (anchor.identity === null) {
-    return container.contains(anchor.element) ? anchor.element : null;
-  }
-  const separator = anchor.identity.indexOf(":");
-  const value = anchor.identity.slice(separator + 1);
-  if (anchor.identity.startsWith("run:")) {
-    return resolveRunRow(container, value);
-  }
-  return container.querySelector(
-    `[data-minimal-stable][data-message-id="${CSS.escape(value)}"]`,
-  );
-};
-
-/**
- * 极简模式的锚点取样：只认不会随分组重组消失的节点。
- * 视口若落在一段「无正文 + 工具」的集合里，那条消息节点会在翻页后被并入
- * 新页的正文集合而卸载；以它为锚点，节点一没，校正就无从谈起——观感就是
- * 内容跳过一整段。工具行与正文消息的内容身份跨重组不变，跟着它就能把
- * 视口固定在原来那段内容上。
- */
-const collectMinimalScrollAnchors = (
-  container: HTMLDivElement,
-): ScrollAnchorCandidate[] => {
-  const viewTop = container.getBoundingClientRect().top;
-  const viewBottom = viewTop + container.clientHeight;
-  const candidates: { node: HTMLElement; top: number; inView: boolean }[] = [];
-  for (const node of container.querySelectorAll<HTMLElement>(
-    MINIMAL_ANCHOR_SELECTOR,
-  )) {
-    const rect = node.getBoundingClientRect();
-    candidates.push({
-      node,
-      top: rect.top,
-      inView: rect.bottom > viewTop && rect.top < viewBottom,
-    });
-  }
-  // 视口落在没有稳定锚点的缝隙里（工具集合的标题行、消息间距等）：取离视口
-  // 顶部最近的一个。锚点可以在视口上方或下方任意距离——推挤测量只依赖它
-  // 自身的位移，不受视口位置约束。
-  let picked = candidates.filter((candidate) => candidate.inView);
-  if (picked.length === 0 && candidates.length > 0) {
-    let nearest = candidates[0];
-    for (const candidate of candidates) {
-      if (Math.abs(candidate.top - viewTop) < Math.abs(nearest.top - viewTop)) {
-        nearest = candidate;
-      }
-    }
-    picked = [nearest];
-  }
-  picked.sort((a, b) => a.top - b.top);
-  return picked.slice(0, MAX_SCROLL_ANCHOR_CANDIDATES).map(({ node, top }) => ({
-    element: node,
-    identity: anchorIdentityOf(node),
-    contentOffset: top - viewTop + container.scrollTop,
-  }));
-};
-
 /** 取视口内自上而下的若干消息节点作为锚点（节点文档顺序即纵向顺序，二分定位）。 */
 const collectScrollAnchors = (
   container: HTMLDivElement,
 ): ScrollAnchorCandidate[] => {
-  const minimalAnchors = collectMinimalScrollAnchors(container);
-  if (minimalAnchors.length > 0) {
-    return minimalAnchors;
-  }
   const nodes = container.querySelectorAll<HTMLElement>("[data-message-id]");
   const viewTop = container.getBoundingClientRect().top;
   const viewBottom = viewTop + container.clientHeight;
@@ -215,7 +105,6 @@ const collectScrollAnchors = (
     }
     anchors.push({
       element: nodes[index],
-      identity: null,
       contentOffset: rect.top - viewTop + container.scrollTop,
     });
   }
@@ -225,24 +114,6 @@ const collectScrollAnchors = (
 /** 重新取样锚点基线（不做校正）：滚动事件里调用，吸收用户位移。 */
 const resyncScrollAnchorLock = (lock: ScrollAnchorLock): void => {
   const { container } = lock;
-  // 内容锚点与视口位置无关：它可能已被搬到别的消息节点下，只要按身份
-  // 重新解析并重测基线即可。不能因为「离开视口」就换锚——换掉就丢了这段
-  // 内容的位移基准，翻页后再也补不回来。
-  if (lock.anchors.some((anchor) => anchor.identity !== null)) {
-    const kept: ScrollAnchorCandidate[] = [];
-    for (const anchor of lock.anchors) {
-      const element = resolveAnchorElement(container, anchor);
-      if (!element) {
-        continue;
-      }
-      anchor.element = element;
-      anchor.contentOffset = measureAnchorContentOffset(container, element);
-      kept.push(anchor);
-    }
-    lock.anchors = kept.length > 0 ? kept : collectScrollAnchors(container);
-    lock.expectedScrollTop = container.scrollTop;
-    return;
-  }
   const first = lock.anchors.find((anchor) =>
     container.contains(anchor.element),
   );
@@ -581,22 +452,10 @@ export const useChatScrollFollow = ({
       return false;
     }
 
-    let anchor: ScrollAnchorCandidate | null = null;
-    for (const candidate of lock.anchors) {
-      const element = resolveAnchorElement(container, candidate);
-      if (!element) {
-        continue;
-      }
-      candidate.element = element;
-      anchor = candidate;
-      break;
-    }
+    const anchor = lock.anchors.find((candidate) =>
+      container.contains(candidate.element),
+    );
     if (!anchor) {
-      // 身份锚点只是暂时解析不到（新页内容仍在占位符里）：保留它等下一轮，
-      // 换锚就丢了这段内容的位移基准。
-      if (lock.anchors.every((candidate) => candidate.identity !== null)) {
-        return false;
-      }
       resyncScrollAnchorLock(lock);
       return false;
     }
@@ -624,21 +483,15 @@ export const useChatScrollFollow = ({
       }
       container.scrollTop += residual;
     }
-    const kept: ScrollAnchorCandidate[] = [];
+    lock.anchors = lock.anchors.filter((candidate) =>
+      container.contains(candidate.element),
+    );
     for (const candidate of lock.anchors) {
-      const element = resolveAnchorElement(container, candidate);
-      if (!element) {
-        // 身份锚点本轮解析不到时保留下来，留待后续轮次重试。
-        if (candidate.identity !== null) {
-          kept.push(candidate);
-        }
-        continue;
-      }
-      candidate.element = element;
-      candidate.contentOffset = measureAnchorContentOffset(container, element);
-      kept.push(candidate);
+      candidate.contentOffset = measureAnchorContentOffset(
+        container,
+        candidate.element,
+      );
     }
-    lock.anchors = kept;
     lock.expectedScrollTop = container.scrollTop;
     return true;
   }, []);

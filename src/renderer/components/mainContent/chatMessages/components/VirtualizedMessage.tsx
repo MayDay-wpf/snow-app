@@ -37,13 +37,6 @@ type VirtualizedMessageProps = MessageContentProps & {
   itemClassName: string;
   /** 是否渲染真实内容（由列表按可见集算好传入，未变化的消息可被 memo 跳过）。 */
   visible: boolean;
-  /**
-   * 极简模式的稳定内容锚点：正文响应 / 用户消息在外层消息节点上打标。
-   * 翻页插入更早的历史时，极简分组会把这些节点承载的工具集合重组到别的
-   * 消息下，只有不参与合并的节点才能拿来当滚动锚点。占位符同样带标记，
-   * 虚拟化前后锚点身份不变。
-   */
-  stableAnchor?: boolean;
   /** 高度缓存（稳定引用），占位符据此保留高度。 */
   heights: ReadonlyMap<string, number>;
   /** 注册/注销观察节点。 */
@@ -58,7 +51,6 @@ export const VirtualizedMessage = memo(
     itemIndex,
     itemClassName,
     visible,
-    stableAnchor = false,
     heights,
     register,
     imAvatarPath,
@@ -116,7 +108,6 @@ export const VirtualizedMessage = memo(
           }`}
           ref={setRef}
           data-message-id={messageId}
-          data-minimal-stable={stableAnchor ? "true" : undefined}
           data-snow-anchor="chat.message"
           data-snow-message-role={messageRole}
         >
@@ -143,7 +134,6 @@ export const VirtualizedMessage = memo(
         className="virtualized-message is-placeholder"
         ref={setRef}
         data-message-id={messageId}
-        data-minimal-stable={stableAnchor ? "true" : undefined}
         style={{ height: `${placeholderHeight}px` }}
         aria-hidden="true"
       />

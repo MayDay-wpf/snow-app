@@ -120,13 +120,6 @@ export const SameToolRun = ({
       className={`tsr${isOpen ? " is-open" : ""}${merged ? "" : " is-solo"}${
         animated ? "" : " is-static"
       }`}
-      // 极简模式的滚动锚点身份：翻页重组会把这行搬到别的消息节点下，DOM
-      // 引用失效；这里记下整行的调用 id，同名组与更早一页合并后仍能按
-      // 「这一段内容」重新找到它（ids 前后留空格，便于按成员精确匹配）。
-      data-minimal-run={toolCalls[0]?.interactionId}
-      data-minimal-run-ids={` ${toolCalls
-        .map((toolCall) => toolCall.interactionId)
-        .join(" ")} `}
     >
       {merged ? (
         <button
