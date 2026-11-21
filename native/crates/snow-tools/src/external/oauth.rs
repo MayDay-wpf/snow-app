@@ -1,9 +1,10 @@
 //! 外部 MCP 服务器的 OAuth 2.1 授权支持。
 //!
 //! 远程 MCP 服务器按 MCP 授权规范在未授权时返回 401 与 `WWW-Authenticate`
-//! 挑战，客户端需要完成：受保护资源元数据发现 → 动态客户端注册 → PKCE
-//! 授权码流程 → 令牌交换，之后每条 MCP 请求都带 Bearer 令牌。这里基于
-//! rmcp 的 `AuthorizationManager` 实现登录会话（浏览器回调 + 会话状态轮询）
+//! 挑战，客户端需要完成：受保护资源元数据发现 → 客户端身份（Client ID
+//! Metadata Document 优先，动态客户端注册兜底）→ PKCE 授权码流程 → 令牌
+//! 交换，之后每条 MCP 请求都带 Bearer 令牌。这里基于 rmcp 的
+//! `AuthorizationManager` 实现登录会话（浏览器回调 + 会话状态轮询）
 //! 与凭据持久化，连接层用 `AuthClient` 自动附加并刷新令牌。
 
 use std::collections::HashMap;
@@ -33,6 +34,18 @@ const LOGIN_TIMEOUT_SECS: u64 = 300;
 
 /// 回调请求读取上限，超过视为非法请求。
 const MAX_CALLBACK_REQUEST_BYTES: usize = 16 * 1024;
+
+/// Client ID Metadata Document（SEP-991）地址。文档随仓库发布在
+/// `resources/mcp-oauth/client-metadata.json`，授权服务器会按 URL 抓取它，
+/// 并把 URL 本身当作 client_id；没有 registration_endpoint 的授权服务器
+/// （如 ElevenLabs）只能走这条路径完成客户端识别。
+const CLIENT_METADATA_URL: &str =
+    "https://raw.githubusercontent.com/MayDay-wpf/snow-app/main/resources/mcp-oauth/client-metadata.json";
+
+/// 使用 CIMD 时的固定回调端口。文档里的 `redirect_uris` 是静态枚举，无法
+/// 表达系统分配的随机端口，只能在这组端口里逐个尝试；修改这里必须同步
+/// `resources/mcp-oauth/client-metadata.json` 的 `redirect_uris`。
+const CIMD_CALLBACK_PORTS: [u16; 4] = [45871, 45872, 45873, 45874];
 
 /// 登录会话状态。
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -280,6 +293,34 @@ async fn probe_auth_challenge(
         .map(str::to_string)
 }
 
+/// 绑定本地回调监听。走 CIMD 时 client_id 指向一份静态 HTTPS 文档，其
+/// `redirect_uris` 无法表达系统分配的随机端口，因此只能逐个尝试文档里预置的
+/// 固定端口；动态注册流程仍使用系统分配的随机端口。
+async fn bind_callback_listener(fixed_ports_required: bool) -> Result<TcpListener> {
+    if !fixed_ports_required {
+        return TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .map_err(|error| {
+                Error::from_reason(format!(
+                    "Failed to start the MCP OAuth callback listener: {error}"
+                ))
+            });
+    }
+    for port in CIMD_CALLBACK_PORTS {
+        if let Ok(listener) = TcpListener::bind(("127.0.0.1", port)).await {
+            return Ok(listener);
+        }
+    }
+    let ports = CIMD_CALLBACK_PORTS
+        .iter()
+        .map(u16::to_string)
+        .collect::<Vec<_>>()
+        .join(", ");
+    Err(Error::from_reason(format!(
+        "Failed to start the MCP OAuth callback listener: ports {ports} are all in use"
+    )))
+}
+
 /// 启动浏览器授权：完成元数据发现与客户端注册，登记会话并监听本地回调。
 pub async fn start_login(
     project_id: Option<&str>,
@@ -304,21 +345,6 @@ pub async fn start_login(
         )));
     }
 
-    let listener = TcpListener::bind(("127.0.0.1", 0)).await.map_err(|error| {
-        Error::from_reason(format!(
-            "Failed to start the MCP OAuth callback listener: {error}"
-        ))
-    })?;
-    let port = listener
-        .local_addr()
-        .map_err(|error| {
-            Error::from_reason(format!(
-                "Failed to read the MCP OAuth callback address: {error}"
-            ))
-        })?
-        .port();
-    let redirect_uri = format!("http://127.0.0.1:{port}/callback");
-
     let http_client = super::http::build_http_client(true).await?;
     let custom_headers = super::http::parse_headers(&config.headers_json)?;
     let challenge = probe_auth_challenge(&http_client, &url, &custom_headers).await;
@@ -337,9 +363,37 @@ pub async fn start_login(
         .map_err(|error| {
             Error::from_reason(format!("MCP OAuth metadata discovery failed: {error}"))
         })?;
+    let supports_client_metadata = resolution
+        .metadata
+        .additional_fields
+        .get("client_id_metadata_document_supported")
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false);
+    let supports_dynamic_registration = resolution.metadata.registration_endpoint.is_some();
     manager.set_metadata(resolution.metadata);
 
-    let request = AuthorizationRequest::new(redirect_uri.clone()).with_client_name("Snow App");
+    if !supports_client_metadata && !supports_dynamic_registration {
+        return Err(Error::from_reason(format!(
+            "MCP OAuth failed: the authorization server of {} supports neither \
+             client ID metadata documents nor dynamic client registration",
+            config.name
+        )));
+    }
+
+    let listener = bind_callback_listener(supports_client_metadata).await?;
+    let port = listener
+        .local_addr()
+        .map_err(|error| {
+            Error::from_reason(format!(
+                "Failed to read the MCP OAuth callback address: {error}"
+            ))
+        })?
+        .port();
+    let redirect_uri = format!("http://127.0.0.1:{port}/callback");
+
+    let request = AuthorizationRequest::new(redirect_uri.clone())
+        .with_client_name("Snow App")
+        .with_client_metadata_url(CLIENT_METADATA_URL);
     let session = AuthorizationSession::new(manager, request)
         .await
         .map_err(|(_, error)| {

@@ -1,0 +1,16 @@
+{
+  "client_id": "https://raw.githubusercontent.com/MayDay-wpf/snow-app/main/resources/mcp-oauth/client-metadata.json",
+  "client_name": "Snow App",
+  "client_uri": "https://github.com/MayDay-wpf/snow-app",
+  "logo_uri": "https://raw.githubusercontent.com/MayDay-wpf/snow-app/main/resources/icon.png",
+  "redirect_uris": [
+    "http://127.0.0.1:45871/callback",
+    "http://127.0.0.1:45872/callback",
+    "http://127.0.0.1:45873/callback",
+    "http://127.0.0.1:45874/callback"
+  ],
+  "grant_types": ["authorization_code", "refresh_token"],
+  "response_types": ["code"],
+  "token_endpoint_auth_method": "none",
+  "application_type": "native"
+}
