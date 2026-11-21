@@ -5,10 +5,14 @@ export interface GraphRow {
   dotLane: number;
   topLines: number[];
   topColors: string[];
+  /** 与 topColors 同索引：该车道竖线是否为未推送边（虚线）。 */
+  topDashed: boolean[];
   bottomLines: number[];
   bottomColors: string[];
-  curves: { from: number; to: number; color: string }[];
-  merges: { from: number; color: string }[];
+  /** 与 bottomColors 同索引：该车道竖线是否为未推送边（虚线）。 */
+  bottomDashed: boolean[];
+  curves: { from: number; to: number; color: string; dashed: boolean }[];
+  merges: { from: number; color: string; dashed: boolean }[];
 }
 
 export const LANE_WIDTH = 20;
@@ -27,6 +31,10 @@ export const LANE_COLORS = [
   "#14b8a6",
 ];
 
+/** 未推送提交的边：与空心绿点同色，并绘成虚线区别于已推送的历史。 */
+export const UNPUSHED_COLOR = "var(--accent-green)";
+export const UNPUSHED_DASH = "3 2.5";
+
 export function computeGraph(
   commits: GitLogEntry[],
   worktreeEdgeColors: Map<string, string>,
@@ -37,6 +45,9 @@ export function computeGraph(
   const hashToLane = new Map<string, number>();
   const lanes: (string | null)[] = [];
   const laneColors: (string | null)[] = [];
+  // 车道自身颜色（不受未推送绿线影响），供后续边沿用同色。
+  const laneBaseColors: (string | null)[] = [];
+  const laneDashed: boolean[] = [];
   const rows: GraphRow[] = [];
   const commitByHash = new Map(commits.map((c) => [c.hash, c]));
   const mainline = new Set<string>();
@@ -59,17 +70,20 @@ export function computeGraph(
       if (dotLane >= lanes.length) {
         lanes.push(null);
         laneColors.push(null);
+        laneBaseColors.push(null);
+        laneDashed.push(false);
       }
     }
 
     // 其他车道上同样指向本提交的线条：本行的顶部竖线由大半径弯弧取代，
     // 弧线在整行高度内平滑汇入圆点。
-    const merges: { from: number; color: string }[] = [];
+    const merges: { from: number; color: string; dashed: boolean }[] = [];
     for (let i = 0; i < lanes.length; i++) {
       if (i !== dotLane && lanes[i] === commit.hash) {
         merges.push({
           from: i,
           color: laneColors[i] ?? LANE_COLORS[i % LANE_COLORS.length],
+          dashed: laneDashed[i] === true,
         });
       }
     }
@@ -82,18 +96,31 @@ export function computeGraph(
     const topColors = laneColors.map(
       (color, lane) => color ?? LANE_COLORS[lane % LANE_COLORS.length],
     );
+    const topDashed = laneDashed.map((dashed) => dashed === true);
 
     // 本提交所在线条的颜色：继续向前延伸的第一父边沿用它，让一条分支从
-    // 分叉点到汇合点保持同色。
-    const lineColor = topColors[dotLane];
+    // 分叉点到汇合点保持同色。未推送边会把显示色换成绿色，因此基础色
+    // 单独记录，避免已推送的历史被染绿。
+    const lineBase = laneBaseColors[dotLane] ?? topColors[dotLane];
 
     lanes[dotLane] = null;
     laneColors[dotLane] = null;
+    laneBaseColors[dotLane] = null;
+    laneDashed[dotLane] = false;
     for (const lane of mergeLanes) {
       lanes[lane] = null;
       laneColors[lane] = null;
+      laneBaseColors[lane] = null;
+      laneDashed[lane] = false;
     }
-    const curves: { from: number; to: number; color: string }[] = [];
+    const curves: {
+      from: number;
+      to: number;
+      color: string;
+      dashed: boolean;
+    }[] = [];
+    // 本提交尚未推送到远端：它连向父提交的边同样标成未推送样式。
+    const unpushed = !commit.pushed;
 
     for (let p = 0; p < commit.parents.length; p++) {
       const parentHash = commit.parents[p];
@@ -112,8 +139,13 @@ export function computeGraph(
         if (isFirstParent) {
           // 第一父提交已停在别的车道上：本线沿用当前车道继续指向它，到
           // 父提交所在行再弯入圆点；主线提交让父提交的圆点回到主线车道。
+          const edgeBase = worktreeColor ?? lineBase;
           lanes[dotLane] = parentHash;
-          laneColors[dotLane] = worktreeColor ?? lineColor;
+          laneColors[dotLane] = unpushed
+            ? (worktreeColor ?? UNPUSHED_COLOR)
+            : edgeBase;
+          laneBaseColors[dotLane] = edgeBase;
+          laneDashed[dotLane] = unpushed;
           if (mainline.has(commit.hash)) {
             hashToLane.set(parentHash, dotLane);
           }
@@ -127,13 +159,25 @@ export function computeGraph(
         if (edgeLane >= lanes.length) {
           lanes.push(null);
           laneColors.push(null);
+          laneBaseColors.push(null);
+          laneDashed.push(false);
         }
-        const edgeColor =
+        const edgeBase =
           worktreeColor ?? LANE_COLORS[edgeLane % LANE_COLORS.length];
+        const edgeColor = unpushed
+          ? (worktreeColor ?? UNPUSHED_COLOR)
+          : edgeBase;
         lanes[edgeLane] = parentHash;
         laneColors[edgeLane] = edgeColor;
+        laneBaseColors[edgeLane] = edgeBase;
+        laneDashed[edgeLane] = unpushed;
         if (edgeLane !== dotLane) {
-          curves.push({ from: dotLane, to: edgeLane, color: edgeColor });
+          curves.push({
+            from: dotLane,
+            to: edgeLane,
+            color: edgeColor,
+            dashed: unpushed,
+          });
         }
         continue;
       }
@@ -147,15 +191,25 @@ export function computeGraph(
         if (parentLane >= lanes.length) {
           lanes.push(null);
           laneColors.push(null);
+          laneBaseColors.push(null);
+          laneDashed.push(false);
         }
       }
       hashToLane.set(parentHash, parentLane);
-      const edgeColor =
+      const edgeBase =
         worktreeColor ?? LANE_COLORS[parentLane % LANE_COLORS.length];
+      const edgeColor = unpushed ? (worktreeColor ?? UNPUSHED_COLOR) : edgeBase;
       lanes[parentLane] = parentHash;
       laneColors[parentLane] = edgeColor;
+      laneBaseColors[parentLane] = edgeBase;
+      laneDashed[parentLane] = unpushed;
       if (parentLane !== dotLane) {
-        curves.push({ from: dotLane, to: parentLane, color: edgeColor });
+        curves.push({
+          from: dotLane,
+          to: parentLane,
+          color: edgeColor,
+          dashed: unpushed,
+        });
       }
     }
 
@@ -166,14 +220,17 @@ export function computeGraph(
     const bottomColors = laneColors.map(
       (color, lane) => color ?? LANE_COLORS[lane % LANE_COLORS.length],
     );
+    const bottomDashed = laneDashed.map((dashed) => dashed === true);
 
     rows.push({
       commit,
       dotLane,
       topLines,
       topColors,
+      topDashed,
       bottomLines,
       bottomColors,
+      bottomDashed,
       curves,
       merges,
     });

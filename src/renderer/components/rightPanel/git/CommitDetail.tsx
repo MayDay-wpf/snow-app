@@ -1,6 +1,6 @@
 import type { GitCommitFile, GitLogEntry } from "../../../../preload";
 import { useI18n } from "../../../i18n";
-import { LANE_WIDTH, LINE_WIDTH } from "./gitGraphLayout";
+import { LANE_WIDTH, LINE_WIDTH, UNPUSHED_DASH } from "./gitGraphLayout";
 import { getCommitFileColor, getCommitFileLabel } from "./gitGraphUtils";
 
 type CommitDetailProps = {
@@ -8,6 +8,7 @@ type CommitDetailProps = {
   graphWidth: number;
   bottomLines: number[];
   bottomColors: string[];
+  bottomDashed: boolean[];
   commitFiles: GitCommitFile[];
   isLoadingFiles: boolean;
   viewedCommitFile: { hash: string; path: string } | null;
@@ -25,6 +26,7 @@ export function CommitDetail({
   graphWidth,
   bottomLines,
   bottomColors,
+  bottomDashed,
   commitFiles,
   isLoadingFiles,
   viewedCommitFile,
@@ -49,6 +51,7 @@ export function CommitDetail({
             y2="100%"
             stroke={bottomColors[lane]}
             strokeWidth={LINE_WIDTH}
+            strokeDasharray={bottomDashed[lane] ? UNPUSHED_DASH : undefined}
           />
         ))}
       </svg>

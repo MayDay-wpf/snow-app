@@ -14,6 +14,8 @@ import {
   LANE_WIDTH,
   LINE_WIDTH,
   ROW_HEIGHT,
+  UNPUSHED_COLOR,
+  UNPUSHED_DASH,
   type GraphRow,
 } from "./gitGraphLayout";
 import {
@@ -25,8 +27,7 @@ import {
 import { formatDate } from "./gitGraphUtils";
 
 const ARC_KAPPA = 0.5523;
-// 未推送提交的空心圆配色（绿色，区别于泳道色）
-const UNPUSHED_COLOR = "var(--accent-green)";
+// 未推送提交的空心圆填充（绿色，区别于泳道色）
 const UNPUSHED_FILL = "var(--accent-green-bg)";
 // 落后（未拉取）提交：红色虚线空心圆
 const BEHIND_COLOR = "var(--accent-red)";
@@ -126,6 +127,7 @@ export function CommitRow({
               y2={ROW_HEIGHT / 2}
               stroke={row.topColors[lane]}
               strokeWidth={LINE_WIDTH}
+              strokeDasharray={row.topDashed[lane] ? UNPUSHED_DASH : undefined}
             />
           ))}
           {bottomLines.map((lane) => (
@@ -137,6 +139,9 @@ export function CommitRow({
               y2={ROW_HEIGHT + LINE_WIDTH / 2}
               stroke={row.bottomColors[lane]}
               strokeWidth={LINE_WIDTH}
+              strokeDasharray={
+                row.bottomDashed[lane] ? UNPUSHED_DASH : undefined
+              }
             />
           ))}
           {row.curves.map((c, i) => {
@@ -155,6 +160,7 @@ export function CommitRow({
                 fill="none"
                 stroke={c.color}
                 strokeWidth={LINE_WIDTH}
+                strokeDasharray={c.dashed ? UNPUSHED_DASH : undefined}
               />
             );
           })}
@@ -172,6 +178,7 @@ export function CommitRow({
                 fill="none"
                 stroke={m.color}
                 strokeWidth={LINE_WIDTH}
+                strokeDasharray={m.dashed ? UNPUSHED_DASH : undefined}
               />
             );
           })}
@@ -280,6 +287,7 @@ export function CommitRow({
           graphWidth={graphWidth}
           bottomLines={row.bottomLines}
           bottomColors={row.bottomColors}
+          bottomDashed={row.bottomDashed}
           commitFiles={commitFiles}
           isLoadingFiles={isLoadingFiles}
           viewedCommitFile={viewedCommitFile}
