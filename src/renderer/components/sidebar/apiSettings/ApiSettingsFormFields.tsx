@@ -298,10 +298,20 @@ export function ApiSettingsFormFields({
         return;
       }
       // 只覆盖解析到的字段：缺失的来源不能清掉用户手填的值。
-      if (limits.contextLength != null && limits.contextLength > 0) {
-        onChange("maxContextTokens", String(limits.contextLength));
+      const contextLength =
+        limits.contextLength != null && limits.contextLength > 0
+          ? limits.contextLength
+          : null;
+      if (contextLength != null) {
+        onChange("maxContextTokens", String(contextLength));
       }
-      if (limits.maxOutputTokens != null && limits.maxOutputTokens > 0) {
+      // 输出上限必然小于上下文窗口：部分数据源会把整个窗口写进 max_output_tokens，
+      // 这种值不能当作“最大输出”自动填入，否则等于把最大上下文抄进输出字段。
+      if (
+        limits.maxOutputTokens != null &&
+        limits.maxOutputTokens > 0 &&
+        (contextLength == null || limits.maxOutputTokens < contextLength)
+      ) {
         onChange("maxTokens", String(limits.maxOutputTokens));
       }
     },
@@ -365,6 +375,7 @@ export function ApiSettingsFormFields({
       isLoading={loadingModelFields.includes(field)}
       error={modelOptionsError}
       hasLoaded={Boolean(loadedModelOptionsKey)}
+      showContextWindow
       loadingText={t("settings.loadingModels", {
         defaultValue: "Loading models...",
       })}

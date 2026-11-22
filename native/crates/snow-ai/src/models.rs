@@ -689,6 +689,19 @@ fn merge_limits(primary: Option<ModelLimits>, secondary: Option<ModelLimits>) ->
     }
 }
 
+/// 输出上限必然小于上下文窗口：部分渠道会把整个上下文窗口写进 `max_output_tokens`
+/// （如 1M 上下文对应 1M 输出），这种数值不能当作单次输出上限，否则自动填写会把
+/// 最大上下文误当成最大输出。这里直接丢弃不可信的输出上限，只保留上下文窗口。
+fn drop_implausible_output_limit(limits: ModelLimits) -> ModelLimits {
+    match (limits.context_length, limits.max_output_tokens) {
+        (Some(context), Some(output)) if output >= context => ModelLimits {
+            context_length: Some(context),
+            max_output_tokens: None,
+        },
+        _ => limits,
+    }
+}
+
 /// 解析某个模型在指定渠道下的上下文 / 输出上限：优先使用渠道模型清单自带的数值，
 /// 缺失部分再查公共规格数据源。
 pub async fn resolve_limits_for_config(
@@ -715,12 +728,13 @@ pub async fn resolve_limits_for_config(
     let catalog_complete = from_catalog.as_ref().is_some_and(|limits| {
         limits.context_length.is_some() && limits.max_output_tokens.is_some()
     });
-    if catalog_complete {
-        return from_catalog;
-    }
-
-    let external = crate::llm_specs::lookup(&model_id).await;
-    merge_limits(from_catalog, external)
+    let limits = if catalog_complete {
+        from_catalog
+    } else {
+        let external = crate::llm_specs::lookup(&model_id).await;
+        merge_limits(from_catalog, external)
+    };
+    limits.map(drop_implausible_output_limit)
 }
 
 const DEFAULT_AUTO_COMPRESS_THRESHOLD_PERCENT: i32 = 80;

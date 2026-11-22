@@ -100,14 +100,44 @@ impl SpecCatalog {
         }
     }
 
-    /// 同名候选里优先取不带渠道前缀的官方条目（如 `claude-haiku-5-5`），其次按数据集顺序。
+    /// 同名候选里优先取不带渠道前缀的官方条目（如 `claude-haiku-5-5`）；没有官方条目时
+    /// 汇总各渠道条目：上下文取最大窗口，输出取“小于上下文窗口”的最大值。部分渠道会把
+    /// 整个上下文窗口写进 max_output_tokens（如 1M 上下文对应 1M 输出），这种数值不能
+    /// 当作输出上限，否则自动填写会把最大上下文误当成最大输出。
     fn preferred(&self, indices: &[usize]) -> Option<ModelLimits> {
-        let index = indices
+        if let Some(index) = indices
             .iter()
             .copied()
             .find(|index| !self.entries[*index].id.contains('/'))
-            .or_else(|| indices.first().copied())?;
-        Some(self.entries[index].limits.clone())
+        {
+            return Some(self.entries[index].limits.clone());
+        }
+
+        let context_length = indices
+            .iter()
+            .filter_map(|index| self.entries[*index].limits.context_length)
+            .max();
+        let max_output_tokens = indices
+            .iter()
+            .filter_map(|index| {
+                let limits = &self.entries[*index].limits;
+                match (limits.context_length, limits.max_output_tokens) {
+                    (Some(context), Some(output)) if output < context => Some(output),
+                    _ => None,
+                }
+            })
+            .max();
+
+        if context_length.is_some() || max_output_tokens.is_some() {
+            return Some(ModelLimits {
+                context_length,
+                max_output_tokens,
+            });
+        }
+
+        indices
+            .first()
+            .map(|index| self.entries[*index].limits.clone())
     }
 
     fn find(&self, model_id: &str) -> Option<ModelLimits> {
