@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Loader2, Sparkles, X } from "lucide-react";
+import { Check, Loader2, RotateCcw, Sparkles, X } from "lucide-react";
 import { AutoDismissNotice } from "../../AutoDismissNotice";
 import { CustomSelect } from "../../common/CustomSelect";
 import { Modal } from "../../common/Modal";
@@ -7,6 +7,7 @@ import { ChatImAvatar } from "../../mainContent/chatMessages/components/ChatImAv
 import { MarkdownBlock } from "../../mainContent/chatMessages/components/markdownRenderer";
 import { getActiveLocale, useI18n } from "../../../i18n";
 import { useDefaultPetAvatar } from "../../pet/petAvatar";
+import { ThemeCharacterCardPreview } from "./ThemeCharacterCardPreview";
 import { normalizeThemeCharacterCard } from "./themeSettingsUtils";
 import type { ApiConfigRecord, ThemeCharacterCard } from "../../../../preload";
 
@@ -38,8 +39,11 @@ export function ThemeCharacterCardModal({
   const [selectedProfile, setSelectedProfile] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [status, setStatus] = useState("");
   const [streamingContent, setStreamingContent] = useState("");
+  /** 生成完成但尚未确认的角色卡：点击「应用」前不写入设置。 */
+  const [pendingCard, setPendingCard] = useState<ThemeCharacterCard | null>(
+    null,
+  );
   const streamIdRef = useRef<string | null>(null);
   const isMountedRef = useRef(true);
 
@@ -59,6 +63,10 @@ export function ThemeCharacterCardModal({
     if (!open) {
       return;
     }
+    // 每次打开都回到干净状态：上次未确认的生成结果不保留。
+    setPendingCard(null);
+    setStreamingContent("");
+    setError("");
     void loadConfigs();
   }, [open]);
 
@@ -124,8 +132,8 @@ export function ThemeCharacterCardModal({
 
     setLoading(true);
     setError("");
-    setStatus("");
     setStreamingContent("");
+    setPendingCard(null);
 
     try {
       const locale = getActiveLocale();
@@ -162,12 +170,9 @@ export function ThemeCharacterCardModal({
         return;
       }
 
-      onApply(parsed);
-      setStatus(
-        t("settings.themeCharacterCardSuccess", {
-          defaultValue: "AI character card generated and applied.",
-        }),
-      );
+      // 生成结果先进入待确认预览，用户点击「应用」后才写入设置。
+      setStreamingContent("");
+      setPendingCard(parsed);
     } catch (e) {
       if (isMountedRef.current) {
         setError(
@@ -185,6 +190,16 @@ export function ThemeCharacterCardModal({
     }
   };
 
+  /** 用户确认预览后写入设置；未确认直接关闭则丢弃。 */
+  const handleApplyPending = (): void => {
+    if (!pendingCard) {
+      return;
+    }
+    const card = pendingCard;
+    setPendingCard(null);
+    onApply(card);
+  };
+
   const handleCancel = useCallback((): void => {
     if (streamIdRef.current) {
       void window.snow.abortCharacterCard(streamIdRef.current).catch(() => {
@@ -198,8 +213,8 @@ export function ThemeCharacterCardModal({
   const handleClose = (): void => {
     handleCancel();
     setError("");
-    setStatus("");
     setStreamingContent("");
+    setPendingCard(null);
     onClose();
   };
 
@@ -223,12 +238,22 @@ export function ThemeCharacterCardModal({
         <>
           <button
             className="api-settings-form-btn primary"
-            onClick={handleGenerate}
+            onClick={() => {
+              if (pendingCard) {
+                handleApplyPending();
+              } else {
+                void handleGenerate();
+              }
+            }}
             type="button"
-            disabled={loading || !selectedProfile || !avatarSource}
+            disabled={
+              loading || (!pendingCard && (!selectedProfile || !avatarSource))
+            }
           >
             {loading ? (
               <Loader2 size={14} strokeWidth={1.9} className="spin" />
+            ) : pendingCard ? (
+              <Check size={14} strokeWidth={1.9} />
             ) : (
               <Sparkles size={14} strokeWidth={1.9} />
             )}
@@ -237,9 +262,13 @@ export function ThemeCharacterCardModal({
                 ? t("settings.themeCharacterCardGenerating", {
                     defaultValue: "Generating...",
                   })
-                : t("settings.themeCharacterCardModalGenerate", {
-                    defaultValue: "Generate",
-                  })}
+                : pendingCard
+                  ? t("settings.themeCharacterCardApply", {
+                      defaultValue: "Apply",
+                    })
+                  : t("settings.themeCharacterCardModalGenerate", {
+                      defaultValue: "Generate",
+                    })}
             </span>
           </button>
           {loading ? (
@@ -255,18 +284,28 @@ export function ThemeCharacterCardModal({
                 })}
               </span>
             </button>
+          ) : pendingCard ? (
+            <button
+              className="api-settings-form-btn secondary"
+              onClick={() => void handleGenerate()}
+              type="button"
+            >
+              <RotateCcw size={14} strokeWidth={1.9} />
+              <span>
+                {t("settings.themeCharacterCardRegenerate", {
+                  defaultValue: "Regenerate",
+                })}
+              </span>
+            </button>
           ) : null}
         </>
       }
     >
       <div className="theme-ai-color-modal">
         <AutoDismissNotice
-          message={error || status}
-          tone={error ? "error" : "success"}
-          onDismiss={() => {
-            setError("");
-            setStatus("");
-          }}
+          message={error}
+          tone="error"
+          onDismiss={() => setError("")}
         />
 
         <div className="theme-ai-color-field">
@@ -337,6 +376,25 @@ export function ThemeCharacterCardModal({
               content={streamingContent}
               streaming={loading}
             />
+          </div>
+        ) : null}
+
+        {pendingCard ? (
+          <div className="theme-ai-color-field">
+            <label className="theme-ai-color-label">
+              {t("settings.themeCharacterCardPreviewLabel", {
+                defaultValue: "Generated card",
+              })}
+            </label>
+            <div className="theme-character-card">
+              <ThemeCharacterCardPreview card={pendingCard} />
+            </div>
+            <p className="theme-ai-color-hint">
+              {t("settings.themeCharacterCardReady", {
+                defaultValue:
+                  "Review the card, then click Apply to use it. Closing without applying discards it.",
+              })}
+            </p>
           </div>
         ) : null}
       </div>

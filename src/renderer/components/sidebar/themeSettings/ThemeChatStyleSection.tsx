@@ -3,6 +3,7 @@ import { ImageUp, Pencil, RotateCcw, Sparkles, Trash2 } from "lucide-react";
 import { useI18n } from "../../../i18n";
 import { ChatImAvatar } from "../../mainContent/chatMessages/components/ChatImAvatar";
 import { ApiSettingsHintIcon } from "../apiSettings/ApiSettingsFieldLabel";
+import { ThemeCharacterCardPreview } from "./ThemeCharacterCardPreview";
 import type { ThemeCharacterCard, ThemeChatStyle } from "./types";
 
 export type ChatAvatarRole = "ai" | "user";
@@ -144,9 +145,6 @@ export function ThemeChatStyleSection({
       rows: 2,
     },
   ];
-
-  // 展示态只保留有内容的字段，避免空行撑开卡片。
-  const filledFields = characterFields.filter((field) => card[field.key]);
 
   const handleStartEdit = (): void => {
     setCardDraft({ ...card });
@@ -377,29 +375,7 @@ export function ThemeChatStyleSection({
                 ))}
               </div>
             ) : hasCard ? (
-              <div className="theme-character-card-body">
-                <div className="theme-character-card-name-row">
-                  <span className="theme-character-card-name">{card.name}</span>
-                  {card.tagline ? (
-                    <span className="theme-character-card-tagline">
-                      {card.tagline}
-                    </span>
-                  ) : null}
-                </div>
-                {filledFields.length > 0 ? (
-                  <dl className="theme-character-card-fields">
-                    {filledFields.map((field) => (
-                      <div
-                        className="theme-character-card-field"
-                        key={field.key}
-                      >
-                        <dt>{field.label}</dt>
-                        <dd>{card[field.key]}</dd>
-                      </div>
-                    ))}
-                  </dl>
-                ) : null}
-              </div>
+              <ThemeCharacterCardPreview card={card} />
             ) : (
               <p className="theme-character-card-empty">
                 {t("settings.themeCharacterCardEmpty", {

@@ -708,6 +708,11 @@
   background: var(--bg-primary);
 }
 
+/* 生成确认弹窗中的角色卡预览：间距由 field 提供，不再叠加列表间距 */
+.theme-ai-color-field .theme-character-card {
+  margin-top: 0;
+}
+
 .theme-character-card-head {
   display: flex;
   flex-wrap: wrap;

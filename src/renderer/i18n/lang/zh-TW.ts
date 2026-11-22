@@ -4298,7 +4298,10 @@ export const zhTW = {
   "settings.themeCharacterCardLoadConfigsError": "載入 API 配置失敗。",
   "settings.themeCharacterCardParseError": "解析 AI 生成的角色卡失敗，請重試。",
   "settings.themeCharacterCardGenerateError": "生成角色卡失敗。",
-  "settings.themeCharacterCardSuccess": "角色卡已生成並套用。",
+  "settings.themeCharacterCardApply": "套用",
+  "settings.themeCharacterCardPreviewLabel": "生成的角色卡",
+  "settings.themeCharacterCardReady":
+    "確認無誤後點「套用」才會生效；未套用直接關閉不會儲存。",
   "settings.themeStreamCursorTitle": "串流指示器",
   "settings.themeStreamCursorInfo": "自訂 AI 產生回覆時顯示的指示器。",
   "settings.themeStreamCursorTypeDot": "脈動圓點",

@@ -4296,7 +4296,10 @@ export const zhCN = {
   "settings.themeCharacterCardLoadConfigsError": "加载 API 配置失败。",
   "settings.themeCharacterCardParseError": "解析 AI 生成的角色卡失败，请重试。",
   "settings.themeCharacterCardGenerateError": "生成角色卡失败。",
-  "settings.themeCharacterCardSuccess": "角色卡已生成并应用。",
+  "settings.themeCharacterCardApply": "应用",
+  "settings.themeCharacterCardPreviewLabel": "生成的角色卡",
+  "settings.themeCharacterCardReady":
+    "确认无误后点击「应用」才会生效；未应用直接关闭不会保存。",
   "settings.themeStreamCursorTitle": "流式指示器",
   "settings.themeStreamCursorInfo": "自定义 AI 生成回复时显示的指示器。",
   "settings.themeStreamCursorTypeDot": "脉冲圆点",

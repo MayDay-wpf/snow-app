@@ -4554,8 +4554,10 @@ export const en = {
     "Failed to parse the AI-generated character card. Please try again.",
   "settings.themeCharacterCardGenerateError":
     "Failed to generate the character card.",
-  "settings.themeCharacterCardSuccess":
-    "AI character card generated and applied.",
+  "settings.themeCharacterCardApply": "Apply",
+  "settings.themeCharacterCardPreviewLabel": "Generated card",
+  "settings.themeCharacterCardReady":
+    "Click Apply to confirm the card; closing without applying discards it.",
   "settings.themeStreamCursorTitle": "Streaming indicator",
   "settings.themeStreamCursorInfo":
     "Customize the indicator shown while the AI is generating a response.",
