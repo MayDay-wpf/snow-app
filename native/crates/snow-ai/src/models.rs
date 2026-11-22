@@ -741,6 +741,17 @@ const DEFAULT_AUTO_COMPRESS_THRESHOLD_PERCENT: i32 = 80;
 const AUTO_COMPRESS_THRESHOLD_MIN_PERCENT: i32 = 30;
 const AUTO_COMPRESS_THRESHOLD_MAX_PERCENT: i32 = 100;
 
+/// 读取 snowcfg 中的「跟随模型」标记。
+/// 缺省视为 true：旧档案没有该标记时保持「切换模型自动同步窗口」的既有行为。
+fn follows_model_limits(config_json: &str, key: &str) -> bool {
+    serde_json::from_str::<Value>(config_json)
+        .ok()
+        .and_then(|value| value.get("snowcfg").cloned())
+        .and_then(|value| value.get(key).cloned())
+        .and_then(|value| value.as_bool())
+        .unwrap_or(true)
+}
+
 /// 上下文窗口变化时按原百分比换算绝对压缩阈值，保持用户设置的压缩时机不变。
 fn rescale_auto_compress_threshold(
     threshold: Option<i32>,
@@ -827,14 +838,21 @@ pub async fn sync_profile_model_limits(
         return load_api_profiles().await;
     };
 
-    let next_context = limits
+    let mut next_context = limits
         .context_length
         .and_then(|value| i32::try_from(value).ok())
         .filter(|value| *value > 0);
-    let next_max_tokens = limits
+    let mut next_max_tokens = limits
         .max_output_tokens
         .and_then(|value| i32::try_from(value).ok())
         .filter(|value| *value > 0);
+    // 用户把该字段固定成手填数字时不跟随模型：清空来源值即等同于「不同步」。
+    if !follows_model_limits(&record.config_json, "maxContextTokensFollowModel") {
+        next_context = None;
+    }
+    if !follows_model_limits(&record.config_json, "maxTokensFollowModel") {
+        next_max_tokens = None;
+    }
     let context_changed = next_context.is_some() && next_context != record.max_context_tokens;
     let max_tokens_changed = next_max_tokens.is_some() && next_max_tokens != record.max_tokens;
     if !context_changed && !max_tokens_changed {

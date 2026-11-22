@@ -2593,8 +2593,10 @@ export const zhCN = {
   "settings.apiAnthropicFastModeFast": "Fast（speed: fast）",
   "settings.apiAnthropicFastModeHint":
     "开启后请求携带 speed: fast 与 fast-mode beta 头，输出速度最高约 2.5 倍，按溢价计费；仅 Opus 5.5 / Fable 5.2 / Mythos 5.2 等支持的模型可用。",
+  "settings.apiTokenFollowModel": "跟随模型",
+  "settings.apiTokenFollowModelHint": "按所选模型自动填充",
   "settings.apiTokenPresetsHint":
-    "可选择常见 token 规格，也可直接填写自定义值。",
+    "可选择常见 token 规格，也可直接填写自定义值；填写具体数字后不再跟随模型。",
   "settings.apiMaxTokens": "最大输出 tokens",
   "settings.apiMaxTokensHint": "留空则请求时不传该参数。",
   "settings.apiToolResultTokenLimit": "工具返回结果限制",

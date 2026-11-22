@@ -26,6 +26,11 @@ export type ApiConfigFormData = {
   visionModel: string;
   maxContextTokens: string;
   maxTokens: string;
+  /** 上下文上限是否跟随模型（snowcfg.maxContextTokensFollowModel）：
+   *  true = 切换模型时自动采用模型规格；false = 固定当前数字，不随模型变化。 */
+  maxContextTokensFollowModel: boolean;
+  /** 输出上限是否跟随模型（snowcfg.maxTokensFollowModel）。 */
+  maxTokensFollowModel: boolean;
   streamIdleTimeoutSec: string;
   enableAutoCompress: boolean;
   autoCompressThreshold: string;

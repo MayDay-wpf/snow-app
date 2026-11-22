@@ -2594,7 +2594,10 @@ export const zhTW = {
   "settings.apiAnthropicFastModeFast": "Fast（speed: fast）",
   "settings.apiAnthropicFastModeHint":
     "開啟後請求攜帶 speed: fast 與 fast-mode beta 標頭，輸出速度最高約 2.5 倍，按溢價計費；僅 Opus 5.5 / Fable 5.2 / Mythos 5.2 等支援的模型可用。",
-  "settings.apiTokenPresetsHint": "可選擇常見 token 規格，也可直接填寫自訂值。",
+  "settings.apiTokenFollowModel": "跟隨模型",
+  "settings.apiTokenFollowModelHint": "依所選模型自動填入",
+  "settings.apiTokenPresetsHint":
+    "可選擇常見 token 規格，也可直接填寫自訂值；填寫具體數字後不再跟隨模型。",
   "settings.apiMaxTokens": "最大輸出 tokens",
   "settings.apiMaxTokensHint": "留空則請求時不傳該參數。",
   "settings.apiToolResultTokenLimit": "工具回傳結果限制",

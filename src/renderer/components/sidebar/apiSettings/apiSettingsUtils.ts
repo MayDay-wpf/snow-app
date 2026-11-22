@@ -101,6 +101,16 @@ export const extractGoogleSearchFromConfigJson = (
 export const extractOneMContextFromConfigJson = (configJson: string): boolean =>
   readSnowcfg(configJson).enable1mContext === true;
 
+/** 读取上下文上限是否跟随模型（snowcfg.maxContextTokensFollowModel）。
+ *  缺省视为跟随：旧档案没有该标记时保持「切换模型自动同步窗口」的既有行为。 */
+export const extractMaxContextTokensFollowModel = (
+  configJson: string,
+): boolean => readSnowcfg(configJson).maxContextTokensFollowModel !== false;
+
+/** 读取输出上限是否跟随模型（snowcfg.maxTokensFollowModel），缺省视为跟随。 */
+export const extractMaxTokensFollowModel = (configJson: string): boolean =>
+  readSnowcfg(configJson).maxTokensFollowModel !== false;
+
 /** 读取 Anthropic 缓存 TTL（snowcfg.anthropicCacheTtl，默认 5m）。 */
 export const extractAnthropicCacheTtlFromConfigJson = (
   configJson: string,
@@ -294,6 +304,10 @@ export function apiConfigToForm(config: ApiConfigRecord): ApiConfigFormData {
     maxContextTokens:
       config.maxContextTokens != null ? String(config.maxContextTokens) : "",
     maxTokens: config.maxTokens != null ? String(config.maxTokens) : "",
+    maxContextTokensFollowModel: extractMaxContextTokensFollowModel(
+      config.configJson,
+    ),
+    maxTokensFollowModel: extractMaxTokensFollowModel(config.configJson),
     streamIdleTimeoutSec:
       config.streamIdleTimeoutSec != null
         ? String(config.streamIdleTimeoutSec)
@@ -416,6 +430,8 @@ export const emptyApiConfigForm = (
   visionModel: "",
   maxContextTokens: "",
   maxTokens: "",
+  maxContextTokensFollowModel: true,
+  maxTokensFollowModel: true,
   streamIdleTimeoutSec: "",
   enableAutoCompress: true,
   autoCompressThreshold: String(DEFAULT_AUTO_COMPRESS_THRESHOLD_PERCENT),
@@ -490,6 +506,8 @@ export function toApiConfigPayload(
       maxContextTokens:
         parseOptionalInteger(data.maxContextTokens) ?? undefined,
       maxTokens: parseOptionalInteger(data.maxTokens) ?? undefined,
+      maxContextTokensFollowModel: data.maxContextTokensFollowModel,
+      maxTokensFollowModel: data.maxTokensFollowModel,
       streamIdleTimeoutSec:
         parseOptionalInteger(data.streamIdleTimeoutSec) ?? undefined,
       enableAutoCompress: data.enableAutoCompress,

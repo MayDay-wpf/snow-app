@@ -257,11 +257,25 @@ export function ApiSettingsFormFields({
     [loadModelOptions],
   );
 
-  /** 选中先进模型后，把该模型的上下文 / 输出上限自动填入表单。 */
+  /** 选中先进模型后，把该模型的上下文 / 输出上限自动填入表单。
+   *  只有处于「跟随模型」的字段才会被覆盖；用户填了固定数字的字段保持原值。
+   *  followOverride 用于把刚切到跟随态的字段也一并刷新（只处理显式指出的字段）。 */
   const applyModelLimits = useCallback(
-    async (modelId: string) => {
+    async (
+      modelId: string,
+      followOverride?: { context?: boolean; maxTokens?: boolean },
+    ) => {
       const id = modelId.trim();
       if (!id) {
+        return;
+      }
+      const followContext = followOverride
+        ? followOverride.context === true
+        : data.maxContextTokensFollowModel;
+      const followMaxTokens = followOverride
+        ? followOverride.maxTokens === true
+        : data.maxTokensFollowModel;
+      if (!followContext && !followMaxTokens) {
         return;
       }
 
@@ -302,12 +316,13 @@ export function ApiSettingsFormFields({
         limits.contextLength != null && limits.contextLength > 0
           ? limits.contextLength
           : null;
-      if (contextLength != null) {
+      if (followContext && contextLength != null) {
         onChange("maxContextTokens", String(contextLength));
       }
       // 输出上限必然小于上下文窗口：部分数据源会把整个窗口写进 max_output_tokens，
       // 这种值不能当作“最大输出”自动填入，否则等于把最大上下文抄进输出字段。
       if (
+        followMaxTokens &&
         limits.maxOutputTokens != null &&
         limits.maxOutputTokens > 0 &&
         (contextLength == null || limits.maxOutputTokens < contextLength)
@@ -321,11 +336,32 @@ export function ApiSettingsFormFields({
       data.baseUrlMode,
       data.configJson,
       data.customHeaderSchemeId,
+      data.maxContextTokensFollowModel,
+      data.maxTokensFollowModel,
       data.requestMethod,
       modelOptions,
       onChange,
       savedProfileName,
     ],
+  );
+
+  /** 切换「跟随模型」档位：开启时立即用当前先进模型规格刷新对应字段。 */
+  const handleFollowModelChange = useCallback(
+    (field: "maxContextTokens" | "maxTokens", mode: "follow" | "manual") => {
+      const followField =
+        field === "maxContextTokens"
+          ? "maxContextTokensFollowModel"
+          : "maxTokensFollowModel";
+      const follow = mode === "follow";
+      onChange(followField, follow);
+      if (follow) {
+        void applyModelLimits(data.advancedModel, {
+          context: field === "maxContextTokens" ? true : undefined,
+          maxTokens: field === "maxTokens" ? true : undefined,
+        });
+      }
+    },
+    [applyModelLimits, data.advancedModel, onChange],
   );
 
   const changeField =
@@ -829,7 +865,7 @@ export function ApiSettingsFormFields({
             <ApiSettingsFieldLabel
               hint={t("settings.apiTokenPresetsHint", {
                 defaultValue:
-                  "Choose a common preset from the input suggestions, or enter a custom value.",
+                  "Choose a common preset from the input suggestions, or enter a custom value; a typed number stops following the model.",
               })}
             >
               {t("settings.apiMaxContext", {
@@ -844,6 +880,16 @@ export function ApiSettingsFormFields({
               noMatchText={t("settings.noTokenPresetMatch", {
                 defaultValue: "No matching presets",
               })}
+              followModel={data.maxContextTokensFollowModel}
+              followModelLabel={t("settings.apiTokenFollowModel", {
+                defaultValue: "Follow model",
+              })}
+              followModelHint={t("settings.apiTokenFollowModelHint", {
+                defaultValue: "Auto-fill from the selected model",
+              })}
+              onFollowModelChange={(mode) =>
+                handleFollowModelChange("maxContextTokens", mode)
+              }
               onChange={(value) => onChange("maxContextTokens", value)}
             />
           </label>
@@ -864,6 +910,16 @@ export function ApiSettingsFormFields({
               noMatchText={t("settings.noTokenPresetMatch", {
                 defaultValue: "No matching presets",
               })}
+              followModel={data.maxTokensFollowModel}
+              followModelLabel={t("settings.apiTokenFollowModel", {
+                defaultValue: "Follow model",
+              })}
+              followModelHint={t("settings.apiTokenFollowModelHint", {
+                defaultValue: "Auto-fill from the selected model",
+              })}
+              onFollowModelChange={(mode) =>
+                handleFollowModelChange("maxTokens", mode)
+              }
               onChange={(value) => onChange("maxTokens", value)}
             />
           </label>

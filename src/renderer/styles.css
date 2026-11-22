@@ -7923,6 +7923,16 @@ body.is-panel-resizing * {
   white-space: nowrap;
 }
 
+/* 「跟随模型」档位的补充说明：普通字体，不使用数值的等宽样式 */
+.api-token-preset-option-hint {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 10.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .api-settings-auto-compress-field {
   gap: 7px;
 }

@@ -19,6 +19,14 @@ type TokenPresetInputProps = {
   placeholder?: string;
   disabled?: boolean;
   noMatchText?: string;
+  /** 当前取值是否跟随模型：为 true 时菜单里的「跟随模型」档位展示为已选中。 */
+  followModel?: boolean;
+  /** 传 "follow" 表示用户选了跟随档位，传 "manual" 表示用户填了具体数字。 */
+  onFollowModelChange?: (mode: "follow" | "manual") => void;
+  /** 「跟随模型」档位文案；与 onFollowModelChange 同时提供时才显示该档位。 */
+  followModelLabel?: string;
+  /** 跟随档位的补充说明（右侧小字）。 */
+  followModelHint?: string;
   onChange: (value: string) => void;
 };
 
@@ -43,6 +51,10 @@ export function TokenPresetInput({
   placeholder,
   disabled = false,
   noMatchText = "No matching presets",
+  followModel = false,
+  onFollowModelChange,
+  followModelLabel,
+  followModelHint,
   onChange,
 }: TokenPresetInputProps): React.JSX.Element {
   const { t } = useI18n();
@@ -51,6 +63,10 @@ export function TokenPresetInput({
   // true = 箭头/方向键展开显示全部预设;false = 按当前输入过滤提示
   const [showAll, setShowAll] = useState(false);
   const [highlightedIndex, setHighlightedIndex] = useState(0);
+
+  // 「跟随模型」档位只在调用方提供回调与文案时出现，作为列表首项参与键盘导航。
+  const showFollowOption = Boolean(onFollowModelChange && followModelLabel);
+  const followLabel = followModelLabel ?? "";
 
   // 当前值命中的预设项,用于展开全部时高亮与复选标记
   const selectedIndex = presets.findIndex((preset) => preset.value === value);
@@ -68,6 +84,29 @@ export function TokenPresetInput({
     );
   }, [presets, value, showAll]);
 
+  // 「跟随模型」档位同样按关键字过滤，避免用户输入数字时它仍占着首项位置。
+  // 已选中跟随态时始终保留该项，否则输入框里的旧数值会把它过滤掉。
+  const isFollowVisible = useMemo(() => {
+    if (!showFollowOption) return false;
+    if (followModel || showAll) return true;
+    const keyword = value.trim().toLowerCase();
+    return !keyword || followLabel.toLowerCase().includes(keyword);
+  }, [followLabel, followModel, showAll, showFollowOption, value]);
+
+  // 键盘导航用的统一行列表：首项可能是「跟随模型」，其余是数值预设。
+  const rows = useMemo<
+    Array<{ key: string; preset: TokenPreset | null }>
+  >(() => {
+    const items: Array<{ key: string; preset: TokenPreset | null }> = [];
+    if (isFollowVisible) {
+      items.push({ key: "__follow-model__", preset: null });
+    }
+    for (const preset of visiblePresets) {
+      items.push({ key: preset.value, preset });
+    }
+    return items;
+  }, [isFollowVisible, visiblePresets]);
+
   useEffect(() => {
     if (!isOpen) return;
     const handlePointerDown = (event: MouseEvent): void => {
@@ -82,12 +121,25 @@ export function TokenPresetInput({
   const openAll = (): void => {
     if (disabled) return;
     setShowAll(true);
-    setHighlightedIndex(selectedIndex >= 0 ? selectedIndex : 0);
+    // 跟随态下默认高亮「跟随模型」，否则高亮当前数值命中的预设；
+    // 首个额度被「跟随模型」占据时索引整体后移一位。
+    if (showFollowOption && followModel) {
+      setHighlightedIndex(0);
+    } else {
+      const presetOffset = showFollowOption ? 1 : 0;
+      setHighlightedIndex(
+        selectedIndex >= 0 ? selectedIndex + presetOffset : 0,
+      );
+    }
     setIsOpen(true);
   };
 
   const handleInputChange = (nextValue: string): void => {
     onChange(nextValue);
+    // 手动改过输入框（含清空）即视为固定取值，不再跟随模型变化
+    if (followModel) {
+      onFollowModelChange?.("manual");
+    }
     if (nextValue.trim() === "") {
       setIsOpen(false);
       return;
@@ -99,6 +151,14 @@ export function TokenPresetInput({
 
   const handleSelectPreset = (preset: TokenPreset): void => {
     onChange(preset.value);
+    if (followModel) {
+      onFollowModelChange?.("manual");
+    }
+    setIsOpen(false);
+  };
+
+  const handleSelectFollowModel = (): void => {
+    onFollowModelChange?.("follow");
     setIsOpen(false);
   };
 
@@ -114,7 +174,7 @@ export function TokenPresetInput({
         return;
       }
       setHighlightedIndex((index) =>
-        Math.min(index + 1, Math.max(visiblePresets.length - 1, 0)),
+        Math.min(index + 1, Math.max(rows.length - 1, 0)),
       );
       return;
     }
@@ -127,16 +187,21 @@ export function TokenPresetInput({
       setHighlightedIndex((index) => Math.max(index - 1, 0));
       return;
     }
-    if (event.key === "Enter" && isOpen && visiblePresets[highlightedIndex]) {
+    if (event.key === "Enter" && isOpen && rows[highlightedIndex]) {
+      const row = rows[highlightedIndex];
       event.preventDefault();
-      handleSelectPreset(visiblePresets[highlightedIndex]);
+      if (row.preset) {
+        handleSelectPreset(row.preset);
+      } else {
+        handleSelectFollowModel();
+      }
     }
   };
 
   // 过滤结果变化时防止高亮越界
   const clampedHighlightedIndex = Math.min(
     highlightedIndex,
-    Math.max(visiblePresets.length - 1, 0),
+    Math.max(rows.length - 1, 0),
   );
 
   return (
@@ -175,14 +240,46 @@ export function TokenPresetInput({
       </div>
       {isOpen && !disabled && (
         <div className="api-model-combobox-menu" role="listbox">
-          {visiblePresets.length > 0 ? (
+          {rows.length > 0 ? (
             <div className="api-model-combobox-list">
-              {visiblePresets.map((preset, index) => {
+              {rows.map((row, index) => {
+                if (!row.preset) {
+                  const isHighlighted = index === clampedHighlightedIndex;
+                  return (
+                    <button
+                      key={row.key}
+                      type="button"
+                      className={`api-model-combobox-option ${
+                        followModel ? "selected" : ""
+                      } ${isHighlighted ? "highlighted" : ""}`}
+                      onMouseEnter={() => setHighlightedIndex(index)}
+                      onClick={(event) => {
+                        event.preventDefault();
+                        handleSelectFollowModel();
+                      }}
+                      role="option"
+                      aria-selected={followModel}
+                    >
+                      <span className="api-token-preset-option-main">
+                        <span className="api-token-preset-option-label">
+                          {followLabel}
+                        </span>
+                        {followModelHint && (
+                          <span className="api-token-preset-option-hint">
+                            {followModelHint}
+                          </span>
+                        )}
+                      </span>
+                      {followModel && <Check size={14} />}
+                    </button>
+                  );
+                }
+                const preset = row.preset;
                 const isSelected = preset.value === value;
                 const isHighlighted = index === clampedHighlightedIndex;
                 return (
                   <button
-                    key={preset.value}
+                    key={row.key}
                     type="button"
                     className={`api-model-combobox-option ${
                       isSelected ? "selected" : ""
