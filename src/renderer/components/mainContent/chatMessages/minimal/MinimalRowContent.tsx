@@ -1,5 +1,5 @@
 import { TriangleAlert } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 
 import { useI18n } from "../../../../i18n";
 import { AiErrorNotice } from "../components/AiErrorNotice";
@@ -48,6 +48,9 @@ export type MinimalRowContentProps = {
     userProvidedReason?: boolean,
   ) => void;
   onToggleRow: (key: string, fallback: boolean) => void;
+  /** 本行所属 AI 回复是否切到原始 Markdown（正文行与尾部行共享）。 */
+  rawMarkdown: boolean;
+  onToggleRawMarkdown: (renderKey: string) => void;
   renderForkDivider: () => React.JSX.Element;
 };
 
@@ -73,12 +76,13 @@ export const MinimalRowContent = ({
   onApproveToolAuthorizationAlways,
   onRejectToolAuthorization,
   onToggleRow,
+  rawMarkdown,
+  onToggleRawMarkdown,
   renderForkDivider,
 }: MinimalRowContentProps): React.JSX.Element | null => {
   const { t } = useI18n();
   const openHtmlArtifact = useHtmlArtifactOpen();
   const showMessageTime = useMessageTimeVisible();
-  const [showRawMarkdown, setShowRawMarkdown] = useState(false);
 
   const visibleAuthorizations = useMemo(
     () =>
@@ -141,8 +145,60 @@ export const MinimalRowContent = ({
   if (row.kind === "response") {
     const message = row.message;
     const normalizedSummary = message.content.trim();
+
+    return (
+      <article
+        className="ai-message"
+        aria-label={t("chat.aiResponse", { defaultValue: "AI response" })}
+        onClickCapture={(event) => {
+          const target = event.target;
+          if (!(target instanceof Element)) return;
+          if (
+            event.ctrlKey ||
+            event.metaKey ||
+            event.altKey ||
+            event.shiftKey
+          ) {
+            return;
+          }
+          const anchor = target.closest<HTMLAnchorElement>("a[href]");
+          const href = anchor?.getAttribute("href");
+          if (!href) return;
+          // 正文里的 HTML 文件链接：直接在内置浏览器打开
+          const path = resolveArtifactHref(href, artifactWorkspace);
+          if (!path || !openHtmlArtifact?.(path)) return;
+          event.preventDefault();
+          event.stopPropagation();
+        }}
+      >
+        <div className="ai-message-content" data-quote-source="true">
+          {message.status === "error" ? (
+            <AiErrorNotice
+              message={
+                message.failureReason?.trim() || t("chat.error.missingReason")
+              }
+            />
+          ) : null}
+          {normalizedSummary ? (
+            rawMarkdown ? (
+              <pre className="ai-message-raw">{normalizedSummary}</pre>
+            ) : (
+              <MarkdownBlock
+                className="ai-message-summary"
+                content={normalizedSummary}
+                streaming={message.status === "sending"}
+              />
+            )
+          ) : null}
+        </div>
+      </article>
+    );
+  }
+
+  if (row.kind === "response-tail") {
+    const message = row.message;
+    const normalizedSummary = message.content.trim();
     const isMessageStreaming = message.status === "sending";
-    const isError = message.status === "error";
     const isRetrying = Boolean(message.isRetrying);
     const showFooterTime =
       !isMessageStreaming &&
@@ -186,95 +242,52 @@ export const MinimalRowContent = ({
               : null;
     const responseId = row.runTailResponseId ?? message.responseId;
 
+    // 所有子项都可能不渲染：容器为空时由 :empty 规则收起间距，行高为 0。
     return (
-      <article
-        className="ai-message"
-        aria-label={t("chat.aiResponse", { defaultValue: "AI response" })}
-        onClickCapture={(event) => {
-          const target = event.target;
-          if (!(target instanceof Element)) return;
-          if (
-            event.ctrlKey ||
-            event.metaKey ||
-            event.altKey ||
-            event.shiftKey
-          ) {
-            return;
-          }
-          const anchor = target.closest<HTMLAnchorElement>("a[href]");
-          const href = anchor?.getAttribute("href");
-          if (!href) return;
-          // 正文里的 HTML 文件链接：直接在内置浏览器打开
-          const path = resolveArtifactHref(href, artifactWorkspace);
-          if (!path || !openHtmlArtifact?.(path)) return;
-          event.preventDefault();
-          event.stopPropagation();
-        }}
-      >
-        <div className="ai-message-content" data-quote-source="true">
-          {isError ? (
-            <AiErrorNotice
-              message={
-                message.failureReason?.trim() || t("chat.error.missingReason")
-              }
+      <div className="ai-message minimal-response-tail">
+        {isRetrying ? (
+          <StreamRetryNotice
+            attempt={message.retryAttempt}
+            error={message.retryError}
+            backoffMs={message.retryBackoffMs}
+            backoffStartedAt={message.retryBackoffStartedAt}
+          />
+        ) : null}
+        {!isRetrying && isRetryExhaustedTerminal ? (
+          <StreamRetryNotice
+            attempt={message.retryAttempt}
+            error={
+              message.retryError ?? t("chat.incomplete.reason.emptyResponse")
+            }
+            status="exhausted"
+          />
+        ) : null}
+        {incompleteVariantMessage && !isRetryExhaustedTerminal ? (
+          <div className="response-incomplete-notice" role="status">
+            <TriangleAlert
+              aria-hidden="true"
+              className="response-incomplete-notice-icon"
+              size={16}
+              strokeWidth={1.8}
             />
-          ) : null}
-          {normalizedSummary ? (
-            showRawMarkdown ? (
-              <pre className="ai-message-raw">{normalizedSummary}</pre>
-            ) : (
-              <MarkdownBlock
-                className="ai-message-summary"
-                content={normalizedSummary}
-                streaming={isMessageStreaming}
-              />
-            )
-          ) : null}
-          {isRetrying ? (
-            <StreamRetryNotice
-              attempt={message.retryAttempt}
-              error={message.retryError}
-              backoffMs={message.retryBackoffMs}
-              backoffStartedAt={message.retryBackoffStartedAt}
-            />
-          ) : null}
-          {!isRetrying && isRetryExhaustedTerminal ? (
-            <StreamRetryNotice
-              attempt={message.retryAttempt}
-              error={
-                message.retryError ??
-                t("chat.incomplete.reason.emptyResponse")
-              }
-              status="exhausted"
-            />
-          ) : null}
-          {incompleteVariantMessage && !isRetryExhaustedTerminal ? (
-            <div className="response-incomplete-notice" role="status">
-              <TriangleAlert
-                aria-hidden="true"
-                className="response-incomplete-notice-icon"
-                size={16}
-                strokeWidth={1.8}
-              />
-              <div className="response-incomplete-notice-content">
-                <strong className="response-incomplete-notice-title">
-                  {t("chat.incomplete.title")}
-                </strong>
-                <span>{incompleteVariantMessage}</span>
-                {incompleteReasonMessage ? (
-                  <span className="response-incomplete-notice-detail">
-                    {incompleteReasonMessage}
-                  </span>
-                ) : null}
-                {recoveryOutcomeMessage ? (
-                  <span className="response-incomplete-notice-detail">
-                    {recoveryOutcomeMessage}
-                  </span>
-                ) : null}
-              </div>
+            <div className="response-incomplete-notice-content">
+              <strong className="response-incomplete-notice-title">
+                {t("chat.incomplete.title")}
+              </strong>
+              <span>{incompleteVariantMessage}</span>
+              {incompleteReasonMessage ? (
+                <span className="response-incomplete-notice-detail">
+                  {incompleteReasonMessage}
+                </span>
+              ) : null}
+              {recoveryOutcomeMessage ? (
+                <span className="response-incomplete-notice-detail">
+                  {recoveryOutcomeMessage}
+                </span>
+              ) : null}
             </div>
-          ) : null}
-        </div>
+          </div>
+        ) : null}
 
         {activeConversationId ? (
           <>
@@ -293,8 +306,7 @@ export const MinimalRowContent = ({
           </>
         ) : null}
 
-        {showFooterTime ||
-        (row.showActions && activeConversationId && onFork) ? (
+        {showFooterTime || (row.showActions && activeConversationId) ? (
           <div className="ai-message-footer">
             {showFooterTime ? (
               <MessageTimestamp
@@ -302,15 +314,13 @@ export const MinimalRowContent = ({
                 className="ai-message-time"
               />
             ) : null}
-            {row.showActions && activeConversationId && onFork ? (
+            {row.showActions && activeConversationId ? (
               <AiResponseActions
                 content={normalizedSummary}
                 conversationId={activeConversationId}
                 responseId={responseId}
-                showRawMarkdown={showRawMarkdown}
-                onToggleRawMarkdown={() =>
-                  setShowRawMarkdown((prev) => !prev)
-                }
+                showRawMarkdown={rawMarkdown}
+                onToggleRawMarkdown={() => onToggleRawMarkdown(row.renderKey)}
                 onFork={onFork}
                 runStats={row.isLastAssistant ? runStats : null}
               />
@@ -321,7 +331,7 @@ export const MinimalRowContent = ({
         {row.footerHookExecutions.length > 0 ? (
           <HookExecutionUI executions={row.footerHookExecutions} />
         ) : null}
-      </article>
+      </div>
     );
   }
 

@@ -21,17 +21,6 @@ type MinimalToolEntry =
   | { type: "sameRun"; toolCalls: ToolCallInfo[] }
   | { type: "group"; groupKind: MinimalToolGroupKind; toolCalls: ToolCallInfo[] };
 
-/** 有独立可见状态的响应必须单独成行，不能被并入工具集合。 */
-const needsOwnRow = (message: ChatConversationMessage): boolean => {
-  if (message.status === "error" || message.failureReason) return true;
-  if (message.isRetrying) return true;
-  return Boolean(
-    message.incompleteVariant ||
-      message.interruptionReason ||
-      message.recoveryOutcome,
-  );
-};
-
 const groupMinimalTools = (
   toolCalls: readonly ToolCallInfo[],
   pendingAuthorizationIds: ReadonlySet<string>,
@@ -264,11 +253,12 @@ export const buildMinimalRows = ({
       continue;
     }
 
-    const hasBody = message.content.trim().length > 0;
-    if (!hasBody && !needsOwnRow(message)) continue;
-
+    // 极简分组里每条未隐藏的 AI 回复都是一个锚点：可能有正文，也可能只有
+    // 工具（agent 一轮里直接调工具、不说话）。无正文的锚点同样要输出它的
+    // 工具集合与尾部，不能整条跳过。
     const run = runs.get(renderKey);
     const effectiveToolCalls = run ? run.toolCalls : (message.toolCalls ?? []);
+    const hasBody = message.content.trim().length > 0;
     const hostsRunTail = tailHost === renderKey;
     const isLastAssistant =
       message.id === lastAssistantMessageId || hostsRunTail;
@@ -293,9 +283,38 @@ export const buildMinimalRows = ({
         !boundInteractionIds.has(record.toolCallInteractionId),
     );
 
+    const anchorStart = rows.length;
+
+    // 1. 正文（含错误提示）
+    if (hasBody || message.status === "error") {
+      rows.push({
+        kind: "response",
+        key: `minimal-response:${renderKey}`,
+        messageId: message.id,
+        renderKey,
+        message,
+      });
+    }
+
+    // 2. 工具集合
+    if (run && run.toolCalls.length > 0) {
+      buildToolRows(renderKey, message.id, run);
+    }
+
+    // 3. 授权弹窗宿主
+    if (authorizationHostKey === renderKey) {
+      rows.push({
+        kind: "authorization",
+        key: `minimal-authorization:${renderKey}`,
+        messageId: message.id,
+        renderKey,
+      });
+    }
+
+    // 4. 尾部：提示、插件页脚、操作栏
     rows.push({
-      kind: "response",
-      key: `minimal-response:${renderKey}`,
+      kind: "response-tail",
+      key: `minimal-response-tail:${renderKey}`,
       messageId: message.id,
       renderKey,
       message,
@@ -310,18 +329,7 @@ export const buildMinimalRows = ({
       footerHookExecutions,
     });
 
-    if (authorizationHostKey === renderKey) {
-      rows.push({
-        kind: "authorization",
-        key: `minimal-authorization:${renderKey}`,
-        messageId: message.id,
-        renderKey,
-      });
-    }
-
-    if (run && run.toolCalls.length > 0) {
-      buildToolRows(renderKey, message.id, run);
-    }
+    rows[anchorStart].groupStart = true;
   }
 
   if (forkDividerIndex === messages.length && forkedFromConversationId) {

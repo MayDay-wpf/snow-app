@@ -127,6 +127,23 @@ export const MinimalTranscript = ({
     });
   }, []);
 
+  // 原始 Markdown 开关：按回复 renderKey 记录，正文行显示、尾部行的
+  // 操作栏切换，两行共享同一状态。
+  const [rawMarkdownKeys, setRawMarkdownKeys] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  const toggleRawMarkdown = useCallback((renderKey: string): void => {
+    setRawMarkdownKeys((previous) => {
+      const next = new Set(previous);
+      if (next.has(renderKey)) {
+        next.delete(renderKey);
+      } else {
+        next.add(renderKey);
+      }
+      return next;
+    });
+  }, []);
+
   const rows = useMemo(
     () =>
       buildMinimalRows({
@@ -165,27 +182,34 @@ export const MinimalTranscript = ({
     ],
   );
 
-  // 必须常驻挂载的行：授权宿主、正在流式的正文、最后一条正文（操作栏），
-  // 以及用户点过的行（工具卡 / 集合内部展开状态不因虚拟化丢失）。
+  // 必须常驻挂载的行：授权宿主、最后一条回复的尾部（操作栏 / 统计）、
+  // 用户点过的行（工具卡内部展开状态不因虚拟化丢失），以及运行中当前
+  // 这条回复的全部行——新工具从流式平滑视口的裁剪边缘逐帧露出，若按
+  // 几何判定会在露出的那一帧还是空白占位。
   const pinnedKeys = useMemo(() => {
     const keys = new Set<string>(interactedKeys);
-    let lastResponseKey: string | null = null;
+    let lastTailKey: string | null = null;
     for (const row of rows) {
       if (row.kind === "authorization") {
         keys.add(row.key);
       }
-      if (row.kind === "response") {
-        lastResponseKey = row.key;
-        if (row.message.status === "sending" || row.runTailIsSending) {
-          keys.add(row.key);
-        }
+      if (row.kind === "response-tail") {
+        lastTailKey = row.key;
       }
     }
-    if (lastResponseKey) {
-      keys.add(lastResponseKey);
+    if (lastTailKey) {
+      keys.add(lastTailKey);
+    }
+    const activeRenderKey = isStreaming ? rows.at(-1)?.renderKey : undefined;
+    if (activeRenderKey) {
+      for (let index = rows.length - 1; index >= 0; index -= 1) {
+        const row = rows[index];
+        if (row.renderKey !== activeRenderKey) break;
+        keys.add(row.key);
+      }
     }
     return keys;
-  }, [rows, interactedKeys]);
+  }, [rows, interactedKeys, isStreaming]);
 
   const initialVisibleKeysRef = useRef<ReadonlySet<string> | null>(null);
   if (initialVisibleKeysRef.current === null && rows.length > 0) {
@@ -213,19 +237,21 @@ export const MinimalTranscript = ({
     <div className="minimal-rows">
       {rows.map((row) => {
         const visible =
-          row.kind === "divider" ||
-          virtualization.visibleKeys === null ||
-          virtualization.visibleKeys.has(row.key);
+          row.kind === "divider" || virtualization.isVisible(row.key);
+        // IM 风格：用户行带用户头像；每条 AI 回复的第一行（正文，或无正文
+        // 时的工具集合标题）带 AI 头像，其余行与正文列对齐。
         const imRole =
-          chatStyle.imMode && row.kind === "user"
-            ? "user"
-            : chatStyle.imMode && row.kind === "response"
-              ? "assistant"
-              : null;
+          !chatStyle.imMode || row.kind === "divider"
+            ? null
+            : row.kind === "user"
+              ? "user"
+              : row.groupStart
+                ? "assistant"
+                : null;
         const continuation =
           chatStyle.imMode &&
+          imRole === null &&
           row.kind !== "user" &&
-          row.kind !== "response" &&
           row.kind !== "divider";
         return (
           <MinimalRow
@@ -263,6 +289,8 @@ export const MinimalTranscript = ({
               }
               onRejectToolAuthorization={onRejectToolAuthorization}
               onToggleRow={toggleRow}
+              rawMarkdown={rawMarkdownKeys.has(row.renderKey)}
+              onToggleRawMarkdown={toggleRawMarkdown}
               renderForkDivider={renderForkDivider}
             />
           </MinimalRow>

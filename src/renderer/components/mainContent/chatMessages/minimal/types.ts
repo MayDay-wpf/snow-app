@@ -22,6 +22,8 @@ type MinimalRowBase = {
   messageId: string;
   /** 消息渲染 key（临时 id 迁移后保持不变）。 */
   renderKey: string;
+  /** 一条 AI 回复（锚点）的第一行：承担消息间距与 IM 头像。 */
+  groupStart?: boolean;
 };
 
 export type MinimalUserRow = MinimalRowBase & {
@@ -29,8 +31,19 @@ export type MinimalUserRow = MinimalRowBase & {
   message: ChatConversationMessage;
 };
 
+/** AI 回复的正文行：错误提示 + Markdown 正文（无正文的锚点不产出）。 */
 export type MinimalResponseRow = MinimalRowBase & {
   kind: "response";
+  message: ChatConversationMessage;
+};
+
+/**
+ * AI 回复的尾部行：重试 / 未完成提示、插件页脚、完成时间、操作栏与未绑定
+ * 的 hook 记录。排在工具与授权之后，与原消息内的顺序一致；无正文、只有
+ * 工具的锚点也靠它承载操作栏。
+ */
+export type MinimalResponseTailRow = MinimalRowBase & {
+  kind: "response-tail";
   message: ChatConversationMessage;
   isLastAssistant: boolean;
   showActions: boolean;
@@ -40,7 +53,7 @@ export type MinimalResponseRow = MinimalRowBase & {
   runTailId?: string;
   runTailResponseId?: string;
   runTailIsSending?: boolean;
-  /** 未绑定到具体工具卡的 hook 记录，渲染在正文之后。 */
+  /** 未绑定到具体工具卡的 hook 记录。 */
   footerHookExecutions: HookExecutionRecord[];
 };
 
@@ -81,6 +94,7 @@ export type MinimalDividerRow = MinimalRowBase & {
 export type MinimalRow =
   | MinimalUserRow
   | MinimalResponseRow
+  | MinimalResponseTailRow
   | MinimalToolRunHeaderRow
   | MinimalSameRunHeaderRow
   | MinimalToolGroupRow

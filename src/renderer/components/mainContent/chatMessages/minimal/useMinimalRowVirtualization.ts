@@ -18,7 +18,9 @@ import type { MinimalRow } from "./types";
  *   不会误用旧高度；
  * - 只有静置一段时间的高度才标记为 settle（可信），流式中的行不写可信
  *   高度，避免把中间态写进缓存；
- * - 行离开视口前同步测量一次真实高度，占位符直接使用该值，滚动条不跳。
+ * - 行离开视口前同步测量一次真实高度，占位符直接使用该值，滚动条不跳；
+ * - 观察器还没给出判定的新行（运行中新到的工具、刚展开的集合）一律先渲染
+ *   真实内容，拿到第一次判定后才可能变成占位，不会以空白占位先露面。
  */
 
 const VIEWPORT_BUFFER_PX = 600;
@@ -34,6 +36,8 @@ const HEIGHT_CACHE_LIMIT = 4000;
 const DEFAULT_ROW_HEIGHTS: Record<MinimalRow["kind"], number> = {
   user: 72,
   response: 120,
+  // 尾部行大多为空（非最后一条且带工具时没有操作栏）。
+  "response-tail": 0,
   "tool-run-header": 24,
   "same-run-header": 24,
   tool: 28,
@@ -50,8 +54,8 @@ type HeightEntry = {
 };
 
 export type MinimalRowVirtualization = {
-  /** null = 尚未初始化（首帧全部渲染真实内容）。 */
-  visibleKeys: ReadonlySet<string> | null;
+  /** 本行是否渲染真实内容。 */
+  isVisible: (key: string) => boolean;
   register: (key: string, node: HTMLElement | null) => void;
   getPlaceholderHeight: (row: MinimalRow) => number;
 };
@@ -60,9 +64,11 @@ export type MinimalRowVirtualization = {
 const rowSignature = (row: MinimalRow): string => {
   switch (row.kind) {
     case "response":
-      return `response:${row.message.status ?? ""}:${
-        row.runTailIsSending ? "tail-stream" : ""
-      }`;
+      return `response:${row.message.status ?? ""}`;
+    case "response-tail":
+      return `tail:${row.message.status ?? ""}:${row.showActions ? "actions" : ""}:${
+        row.message.isRetrying ? "retry" : ""
+      }:${row.runTailIsSending ? "tail-stream" : ""}`;
     case "tool-run-header":
     case "same-run-header":
       return `${row.kind}:${row.expanded ? "open" : "closed"}`;
@@ -72,8 +78,9 @@ const rowSignature = (row: MinimalRow): string => {
 };
 
 const isStreamingRow = (row: MinimalRow): boolean =>
-  row.kind === "response" &&
-  (row.message.status === "sending" || Boolean(row.runTailIsSending));
+  (row.kind === "response" && row.message.status === "sending") ||
+  (row.kind === "response-tail" &&
+    (row.message.status === "sending" || Boolean(row.runTailIsSending)));
 
 export const useMinimalRowVirtualization = (
   scrollContainerRef: React.RefObject<HTMLDivElement | null>,
@@ -107,6 +114,16 @@ export const useMinimalRowVirtualization = (
   const lastMeasureAtRef = useRef<Map<string, number>>(new Map());
   const settleTimersRef = useRef<Map<string, number>>(new Map());
   const measureRafRef = useRef(0);
+  // 已拿到观察器判定的行。不在其中的行视为「新行」，先渲染真实内容。
+  const seenKeysRef = useRef<Set<string>>(new Set());
+  // 初始窗口生效时，窗口外的既有行按「已判定」处理，保持首帧不全量渲染。
+  const seededRef = useRef(false);
+  if (!seededRef.current && initialVisibleKeys && initialVisibleKeys.size > 0) {
+    seededRef.current = true;
+    for (const row of rows) {
+      seenKeysRef.current.add(row.key);
+    }
+  }
 
   const visibleKeysRef = useRef<ReadonlySet<string> | null>(visibleKeys);
   visibleKeysRef.current = visibleKeys;
@@ -141,7 +158,11 @@ export const useMinimalRowVirtualization = (
     [currentWidth],
   );
 
-  const flushVisibleKeys = useCallback((): void => {
+  /**
+   * 重算可见集。force：本批有行第一次拿到判定——即使集合内容不变也要换新
+   * 引用触发重渲染，让这些行按判定结果切到真实内容或占位。
+   */
+  const flushVisibleKeys = useCallback((force = false): void => {
     setVisibleKeys((prev) => {
       const next = new Set<string>(nearKeysRef.current);
       if (prev !== null) {
@@ -154,7 +175,7 @@ export const useMinimalRowVirtualization = (
       for (const key of pinnedKeysRef.current) {
         next.add(key);
       }
-      if (prev === null) return next;
+      if (prev === null || force) return next;
       if (prev.size === next.size) {
         let same = true;
         for (const key of prev) {
@@ -200,10 +221,15 @@ export const useMinimalRowVirtualization = (
       const container = scrollContainerRef.current;
       if (!container) return;
       let changed = false;
+      let firstVerdict = false;
       for (const entry of entries) {
         const node = entry.target as HTMLElement;
         const key = nodeToKeyRef.current.get(node);
         if (!key || !container.contains(node)) continue;
+        if (!seenKeysRef.current.has(key)) {
+          seenKeysRef.current.add(key);
+          firstVerdict = true;
+        }
         if (entry.isIntersecting) {
           if (!targets.has(key)) {
             targets.add(key);
@@ -222,8 +248,8 @@ export const useMinimalRowVirtualization = (
           }
         }
       }
-      if (changed) {
-        flushVisibleKeys();
+      if (changed || firstVerdict) {
+        flushVisibleKeys(firstVerdict);
       }
     },
     [flushVisibleKeys, scrollContainerRef, writeHeight],
@@ -361,10 +387,23 @@ export const useMinimalRowVirtualization = (
           }
         }
       } else {
+        // 行从列表移除（集合收起、消息删除）：再次出现时按新行对待，
+        // 先渲染真实内容，避免重新展开时先闪一帧空白占位。
         keyToNodeRef.current.delete(key);
+        seenKeysRef.current.delete(key);
+        nearKeysRef.current.delete(key);
+        farKeysRef.current.delete(key);
       }
     },
     [rebuildObservers, writeHeight],
+  );
+
+  const isVisible = useCallback(
+    (key: string): boolean =>
+      visibleKeys === null ||
+      visibleKeys.has(key) ||
+      !seenKeysRef.current.has(key),
+    [visibleKeys],
   );
 
   const getPlaceholderHeight = useCallback(
@@ -397,8 +436,9 @@ export const useMinimalRowVirtualization = (
       lastMeasureAtRef.current.clear();
       nearKeysRef.current.clear();
       farKeysRef.current.clear();
+      seenKeysRef.current.clear();
     };
   }, []);
 
-  return { visibleKeys, register, getPlaceholderHeight };
+  return { isVisible, register, getPlaceholderHeight };
 };

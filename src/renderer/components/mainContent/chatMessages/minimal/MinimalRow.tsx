@@ -43,7 +43,9 @@ export const MinimalRow = ({
   );
 
   const messageIdAttr = row.messageId || undefined;
-  const kindClass = `minimal-row minimal-row--${row.kind}`;
+  const kindClass = `minimal-row minimal-row--${row.kind}${
+    row.groupStart ? " minimal-row--group-start" : ""
+  }`;
 
   if (!visible) {
     return (

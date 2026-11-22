@@ -516,39 +516,29 @@
   min-width: 0;
 }
 
-/* 行间距替代原消息块之间的 24px gap，集合内部保持紧凑 */
-.minimal-row--user {
-  padding-top: 24px;
-}
-
-.minimal-row--user:first-child {
-  padding-top: 0;
-}
-
-.minimal-row--response {
-  padding-top: 16px;
-}
-
-.minimal-row--response:first-child {
-  padding-top: 0;
-}
-
-.minimal-row--tool-run-header {
-  padding-top: 6px;
-}
-
-.minimal-row--same-run-header,
-.minimal-row--tool,
-.minimal-row--tool-group,
-.minimal-row--authorization {
-  padding-top: 0;
-}
-
+/* 行间距还原原消息结构：消息之间 24px（原轨道 gap），同一条 AI 回复内
+   正文 / 工具集合 / 尾部之间 12px（原 .ai-message gap），集合内部紧凑。 */
+.minimal-row--user,
+.minimal-row--group-start,
 .minimal-row--divider {
   padding-top: 24px;
 }
 
-/* IM 风格：同一条 AI 消息的后续行与正文列对齐（头像 32 + gap 10） */
+.minimal-row--user:first-child,
+.minimal-row--group-start:first-child {
+  padding-top: 0;
+}
+
+.minimal-row--tool-run-header:not(.minimal-row--group-start) {
+  padding-top: 12px;
+}
+
+/* 尾部行常常没有任何内容：空容器不占间距，行高为 0。 */
+.minimal-response-tail:not(:empty) {
+  padding-top: 12px;
+}
+
+/* IM 风格：同一条 AI 回复的后续行与正文列对齐（头像 32 + gap 10） */
 .minimal-row--continuation {
   padding-left: 42px;
 }
@@ -559,9 +549,5 @@
 
 .minimal-row .tsr {
   margin: 0;
-}
-
-.minimal-row .ai-message {
-  gap: 8px;
 }
 
