@@ -1,5 +1,23 @@
 # Release Notes
 
+## v0.5.24
+
+### New Features
+
+- **MCP OAuth Client ID Metadata Document**: MCP sign-in prefers the Client ID Metadata Document (SEP-991) when the authorization server supports it and falls back to dynamic client registration, so servers without a registration endpoint (such as ElevenLabs) can complete the flow.
+- **Settings Jump Links**: the API profile form gains "Manage system prompts" and "Manage custom headers" buttons that open the matching settings page.
+
+### Improvements
+
+- The minimal transcript renders with row-level virtualization, and AI replies are split into body and tail rows, keeping long conversations smooth.
+- Unpushed commits are linked with a green dashed line in the Git graph, and links no longer overlap the HEAD halo or worktree circles.
+- Model context and output limits are filled from a fully fetched and cached llm-specs catalog.
+- The Claude Code User-Agent is applied only when the header scheme provides none, so a user-set User-Agent is no longer overridden; it is also sent on model list requests.
+
+### Bug Fixes
+
+- Fixed the scroll position jumping when loading older pages in minimal mode: tool run grouping stays identical across pages.
+
 ## v0.5.23
 
 ### New Features
