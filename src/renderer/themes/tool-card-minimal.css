@@ -489,3 +489,79 @@
     animation: none;
   }
 }
+
+/* ---------- 极简 transcript 行级虚拟化 ---------- */
+
+.minimal-rows {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.minimal-row {
+  min-width: 0;
+}
+
+.minimal-row.is-placeholder {
+  /* 占位节点只保留高度，不参与绘制与子树布局。 */
+  contain: strict;
+}
+
+.minimal-row-body {
+  min-width: 0;
+}
+
+.chat-im-row > .minimal-row-body {
+  flex: 1;
+  min-width: 0;
+}
+
+/* 行间距替代原消息块之间的 24px gap，集合内部保持紧凑 */
+.minimal-row--user {
+  padding-top: 24px;
+}
+
+.minimal-row--user:first-child {
+  padding-top: 0;
+}
+
+.minimal-row--response {
+  padding-top: 16px;
+}
+
+.minimal-row--response:first-child {
+  padding-top: 0;
+}
+
+.minimal-row--tool-run-header {
+  padding-top: 6px;
+}
+
+.minimal-row--same-run-header,
+.minimal-row--tool,
+.minimal-row--tool-group,
+.minimal-row--authorization {
+  padding-top: 0;
+}
+
+.minimal-row--divider {
+  padding-top: 24px;
+}
+
+/* IM 风格：同一条 AI 消息的后续行与正文列对齐（头像 32 + gap 10） */
+.minimal-row--continuation {
+  padding-left: 42px;
+}
+
+.minimal-row .tcg {
+  margin-bottom: 0;
+}
+
+.minimal-row .tsr {
+  margin: 0;
+}
+
+.minimal-row .ai-message {
+  gap: 8px;
+}
+

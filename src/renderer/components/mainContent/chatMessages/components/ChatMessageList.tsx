@@ -11,6 +11,7 @@ import { GitFork, Zap } from "lucide-react";
 import { useI18n } from "../../../../i18n";
 import { ChatStreamIndicator } from "./ChatStreamIndicator";
 import { VirtualizedMessage } from "./VirtualizedMessage";
+import { MinimalTranscript } from "../minimal/MinimalTranscript";
 import type { ChatConversationMessage } from "../utils/conversationTypes";
 import type { ChatRunStats, ToolCallRun } from "../utils/types";
 import { useToolCardStyle } from "../../../../utils/toolCardStyle";
@@ -45,6 +46,10 @@ type ChatMessageListProps = {
 // (跳过 tool 消息),数值取小足够覆盖首屏 + 初始定位到底部后的视口。
 const INITIAL_VIRTUAL_HEAD_COUNT = 3;
 const INITIAL_VIRTUAL_WINDOW_SIZE = 24;
+
+/** 极简分支在 layout 尚未就绪时的空集合（保持引用稳定）。 */
+const EMPTY_TOOL_RUNS: ReadonlyMap<string, ToolCallRun> = new Map();
+const EMPTY_HIDDEN_KEYS: ReadonlySet<string> = new Set();
 
 type MinimalLayout = {
   /** renderKey(锚点消息) -> 该正文之后的工具集合。 */
@@ -777,7 +782,39 @@ export const ChatMessageList = ({
         <div className="chat-message-viewport" ref={streamViewportRef}>
           <div className="chat-message-track">
             {renderTriggeredByTaskBanner()}
-            {showForkDivider ? (
+            {isMinimalTranscript ? (
+              <MinimalTranscript
+                messages={messages}
+                runs={minimalLayout?.runs ?? EMPTY_TOOL_RUNS}
+                hidden={minimalLayout?.hidden ?? EMPTY_HIDDEN_KEYS}
+                tailHost={minimalLayout?.tailHost ?? null}
+                renderKeyOf={renderKeyOf}
+                lastAssistantMessage={lastAssistantMessage}
+                lastAssistantMessageId={lastAssistantMessageId}
+                isStreaming={isStreaming}
+                canRollback={canRollback}
+                rollbackPreparingMessageId={rollbackPreparingMessageId}
+                activeConversationId={activeConversationId}
+                artifactWorkspace={artifactWorkspace}
+                pendingToolAuthorizations={pendingToolAuthorizations}
+                updateSessionMessages={updateSessionMessages}
+                runStats={runStats}
+                hiddenMessageId={hiddenMessageId}
+                forkDividerIndex={forkDividerIndex}
+                forkedFromConversationId={forkedFromConversationId}
+                authorizationHostKey={authorizationHostKey}
+                scrollContainerRef={scrollContainerRef}
+                chatStyle={chatStyle}
+                onRollback={handleRollback}
+                onFork={handleFork}
+                onApproveToolAuthorization={approveToolAuthorization}
+                onApproveToolAuthorizationAlways={
+                  approveToolAuthorizationAlways
+                }
+                onRejectToolAuthorization={rejectToolAuthorization}
+                renderForkDivider={renderForkDivider}
+              />
+            ) : showForkDivider ? (
               <>
                 {messages
                   .slice(0, forkDividerIndex)
