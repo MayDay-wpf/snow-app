@@ -10085,7 +10085,32 @@ body.is-panel-resizing * {
   padding: 16px 20px 35px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  --chat-area-gap: 16px;
+  gap: var(--chat-area-gap);
+}
+
+.chat-initial-footer-skeleton {
+  display: none;
+}
+
+.chat-area[data-initial-footers-loading] .chat-initial-footer-skeleton {
+  display: block;
+  position: sticky;
+  inset-block-start: 0;
+  flex: 0 0 0;
+  block-size: 0;
+  margin-block-end: calc(-1 * var(--chat-area-gap));
+  pointer-events: none;
+  overflow-anchor: none;
+}
+
+.chat-initial-footer-skeleton > .chat-initial-history-skeleton {
+  position: absolute;
+  inset-inline: 0;
+}
+
+.chat-area[data-initial-footers-loading] > .chat-message-list {
+  visibility: hidden;
 }
 
 /* 用户消息定位遮罩与 .chat-area 共用内容宽度梯度（骨架屏与消息列同宽）。

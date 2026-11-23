@@ -7,6 +7,7 @@ import {
 } from "react";
 import type { ChatInputSendOptions } from "../../chatInput/types";
 import { useChatConversationContext } from "../components/ChatConversationContext";
+import { TASK_FOOTER_PENDING_ATTRIBUTE } from "../components/PluginMessageFooters";
 import {
   createStreamGrowthSmoother,
   type StreamGrowthSmoother,
@@ -49,6 +50,7 @@ const USER_SCROLL_INTENT_WINDOW_MS = 750;
 // run summary 摘要条插入、Thinking 折叠、markdown 定稿，高度逐帧变化。
 // 在此窗口内保持钉底资格，把最终总结带到可视底部。
 const RUN_FINISH_FOLLOW_GRACE_MS = 1200;
+const INITIAL_FOOTER_WAIT_MS = 400;
 
 const SCROLL_RESTORE_WATCHDOG_STABLE_FRAMES = 12;
 const SCROLL_RESTORE_WATCHDOG_MAX_FRAMES = 90;
@@ -726,7 +728,7 @@ export const useChatScrollFollow = ({
       !activeConversationId ||
       !isInitialHistoryLoaded ||
       isLoadingInitialHistory ||
-      messages.length === 0 ||
+      !hasMessages ||
       positionedConversationIdsRef.current.has(activeConversationId)
     ) {
       return;
@@ -752,23 +754,61 @@ export const useChatScrollFollow = ({
     isUserScrollIntentRef.current = false;
     shouldStickToBottomRef.current = true;
     setShowScrollToBottom(false);
-    followGraceUntilRef.current =
-      performance.now() + RUN_FINISH_FOLLOW_GRACE_MS;
     scrollToBottom();
-    rafId1 = requestAnimationFrame(() => {
+
+    let footerObserver: MutationObserver | undefined;
+    let footerTimer: number | undefined;
+    let revealFrame = 0;
+    const stopWaitingForFooters = (): void => {
+      footerObserver?.disconnect();
+      window.clearTimeout(footerTimer);
+      cancelAnimationFrame(revealFrame);
+      container.removeAttribute("data-initial-footers-loading");
+    };
+    const reveal = (): void => {
+      stopWaitingForFooters();
+      followGraceUntilRef.current =
+        performance.now() + RUN_FINISH_FOLLOW_GRACE_MS;
       scrollToBottom();
-      rafId2 = requestAnimationFrame(() => {
+      rafId1 = requestAnimationFrame(() => {
         scrollToBottom();
-        rafId3 = requestAnimationFrame(() => {
+        rafId2 = requestAnimationFrame(() => {
           scrollToBottom();
-          isInitialBottomPositioningRef.current = false;
+          rafId3 = requestAnimationFrame(() => {
+            scrollToBottom();
+            isInitialBottomPositioningRef.current = false;
+          });
         });
       });
-    });
+    };
+
+    const hasPendingFooter = (): boolean =>
+      container.querySelector(`[${TASK_FOOTER_PENDING_ATTRIBUTE}]`) !== null;
+    if (hasPendingFooter()) {
+      // Lay out real cards behind the skeleton. No estimated height is needed
+      // for empty cards, different file counts, or narrow chat columns.
+      container.setAttribute("data-initial-footers-loading", "");
+      footerObserver = new MutationObserver(() => {
+        if (revealFrame || hasPendingFooter()) return;
+        revealFrame = requestAnimationFrame(() => {
+          revealFrame = 0;
+          if (!hasPendingFooter()) reveal();
+        });
+      });
+      footerObserver.observe(container, {
+        subtree: true,
+        childList: true,
+        attributeFilter: [TASK_FOOTER_PENDING_ATTRIBUTE],
+      });
+      footerTimer = window.setTimeout(reveal, INITIAL_FOOTER_WAIT_MS);
+    } else {
+      reveal();
+    }
 
     positionedConversationIdsRef.current.add(activeConversationId);
 
     return (): void => {
+      stopWaitingForFooters();
       cancelAnimationFrame(rafId1);
       cancelAnimationFrame(rafId2);
       cancelAnimationFrame(rafId3);
@@ -782,7 +822,7 @@ export const useChatScrollFollow = ({
     isChatAreaRendered,
     isInitialHistoryLoaded,
     isLoadingInitialHistory,
-    messages.length,
+    hasMessages,
   ]);
 
   useLayoutEffect(() => {
