@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type CSSProperties,
@@ -57,7 +58,11 @@ import {
 } from "./utils/layoutPanelState";
 import { ThemeBackgroundPetLayer } from "./components/pet/ThemeBackgroundPetLayer";
 import { ThemeBackgroundImageLayer } from "./components/sidebar/themeSettings/ThemeBackgroundImageLayer";
-import { adjustUiFontSize, resetUiFontSize } from "./utils/uiZoom";
+import {
+  adjustUiFontSize,
+  resetUiFontSize,
+  initDpiChangeListener,
+} from "./utils/uiZoom";
 import { installToolCardStyleShortcut } from "./utils/toolCardStyle";
 import { hasCustomWindowFrame } from "./utils/platform";
 import {
@@ -208,6 +213,72 @@ const getMaxPanelWidth = (
   return Math.max(minWidth, Math.min(absoluteMax, mainSafeMax));
 };
 
+const getPanelMinWidth = (target: ResizeTarget): number =>
+  target === "sidebar" ? SIDEBAR_MIN_WIDTH : RIGHT_PANEL_MIN_WIDTH;
+
+const withPanelWidth = (
+  layout: PanelLayoutMetrics,
+  target: ResizeTarget,
+  width: number,
+): PanelLayoutMetrics =>
+  target === "sidebar"
+    ? { ...layout, sidebarWidth: width }
+    : { ...layout, rightPanelWidth: width };
+
+// 聊天区可得宽度，口径与 getMaxPanelWidth 一致。
+const getMainContentWidth = (layout: PanelLayoutMetrics): number =>
+  window.innerWidth -
+  APP_LAYOUT_HORIZONTAL_PADDING -
+  APP_LAYOUT_GAP_TOTAL -
+  (layout.isSidebarCollapsed ? 0 : layout.sidebarWidth) -
+  (layout.isRightPanelCollapsed ? 0 : layout.rightPanelWidth);
+
+/**
+ * 面板展开时按当前窗口收敛：先压窄展开的面板；到最小宽度仍挤压聊天区时
+ * 压窄另一侧，另一侧也到最小宽度仍不够则收起另一侧。
+ */
+const fitExpandedPanel = (
+  target: ResizeTarget,
+  layout: PanelLayoutMetrics,
+  canAdjustOther: boolean,
+): PanelLayoutMetrics => {
+  const other: ResizeTarget = target === "sidebar" ? "right-panel" : "sidebar";
+  const preferredWidth =
+    target === "sidebar" ? layout.sidebarWidth : layout.rightPanelWidth;
+  const fitTarget = (base: PanelLayoutMetrics): PanelLayoutMetrics =>
+    withPanelWidth(
+      base,
+      target,
+      Math.round(
+        clamp(
+          preferredWidth,
+          getPanelMinWidth(target),
+          getMaxPanelWidth(target, base),
+        ),
+      ),
+    );
+  const fitted = fitTarget(layout);
+  const isOtherCollapsed =
+    other === "sidebar"
+      ? layout.isSidebarCollapsed
+      : layout.isRightPanelCollapsed;
+  const deficit = MAIN_CONTENT_MIN_WIDTH - getMainContentWidth(fitted);
+  if (deficit <= 0 || isOtherCollapsed || !canAdjustOther) {
+    return fitted;
+  }
+  const otherWidth =
+    other === "sidebar" ? fitted.sidebarWidth : fitted.rightPanelWidth;
+  if (otherWidth - deficit >= getPanelMinWidth(other)) {
+    return withPanelWidth(fitted, other, otherWidth - deficit);
+  }
+  // 另一侧保留原宽度，便于窗口拉宽后按原尺寸自动恢复。
+  return fitTarget(
+    other === "sidebar"
+      ? { ...layout, isSidebarCollapsed: true }
+      : { ...layout, isRightPanelCollapsed: true },
+  );
+};
+
 /**
  * 快捷键处理器桥接组件。
  *
@@ -246,6 +317,8 @@ const ShortcutHandlerBridge = (): React.JSX.Element => {
   // 工具卡风格切换：固定快捷键 mod+shift+u（不进可配置快捷键面板，
   // 界面上也不提供开关；帮助浮层里单独列出）。
   useEffect(() => installToolCardStyleShortcut(), []);
+  // 监听窗口拖拽到不同 DPI 屏幕时的缩放变化
+  useEffect(() => initDpiChangeListener(), []);
   useEffect(() => {
     const unsubCancel = registerHandler("cancelSession", () => {
       // ESC 防误触：运行中需在窗口期内二次按下
@@ -730,6 +803,71 @@ export const App = (): React.JSX.Element => {
       unsubRightPanelFullscreen();
     };
   }, [clearAutoCollapsed]);
+
+  // 面板由收起变为展开时按当前窗口收敛宽度（宽度可能是在全屏等更宽窗口下拖出来的），
+  // 统一兜住所有展开入口；layout 阶段完成，避免先溢出再回弹。
+  const lastPanelCollapsedRef = useRef({
+    sidebar: isSidebarCollapsed,
+    rightPanel: isRightPanelCollapsed,
+  });
+  useLayoutEffect(() => {
+    const previous = lastPanelCollapsedRef.current;
+    lastPanelCollapsedRef.current = {
+      sidebar: isSidebarCollapsed,
+      rightPanel: isRightPanelCollapsed,
+    };
+    const sidebarOpened = previous.sidebar && !isSidebarCollapsed;
+    const rightPanelOpened = previous.rightPanel && !isRightPanelCollapsed;
+    // 拖拽手势内的收起/展开由手势自身约束宽度。
+    if (
+      (!sidebarOpened && !rightPanelOpened) ||
+      document.body.classList.contains("is-panel-resizing")
+    ) {
+      return;
+    }
+    // 两侧同时展开（拉宽自动恢复）或右面板全屏时，只收敛自身不挤占另一侧。
+    const canAdjustOther =
+      !(sidebarOpened && rightPanelOpened) && !isRightPanelFullscreen;
+    let layout: PanelLayoutMetrics = {
+      sidebarWidth,
+      rightPanelWidth,
+      isSidebarCollapsed,
+      isRightPanelCollapsed,
+    };
+    if (sidebarOpened) {
+      layout = fitExpandedPanel("sidebar", layout, canAdjustOther);
+    }
+    if (rightPanelOpened) {
+      layout = fitExpandedPanel("right-panel", layout, canAdjustOther);
+    }
+    if (
+      layout.sidebarWidth !== sidebarWidth ||
+      layout.rightPanelWidth !== rightPanelWidth
+    ) {
+      // 收敛值只作用于当前窗口，不覆盖记忆的宽度（与首屏收敛同口径）。
+      persistedWidthsRef.current = {
+        sidebar: layout.sidebarWidth,
+        rightPanel: layout.rightPanelWidth,
+      };
+      setSidebarWidth(layout.sidebarWidth);
+      setRightPanelWidth(layout.rightPanelWidth);
+    }
+    // 被挤掉的一侧记为自动收起，窗口拉宽后可自动恢复。
+    if (layout.isSidebarCollapsed && !isSidebarCollapsed) {
+      autoCollapsedRef.current.sidebar = true;
+      setIsSidebarCollapsed(true);
+    }
+    if (layout.isRightPanelCollapsed && !isRightPanelCollapsed) {
+      autoCollapsedRef.current.rightPanel = true;
+      setIsRightPanelCollapsed(true);
+    }
+  }, [
+    isSidebarCollapsed,
+    isRightPanelCollapsed,
+    isRightPanelFullscreen,
+    sidebarWidth,
+    rightPanelWidth,
+  ]);
 
   // 窗口缩窄时自动收起侧面板，拉宽到足够宽度时自动恢复：从左边缩窄 → 收起侧栏；
   // 从右边缩窄 → 收起右面板；方向未知（角部拖拽 / 系统吸附 / 程序化改尺寸都不

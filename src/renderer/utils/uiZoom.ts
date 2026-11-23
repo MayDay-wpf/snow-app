@@ -52,3 +52,19 @@ export const adjustUiFontSize = (delta: number): void => {
 export const resetUiFontSize = (): void => {
   enqueueUiFontSizeTask(() => applyUiFontSize(() => UI_FONT_SIZE_DEFAULT));
 };
+
+/** 监听窗口 DPI 变化并刷新缩放因子。 */
+export const initDpiChangeListener = (): (() => void) => {
+  if (typeof window.snow?.onWindowDisplayScaleChanged !== "function") {
+    return () => {};
+  }
+
+  const dispose = window.snow.onWindowDisplayScaleChanged((info) => {
+    if (typeof window.snow?.setUiZoomFactor === "function") {
+      const scaleFactor = info?.scaleFactor ?? window.devicePixelRatio ?? 1;
+      window.snow.setUiZoomFactor(scaleFactor);
+    }
+  });
+
+  return dispose;
+};

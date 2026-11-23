@@ -2252,4 +2252,24 @@ export const windowApi = {
       ipcRenderer.removeListener("window:resize-edge-changed", handler);
     };
   },
+  /** 窗口拖拽到不同 DPI 屏幕时的缩放因子变化。 */
+  onWindowDisplayScaleChanged: (
+    callback: (info: { scaleFactor: number }) => void,
+  ): (() => void) => {
+    const handler = (_event: IpcRendererEvent, info: unknown): void => {
+      if (!info || typeof info !== "object") {
+        return;
+      }
+      const record = info as Record<string, unknown>;
+      if (typeof record.scaleFactor === "number") {
+        callback({ scaleFactor: record.scaleFactor });
+      }
+    };
+
+    ipcRenderer.on("window:display-scale-changed", handler);
+
+    return () => {
+      ipcRenderer.removeListener("window:display-scale-changed", handler);
+    };
+  },
 };

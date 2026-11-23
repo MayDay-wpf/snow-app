@@ -472,6 +472,18 @@ export const registerWindowHandlers = (_native: NativeBridge): void => {
   let dragInterval: NodeJS.Timeout | null = null;
   let dragOffsetX = 0;
   let dragOffsetY = 0;
+  let dragStartScaleFactor = 1;
+
+  const getWindowDisplayScaleFactor = (win: BrowserWindow): number => {
+    const bounds = win.getBounds();
+    const display = screen.getDisplayMatching({
+      x: bounds.x + bounds.width / 2,
+      y: bounds.y + bounds.height / 2,
+      width: 1,
+      height: 1,
+    });
+    return display?.scaleFactor ?? 1;
+  };
 
   ipcMain.handle("window:start-drag", (event) => {
     const win = BrowserWindow.fromWebContents(event.sender);
@@ -481,6 +493,7 @@ export const registerWindowHandlers = (_native: NativeBridge): void => {
     if (dragInterval) {
       clearInterval(dragInterval);
     }
+    dragStartScaleFactor = getWindowDisplayScaleFactor(win);
     const winBounds = win.getBounds();
     const cursor = screen.getCursorScreenPoint();
     dragOffsetX = cursor.x - winBounds.x;
@@ -503,10 +516,19 @@ export const registerWindowHandlers = (_native: NativeBridge): void => {
     }, 16);
   });
 
-  ipcMain.handle("window:stop-drag", () => {
+  ipcMain.handle("window:stop-drag", (event) => {
     if (dragInterval) {
       clearInterval(dragInterval);
       dragInterval = null;
+    }
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (win && !win.isDestroyed()) {
+      const currentScaleFactor = getWindowDisplayScaleFactor(win);
+      if (Math.abs(currentScaleFactor - dragStartScaleFactor) > 0.01) {
+        safeSend(event.sender, "window:display-scale-changed", {
+          scaleFactor: currentScaleFactor,
+        });
+      }
     }
   });
 
