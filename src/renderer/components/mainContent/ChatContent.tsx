@@ -687,6 +687,9 @@ const ChatContentBody = ({
                     promptMessageId={subAgentPromptMessageId}
                   />
                 ) : null}
+                <div className="chat-initial-footer-skeleton">
+                  <ChatHistorySkeleton />
+                </div>
                 <ChatMessageList
                   messages={messages}
                   isStreaming={isStreaming}

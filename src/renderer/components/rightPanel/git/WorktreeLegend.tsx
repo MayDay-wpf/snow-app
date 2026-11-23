@@ -1,5 +1,6 @@
 import type { GitWorktreeInfo } from "../../../../preload";
 import { useI18n } from "../../../i18n";
+import { formatDisplayPath } from "../../../utils/formatDisplayPath";
 import { LANE_COLORS } from "./gitGraphLayout";
 import { getWorktreeColor } from "./gitGraphRefs";
 
@@ -75,7 +76,7 @@ export function WorktreeLegend({
             key={worktree.worktreeId}
             title={`${t("git.graphWorktreeTooltip", {
               values: {
-                path: worktree.worktreePath,
+                path: formatDisplayPath(worktree.worktreePath),
                 state: worktree.isDirty
                   ? t("git.worktreeDirty")
                   : t("git.graphWorktreeClean"),

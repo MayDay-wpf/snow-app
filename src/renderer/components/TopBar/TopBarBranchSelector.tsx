@@ -1,5 +1,6 @@
 import { GitBranch } from "lucide-react";
 import { BranchSelector } from "../rightPanel/git/BranchSelector";
+import { useConversationGitWorkspace } from "../rightPanel/git/useConversationGitWorkspace";
 import { useGitStatus } from "../rightPanel/git/useGitStatus";
 
 type TopBarBranchSelectorProps = {
@@ -22,14 +23,15 @@ export const TopBarBranchSelector = ({
   onOpenTerminal,
   showChangesTab,
 }: TopBarBranchSelectorProps): React.JSX.Element | null => {
-  const { status, refresh } = useGitStatus(repoPath);
+  const workspace = useConversationGitWorkspace(repoPath, directoryId);
+  const { status, refresh } = useGitStatus(workspace.workspacePath);
 
-  if (repoPath && status?.isRepo) {
+  if (workspace.workspacePath && status?.isRepo) {
     return (
       <BranchSelector
-        repoPath={repoPath}
+        repoPath={workspace.workspacePath}
         currentBranch={status.currentBranch}
-        directoryId={directoryId}
+        directoryId={workspace.directoryId}
         onOpenTerminal={onOpenTerminal}
         showChangesTab={showChangesTab}
         changesCount={status.files.length}

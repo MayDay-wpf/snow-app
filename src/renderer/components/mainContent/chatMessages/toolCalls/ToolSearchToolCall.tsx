@@ -163,6 +163,11 @@ const DiscoveredToolRow = ({
   const localizedName = owner
     ? messages[`toolNames.${owner.toolName}`]
     : undefined;
+  // The MCP description is written in the plugin's source language; a plugin may ship a
+  // localized one under `toolDescriptions.<manifest tool name>`.
+  const localizedDescription = owner
+    ? messages[`toolDescriptions.${owner.toolName}`]
+    : undefined;
 
   return (
     <article className="tool-search-tool" role="listitem">
@@ -185,7 +190,9 @@ const DiscoveredToolRow = ({
         </span>
         <CopyToolNameButton name={tool.name} />
       </div>
-      <p className="tool-search-description">{tool.description}</p>
+      <p className="tool-search-description">
+        {localizedDescription || tool.description}
+      </p>
     </article>
   );
 };

@@ -245,8 +245,12 @@ fn envelope(
 ) -> Value {
     json!({"version":1,"source":source,"root":root.map(display),"coverage":coverage,"reasons":reasons,"files":files})
 }
-fn file(path: &Path, kind: &str) -> Value {
-    json!({"filePath":display(path),"fileKey":key(path),"kind":kind})
+fn file(path: &Path, kind: &str, line_stats: Option<(u64, u64)>) -> Value {
+    let mut value = json!({"filePath":display(path),"fileKey":key(path),"kind":kind});
+    if let Some((additions, deletions)) = line_stats {
+        value["lineStats"] = json!({"additions": additions, "deletions": deletions});
+    }
+    value
 }
 pub fn unavailable(source: &str, reason: &str) -> Value {
     let mut reasons = BTreeSet::from([reason.to_string()]);
@@ -319,7 +323,7 @@ pub fn filesystem_after(
                         // Do not infer create/delete from a racing disk snapshot.
                         "edit"
                     };
-                    files.push(file(&path, kind));
+                    files.push(file(&path, kind, None));
                 }
                 _ => {
                     reasons.insert("metadata-unavailable".into());
@@ -339,8 +343,14 @@ pub fn filesystem_after(
     envelope("filesystem", root.as_deref(), coverage, reasons, files)
 }
 
+struct SnapshotEntry {
+    path: PathBuf,
+    hash: Option<blake3::Hash>,
+    /// Line count of a complete text read; `None` for binary or unreadable files.
+    lines: Option<u64>,
+}
 struct Snapshot {
-    entries: BTreeMap<String, (PathBuf, Option<blake3::Hash>)>,
+    entries: BTreeMap<String, SnapshotEntry>,
     complete: bool,
     reasons: BTreeSet<String>,
 }
@@ -482,7 +492,7 @@ async fn scan(root: &Path, previous: Option<&Snapshot>) -> Snapshot {
         }
     }
     if let Some(previous) = previous {
-        paths.extend(previous.entries.values().map(|(path, _)| path.clone()));
+        paths.extend(previous.entries.values().map(|entry| entry.path.clone()));
     }
     let mut total = 0;
     for path in paths {
@@ -513,7 +523,14 @@ async fn scan(root: &Path, previous: Option<&Snapshot>) -> Snapshot {
         let metadata = match tokio::fs::metadata(&physical).await {
             Ok(metadata) => metadata,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                snapshot.entries.insert(key(&physical), (physical, None));
+                snapshot.entries.insert(
+                    key(&physical),
+                    SnapshotEntry {
+                        path: physical,
+                        hash: None,
+                        lines: None,
+                    },
+                );
                 continue;
             }
             Err(_) => {
@@ -537,10 +554,15 @@ async fn scan(root: &Path, previous: Option<&Snapshot>) -> Snapshot {
             snapshot.reasons.insert("file-read-failed".into());
             continue;
         };
-        // Only the fingerprint is needed; never allocate a buffer the size of the file.
+        // Only the fingerprint and line count are needed; never allocate a
+        // buffer the size of the file.
         let mut hasher = blake3::Hasher::new();
         let mut buffer = [0_u8; READ_CHUNK_BYTES];
         let mut file_bytes = 0_u64;
+        let mut newlines = 0_u64;
+        let mut last_byte = 0_u8;
+        let mut has_bytes = false;
+        let mut binary = false;
         let hash = loop {
             // Probe one byte beyond either budget, including when a file grows after metadata.
             let read_limit = (buffer.len() as u64)
@@ -563,12 +585,36 @@ async fn scan(root: &Path, previous: Option<&Snapshot>) -> Snapshot {
                 snapshot.reasons.insert("content-byte-limit".into());
                 break None;
             }
-            hasher.update(&buffer[..read]);
+            let chunk = &buffer[..read];
+            for &byte in chunk {
+                if byte == 0 {
+                    binary = true;
+                }
+                if byte == b'\n' {
+                    newlines += 1;
+                }
+            }
+            last_byte = chunk[read - 1];
+            has_bytes = true;
+            hasher.update(chunk);
         };
         if let Some(hash) = hash {
-            snapshot
-                .entries
-                .insert(key(&physical), (physical, Some(hash)));
+            // A NUL byte marks a binary file: line counts would be meaningless.
+            let lines = if binary {
+                None
+            } else if !has_bytes {
+                Some(0)
+            } else {
+                Some(newlines + u64::from(last_byte != b'\n'))
+            };
+            snapshot.entries.insert(
+                key(&physical),
+                SnapshotEntry {
+                    path: physical,
+                    hash: Some(hash),
+                    lines,
+                },
+            );
         }
     }
     snapshot
@@ -653,9 +699,9 @@ impl TerminalTracking {
         reasons.extend(after.reasons);
         reasons.insert("terminal-boundary".into());
         let mut files = Vec::new();
-        for (identity, (path, current)) in &after.entries {
-            let old = before.entries.get(identity).map(|(_, hash)| hash);
-            let kind = match (old, current) {
+        for (identity, entry) in &after.entries {
+            let old = before.entries.get(identity);
+            let kind = match (old.map(|old| old.hash.as_ref()), entry.hash.as_ref()) {
                 (Some(Some(old)), Some(new)) if old != new => Some("edit"),
                 (Some(Some(_)), None) => Some("delete"),
                 (Some(None), Some(_)) => Some("create"),
@@ -667,7 +713,14 @@ impl TerminalTracking {
                     reasons.insert("response-file-limit".into());
                     break;
                 }
-                files.push(file(path, kind));
+                // Terminal tracking compares fingerprints, so only creations and
+                // deletions expose a line count; edits have no before/after text.
+                let line_stats = match kind {
+                    "delete" => old.and_then(|old| old.lines).map(|deletions| (0, deletions)),
+                    "create" => entry.lines.map(|additions| (additions, 0)),
+                    _ => None,
+                };
+                files.push(file(&entry.path, kind, line_stats));
             }
         }
         // Serialize the final contamination check with new window admission,

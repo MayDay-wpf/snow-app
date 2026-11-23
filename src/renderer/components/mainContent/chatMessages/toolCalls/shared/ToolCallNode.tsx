@@ -17,6 +17,8 @@ type ToolCallNodeProps = {
   sourcePluginId?: string;
   /** Badge display name (e.g. "read", "edit"). Falls back to parsed short name. */
   badgeName?: string;
+  /** 徽章自定义图标节点（插件为每个工具提供的专属图标），优先于 category。 */
+  badgeIcon?: ReactNode;
   /** Badge category. Inferred from toolName if omitted. */
   category?: ToolCategory;
   /** Context label shown after the badge (e.g. filename, command). Accepts ReactNode for rich content like file icons. */
@@ -46,6 +48,7 @@ export const ToolCallNode = ({
   toolName,
   sourcePluginId,
   badgeName,
+  badgeIcon,
   category,
   displayName,
   displayNameTitle,
@@ -159,7 +162,11 @@ export const ToolCallNode = ({
             </span>
           </span>
         )}
-        <ToolNameBadge name={resolvedBadgeName} category={category} />
+        <ToolNameBadge
+          name={resolvedBadgeName}
+          category={category}
+          icon={badgeIcon}
+        />
         {displayName ? (
           <>
             <span className="tcn-sep" aria-hidden="true">

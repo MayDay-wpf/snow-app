@@ -36,6 +36,7 @@ import {
 } from "./mainContent/chatInput/remoteControlChatInputRegistry";
 import type { ChatInputSendOptions } from "./mainContent/chatInput/types";
 import { notifyMcpServerStateChanged } from "./mainContent/chatInput/mcpServerEvents";
+import { notifyConversationWorktreeChanged } from "../utils/conversationWorktreeEvents";
 import { redactSensitiveToolText } from "./remoteControlRedaction";
 import { readThemeCache } from "./sidebar/themeSettings/themeSettingsUtils";
 import { useBusySendBehavior } from "../constants/busySendBehavior";
@@ -3235,6 +3236,7 @@ export const RemoteControlBridge = ({
             conversation.activeConversationId,
             id,
           );
+          notifyConversationWorktreeChanged();
         } else {
           conversation.setPendingWorktreeId(id);
         }

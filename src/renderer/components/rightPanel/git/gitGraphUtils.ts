@@ -4,6 +4,7 @@ import type {
   GitLogEntry,
 } from "../../../../preload";
 import type { TranslateOptions } from "../../../i18n";
+import { normalizePathForCompare } from "../../../utils/formatDisplayPath";
 import { parseRefs } from "./gitGraphRefs";
 
 /** 将提交文件（GitCommitFile）转换为 DiffTab 所需的 GitFileStatus 形状。 */
@@ -40,15 +41,12 @@ export function getCommitFileLabel(status: string): string {
   return status.charAt(0);
 }
 
-const normalizePath = (path: string): string =>
-  path.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
-
 export function isOtherWorktreePath(
   wtPath: string | null | undefined,
   repoPath: string,
 ): boolean {
   if (!wtPath) return false;
-  return normalizePath(wtPath) !== normalizePath(repoPath);
+  return normalizePathForCompare(wtPath) !== normalizePathForCompare(repoPath);
 }
 
 export function getWorktreeFolderName(wtPath: string): string {

@@ -244,7 +244,8 @@ _Source anchor_: `src/renderer/components/mainContent/chatMessages/toolCalls/sha
 Standard foldable container card for all MCP tool executions.
 
 - **Polymorphic Statuses**: Handles `status: "pending" | "running" | "completed" | "error"`.
-- **Plugin Attribution**: Uses `usePluginToolOwner(toolName)` to detect third-party plugin origin and displays plugin badge and icon in the header.
+- **Plugin Attribution**: Uses `usePluginToolOwner(toolName)` to detect third-party plugin origin and displays plugin badge and icon in the header. That ownership index self-heals on a lookup miss (one bounded re-read, skipped while a request is in flight), and a caller that already knows the owner can pass `sourcePluginId` to skip the lookup.
+- **Badge Icon**: `badgeIcon` accepts a plugin-chosen icon node (usually from `api.ui.icon(name)`) and takes precedence over the built-in icon selected by `category`; omitting it keeps the previous rendering.
 - **Category Badge**: Colors headers via `ToolNameBadge` based on tool domains (filesystem, bash, browser, lsp, codebase, config, etc.).
 - **Lazy Body Mounting**: Unmounts heavy child components (such as diff viewers) when folded using `lazyBody = true`.
 

@@ -64,6 +64,8 @@ pub struct ServerSession {
     rename_previews: HashMap<String, RenamePreview>,
     /// 最近使用时间（unix 毫秒，原子更新供空闲回收 / LRU 淘汰）。
     pub last_used_ms: Arc<AtomicU64>,
+    /// 主根会话所属项目；仅该项目内优先保留，其他项目按 LRU。
+    pub primary_project: Option<String>,
     pub restart_count: u32,
     pub dead: bool,
     push_diagnostics: PushDiagnostics,
@@ -191,6 +193,7 @@ impl ServerSession {
             server_capabilities: lsp_types::ServerCapabilities::default(),
             rename_previews: HashMap::new(),
             last_used_ms: Arc::new(AtomicU64::new(now_ms())),
+            primary_project: None,
             restart_count,
             dead: false,
             push_diagnostics,
@@ -939,6 +942,11 @@ impl ServerSession {
         self.last_used_ms.fetch_max(now_ms(), Ordering::Release);
     }
 
+    /// 记录主根归属项目；重启替换进程时由 manager 复制。
+    pub fn mark_primary_project(&mut self, project_id: &str) {
+        self.primary_project = Some(project_id.to_string());
+    }
+
     /// 查询子进程是否已退出（同步、非阻塞）：返回退出码；`None` = 仍在运行。
     /// 供状态快照检测「进程崩溃但会话未标记 dead」的情况（§7.1 懒标记）。
     pub fn exited_code(&mut self) -> Option<i32> {
@@ -1169,7 +1177,7 @@ fn go_query_entry(root: &Path, opened: &[PathBuf]) -> (Option<PathBuf>, bool) {
     if let Some(path) = opened.iter().find(|path| suitable(path)) {
         return (Some(path.clone()), false);
     }
-    let inventory = super::detect::scan_project_inventory(&root, 6);
+    let inventory = super::detect::scan_project_inventory(&root);
     (
         inventory.files.into_iter().find(|path| suitable(path)),
         inventory.incomplete,
@@ -1215,7 +1223,7 @@ fn find_project_entry(project_root: &Path, extensions: &[&str]) -> Option<PathBu
             return Some(path);
         }
     }
-    super::detect::scan_project_inventory(project_root, 6)
+    super::detect::scan_project_inventory(project_root)
         .files
         .into_iter()
         .find(|path| suitable(path))

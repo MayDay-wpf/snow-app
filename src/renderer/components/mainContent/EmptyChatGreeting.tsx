@@ -21,6 +21,10 @@ import type {
   WorkspaceDirectoryRecord,
 } from "../../../preload";
 import { useI18n } from "../../i18n";
+import {
+  formatDisplayPath,
+  normalizePathForCompare,
+} from "../../utils/formatDisplayPath";
 import { HelpSkillDisabledDialog } from "../common/HelpSkillDisabledDialog";
 import { PixelLogo } from "../common/PixelLogo";
 import { useChatConversationContext } from "./chatMessages";
@@ -32,22 +36,11 @@ import {
   useHelpGuideHint,
 } from "../../constants/helpGuide";
 
-/** 清理 Windows 拓展长路径前缀 \\\\?\\ 或 //?/，还原为干净美观的本地绝对路径。 */
-const cleanWorktreePath = (rawPath: string): string => {
-  if (!rawPath) return "";
-  let cleaned = rawPath.replace(/^[\\/]{2}\?[\\/]/, "");
-  cleaned = cleaned.replace(/^[\\/]+([a-zA-Z]:)/, "$1");
-  return cleaned;
-};
-
 /** 提取末级工作树文件夹名称。 */
 const getFolderName = (p: string): string => {
   const parts = p.replace(/\\/g, "/").split("/").filter(Boolean);
   return parts[parts.length - 1] || p;
 };
-
-const normPath = (p: string | null | undefined): string =>
-  (p || "").replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
 
 type EmptyChatGreetingProps = {
   activeDirectory?: WorkspaceDirectoryRecord | null;
@@ -125,7 +118,7 @@ export function EmptyChatGreeting({
     rightPanelEvents.emit("open-terminal-command", {
       cwd,
       command: "",
-      title: getFolderName(cleanWorktreePath(cwd)),
+      title: getFolderName(formatDisplayPath(cwd)),
     });
   }, []);
 
@@ -252,9 +245,9 @@ export function EmptyChatGreeting({
             {worktrees.map((wt) => {
               const isSelected = pendingWorktreeId === wt.worktreeId;
               const isMain =
-                normPath(wt.worktreePath) ===
-                normPath(activeDirectory?.path || "");
-              const cleanedPath = cleanWorktreePath(wt.worktreePath);
+                normalizePathForCompare(wt.worktreePath) ===
+                normalizePathForCompare(activeDirectory?.path || "");
+              const cleanedPath = formatDisplayPath(wt.worktreePath);
               const folderName = getFolderName(cleanedPath);
               const isCopied = copiedId === wt.worktreeId;
 

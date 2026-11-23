@@ -41,7 +41,7 @@ export const settleFileChangeHydration = (conversationId: string): void => {
 /** 单次工具调用产生的文件变更（归属与时间戳由调用方补齐）。 */
 type ExtractedFileMutation = Pick<
   FileChangeRecord,
-  "filePath" | "fileKey" | "source" | "root" | "kind" | "diff"
+  "filePath" | "fileKey" | "source" | "root" | "kind" | "diff" | "lineStats"
 >;
 
 type ExtractedCoverage = Omit<
@@ -54,6 +54,8 @@ type FileTrackingEnvelope = ExtractedCoverage & {
     filePath: string;
     fileKey: string;
     kind: FileChangeRecord["kind"];
+    /** Optional line count for creations/deletions observed without text. */
+    lineStats?: { additions: number; deletions: number };
   }>;
 };
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -64,6 +66,16 @@ const isAbsolutePath = (value: unknown): value is string =>
   value.trim() === value &&
   !value.includes("\u0000") &&
   /^(?:\/|[A-Za-z]:[\\/]|\\\\)/.test(value);
+const isLineStats = (
+  value: unknown,
+): value is { additions: number; deletions: number } =>
+  isRecord(value) &&
+  typeof value.additions === "number" &&
+  Number.isSafeInteger(value.additions) &&
+  value.additions >= 0 &&
+  typeof value.deletions === "number" &&
+  Number.isSafeInteger(value.deletions) &&
+  value.deletions >= 0;
 
 /** Parse only a complete JSON payload, never repair truncated responses. */
 const parseTrackingResult = (
@@ -130,7 +142,8 @@ const readTrackingEnvelope = (
         !file.fileKey.includes("\u0000") &&
         (file.kind === "create" ||
           file.kind === "edit" ||
-          file.kind === "delete"),
+          file.kind === "delete") &&
+        (file.lineStats === undefined || isLineStats(file.lineStats)),
     ) ||
     (value.coverage === "unavailable" && value.files.length > 0) ||
     (source === "filesystem" &&

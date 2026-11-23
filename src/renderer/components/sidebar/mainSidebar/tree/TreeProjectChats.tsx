@@ -23,6 +23,7 @@ import { useChatSelection } from "../chats/useChatSelection";
 import { useConversationActions } from "../chats/useConversationActions";
 import { useConversationCycleShortcut } from "../chats/useConversationCycleShortcut";
 import { useConversationTree } from "../chats/useConversationTree";
+import { useConversationWorktreeBindings } from "../chats/useConversationWorktreeBindings";
 import { usePausedConversationIds } from "../chats/usePausedConversationIds";
 import { usePinnedConversations } from "../chats/usePinnedConversations";
 import { useSidebarOnlyRunningPinnedChats } from "../sidebarChatFilter";
@@ -200,6 +201,7 @@ export function TreeProjectChats({
     ],
     [pinned.pinnedConversations, list.conversations],
   );
+  const worktreeBindings = useConversationWorktreeBindings(cycleOrderIds);
   useConversationCycleShortcut({
     activeConversationId,
     enabled: activeDirectoryId === directoryId,
@@ -326,6 +328,7 @@ export function TreeProjectChats({
         attentionRequiredConversationIds={attentionRequiredConversationIds}
         completedConversationIds={completedConversationIds}
         conversation={conversation}
+        worktree={worktreeBindings.get(conversationId)}
         expandedWorkflowNodeConversationIds={
           tree.expandedWorkflowNodeConversationIds
         }

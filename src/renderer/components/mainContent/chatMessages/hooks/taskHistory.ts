@@ -46,6 +46,9 @@ export const taskSnapshotFingerprint = (
         record.subAgentName ?? "",
         record.timestamp,
         record.diff?.isBinary ? "binary" : "text",
+        record.lineStats
+          ? `${record.lineStats.additions}/${record.lineStats.deletions}`
+          : "",
       ].join("\u0001"),
     );
     if (record.diff) patchHash = hashPatch(record.diff.patch, patchHash);
@@ -464,6 +467,9 @@ const reconstructTaskSnapshots = async (
               ...record,
               ...(record.diff
                 ? { diff: Object.freeze({ ...record.diff }) }
+                : {}),
+              ...(record.lineStats
+                ? { lineStats: Object.freeze({ ...record.lineStats }) }
                 : {}),
             }),
           ),

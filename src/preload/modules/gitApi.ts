@@ -1,5 +1,6 @@
 import { ipcRenderer, type IpcRendererEvent } from "electron";
 import type {
+  ConversationWorktreeInfo,
   GitWorktreeInfo,
   GitBranch,
   GitCheckoutResult,
@@ -82,6 +83,13 @@ export const gitApi = {
     conversationId: string,
   ): Promise<GitWorktreeInfo | null> =>
     ipcRenderer.invoke("git:worktrees:get-conversation", conversationId),
+  getConversationWorktrees: (
+    conversationIds: string[],
+  ): Promise<ConversationWorktreeInfo[]> =>
+    ipcRenderer.invoke(
+      "git:worktrees:list-conversation-bindings",
+      conversationIds,
+    ),
   setConversationWorktree: (
     conversationId: string,
     worktreeId: string | null,
@@ -114,6 +122,7 @@ export const gitApi = {
     branch: string,
     name?: string,
     remote = false,
+    force = false,
   ): Promise<GitCheckoutResult> =>
     ipcRenderer.invoke(
       "git:manage-branch",
@@ -122,6 +131,7 @@ export const gitApi = {
       branch,
       name,
       remote,
+      force,
     ),
   gitBranches: (repoPath: string): Promise<GitBranch[]> =>
     ipcRenderer.invoke("git:branches", repoPath),

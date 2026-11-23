@@ -2,7 +2,10 @@ import { Fragment, memo, useCallback, useLayoutEffect, useMemo } from "react";
 import { isSubAgentTerminal } from "../../../../../shared/subAgentRuns";
 import { useSubAgentRuns } from "../../../mainContent/chatMessages/hooks/subAgentRuntimeClient";
 
-import type { ChatConversationRecord } from "../../../../../preload";
+import type {
+  ChatConversationRecord,
+  ConversationWorktreeInfo,
+} from "../../../../../preload";
 import { ChatItem } from "../ChatItem";
 import type { ExportFormat } from "../ChatItemMenu";
 import { LazyCollapse } from "../LazyCollapse";
@@ -15,6 +18,8 @@ export const EMPTY_CONVERSATION_LIST: ChatConversationRecord[] = [];
 
 type ChatConversationRowProps = {
   conversation: ChatConversationRecord;
+  /** 会话绑定的 Git 工作树；无绑定时为 undefined。 */
+  worktree?: ConversationWorktreeInfo;
   /** 该行是否为当前打开的会话（由列表侧算好）。切换会话时只有它变化，
    *  因此整行可以 memo：切换只重渲染受影响的两行，而不是整张列表。 */
   isActive: boolean;
@@ -70,6 +75,7 @@ type ChatConversationRowProps = {
 
 export const ChatConversationRow = memo(function ChatConversationRow({
   conversation,
+  worktree,
   isActive,
   streamingConversationIds,
   attentionRequiredConversationIds,
@@ -183,6 +189,7 @@ export const ChatConversationRow = memo(function ChatConversationRow({
     <Fragment>
       <ChatItem
         conversation={conversation}
+        worktree={worktree}
         isDraggable={!isPendingSessionKey(conversationId)}
         isActive={isActive}
         isAttentionRequired={

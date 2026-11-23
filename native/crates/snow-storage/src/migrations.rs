@@ -25,7 +25,7 @@
 //! 4. Each migration function MUST be idempotent — running it on a database
 //!    that has already been migrated must be a safe no-op.
 
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::{json, Map, Value};
 
 use snow_storage_core::model_registry::migrate_legacy_model_settings;
@@ -298,7 +298,53 @@ fn migrate_git_worktrees(connection: &Connection) -> rusqlite::Result<()> {
          );
          CREATE INDEX IF NOT EXISTS idx_conversation_worktree_bindings_worktree
            ON conversation_worktree_bindings(worktree_id);",
-    )
+    )?;
+
+    // 旧版本把 Windows canonicalize 的 `\\?\` 长路径前缀存进了注册表：UI 会
+    // 直接显示该前缀，且与 git 输出的普通绝对路径比较时不相等。这里原地
+    // 清理并保留 worktree_id（会话绑定不受影响）；若清理后的同一工作树已有
+    // 记录，则把绑定迁到新记录后再删除旧行。幂等：只有仍带前缀的行会被处理。
+    let legacy: Vec<(String, String, String)> = {
+        let mut statement = connection.prepare(
+            "SELECT worktree_id, repository_path, worktree_path FROM git_worktrees
+              WHERE repository_path LIKE '\\\\?\\%' OR worktree_path LIKE '\\\\?\\%'
+                 OR repository_path LIKE '//?/%' OR worktree_path LIKE '//?/%'",
+        )?;
+        let rows = statement.query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()?
+    };
+    for (worktree_id, repository_path, worktree_path) in legacy {
+        let next_repository = snow_support::paths::strip_verbatim_prefix(&repository_path);
+        let next_worktree = snow_support::paths::strip_verbatim_prefix(&worktree_path);
+        let duplicate = connection
+            .query_row(
+                "SELECT worktree_id FROM git_worktrees
+                  WHERE directory_id = (
+                          SELECT directory_id FROM git_worktrees WHERE worktree_id = ?1
+                        )
+                    AND worktree_path = ?2 AND worktree_id <> ?1",
+                params![worktree_id, next_worktree],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?;
+        if let Some(existing) = duplicate {
+            connection.execute(
+                "UPDATE conversation_worktree_bindings SET worktree_id = ?1 WHERE worktree_id = ?2",
+                params![existing, worktree_id],
+            )?;
+            connection.execute(
+                "DELETE FROM git_worktrees WHERE worktree_id = ?1",
+                params![worktree_id],
+            )?;
+        } else {
+            connection.execute(
+                "UPDATE git_worktrees SET repository_path = ?1, worktree_path = ?2
+                  WHERE worktree_id = ?3",
+                params![next_repository, next_worktree, worktree_id],
+            )?;
+        }
+    }
+    Ok(())
 }
 
 /// Adds the client-script columns (`target` / `view_json` / `surface_json` /

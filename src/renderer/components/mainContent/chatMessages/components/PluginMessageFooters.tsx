@@ -32,6 +32,7 @@ import type {
 import { useChatConversationContext } from "./ChatConversationContext";
 
 const TASK_HISTORY_REFRESH_DEBOUNCE_MS = 150;
+export const TASK_FOOTER_PENDING_ATTRIBUTE = "data-snow-task-footer-pending";
 
 // Keep diagnostics searchable without logging plugin errors, paths or file data.
 const logFooterDiagnostic = (
@@ -83,6 +84,8 @@ const PluginMessageFooter = ({
   useLayoutEffect(() => {
     const host = hostRef.current;
     if (!host) return;
+    if (footer.taskHistory)
+      host.setAttribute(TASK_FOOTER_PENDING_ATTRIBUTE, "");
     const controller = new AbortController();
     const { signal } = controller;
     const container = document.createElement("div");
@@ -104,6 +107,7 @@ const PluginMessageFooter = ({
     const dispose = (): void => {
       if (disposed) return;
       disposed = true;
+      host.removeAttribute(TASK_FOOTER_PENDING_ATTRIBUTE);
       controller.abort();
       try {
         cleanup?.();
@@ -192,6 +196,7 @@ const PluginMessageFooter = ({
           }
         }
         check();
+        host.removeAttribute(TASK_FOOTER_PENDING_ATTRIBUTE);
         logFooterDiagnostic("INFO", conversationId, "mounted", {
           pluginId: plugin.pluginId,
           footerId: footer.id,
@@ -252,7 +257,7 @@ export const PluginMessageFooters = ({
 }): React.JSX.Element | null => {
   const conversation = useChatConversationContext();
   const { locale } = useI18n();
-  const { plugins } = usePluginStore();
+  const { plugins, status: pluginStatus } = usePluginStore();
   const identityRef = useRef<string | null>(null);
   useEffect(() => {
     void pluginStore.ensureLoaded();
@@ -269,6 +274,7 @@ export const PluginMessageFooters = ({
     snapshot?: TaskSnapshot;
     fingerprint: string;
   }>();
+  const [failedTaskIdentity, setFailedTaskIdentity] = useState<string>();
   // Never expose a previous reply's snapshot while a new identity is loading.
   const task =
     loadedTask?.identity === taskIdentity ? loadedTask.snapshot : undefined;
@@ -335,6 +341,7 @@ export const PluginMessageFooters = ({
           // Preserve only an already fixed snapshot of this same reply.
           // A different identity stays hidden; never fall back to cumulative data.
           if (!disposed && current === generation) {
+            setFailedTaskIdentity(taskIdentity);
             console.warn("Task history unavailable");
             logFooterDiagnostic("WARN", conversationId, "history-load-failed", {
               messageId,
@@ -392,34 +399,46 @@ export const PluginMessageFooters = ({
     message.status !== "sending" &&
     ((hasTaskFooters && !!task) || (hasLegacyFooters && legacyEligible));
   identityRef.current = eligible ? identity : null;
-  if (!eligible) return null;
+  const waitingForTask =
+    conversation.activeConversationId === conversationId &&
+    message?.role === "assistant" &&
+    message.status !== "sending" &&
+    (pluginStatus === "idle" ||
+      pluginStatus === "loading" ||
+      (hasTaskFooters &&
+        loadedTask?.identity !== taskIdentity &&
+        failedTaskIdentity !== taskIdentity));
+  if (!eligible && !waitingForTask) return null;
   const enabled = plugins.filter(
     (plugin) =>
       plugin.enabled &&
       plugin.renderMode === "esm" &&
       plugin.messageFooters.length > 0,
   );
-  if (!enabled.length) return null;
   return (
     <>
-      {enabled.flatMap((plugin) =>
-        plugin.messageFooters
-          .filter((footer) => (footer.taskHistory ? !!task : legacyEligible))
-          .map((footer) => (
-            <PluginMessageFooter
-              key={`${plugin.pluginId}:${footer.id}`}
-              plugin={plugin}
-              footer={footer}
-              locale={locale}
-              identity={identity}
-              identityRef={identityRef}
-              conversationId={conversationId}
-              messageId={messageId}
-              directoryId={directoryId}
-              task={footer.taskHistory ? task : undefined}
-            />
-          )),
+      {waitingForTask && (
+        <span hidden {...{ [TASK_FOOTER_PENDING_ATTRIBUTE]: "" }} />
       )}
+      {eligible &&
+        enabled.flatMap((plugin) =>
+          plugin.messageFooters
+            .filter((footer) => (footer.taskHistory ? !!task : legacyEligible))
+            .map((footer) => (
+              <PluginMessageFooter
+                key={`${plugin.pluginId}:${footer.id}`}
+                plugin={plugin}
+                footer={footer}
+                locale={locale}
+                identity={identity}
+                identityRef={identityRef}
+                conversationId={conversationId}
+                messageId={messageId}
+                directoryId={directoryId}
+                task={footer.taskHistory ? task : undefined}
+              />
+            )),
+        )}
     </>
   );
 };

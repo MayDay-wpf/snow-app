@@ -10,6 +10,18 @@ export type GitWorktreeInfo = {
   isValid: boolean;
 };
 
+/** 会话列表按页批量使用的工作树绑定视图。 */
+export type ConversationWorktreeInfo = {
+  conversationId: string;
+  worktreeId: string;
+  directoryId: string;
+  repositoryPath: string;
+  worktreePath: string;
+  branchName: string | null;
+  /** 工作树仍存在于其仓库中；外部删除后为 false。 */
+  isValid: boolean;
+};
+
 export type GitFileStatus = {
   path: string;
   oldPath: string | null;

@@ -20,6 +20,7 @@ import {
   finishAgentTask,
 } from "./taskHistory";
 import { useI18n } from "../../../../i18n";
+import { notifyConversationWorktreeChanged } from "../../../../utils/conversationWorktreeEvents";
 import { acquireSshWorkspaceLease } from "../../../../ssh/sshConnectionStore";
 import type { ChatInputSendOptions } from "../../chatInput/types";
 import {
@@ -205,6 +206,7 @@ const persistConversationSelection = async (
           conversationId,
           sessionRef.worktreeId,
         );
+        notifyConversationWorktreeChanged();
       }
     }
   } catch (error) {

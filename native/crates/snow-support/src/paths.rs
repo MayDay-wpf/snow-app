@@ -25,6 +25,24 @@ pub fn expand_home_dir(path: &str) -> String {
     format!("{home}/{rest}")
 }
 
+/// 去掉 Windows verbatim 前缀（`\\?\` / `\\?\UNC\`，也接受正斜杠写法）。
+///
+/// `std::fs::canonicalize` 在 Windows 上返回 `\\?\E:\...` 形式，直接展示到
+/// UI 会暴露无意义的长路径前缀；`\\?\UNC\server\share` 需要还原为
+/// `\\server\share` 才是有效的共享路径。非 Windows 路径原样返回。
+pub fn strip_verbatim_prefix(path: &str) -> String {
+    if let Some(rest) = path
+        .strip_prefix(r"\\?\UNC\")
+        .or_else(|| path.strip_prefix("//?/UNC/"))
+    {
+        return format!(r"\\{rest}");
+    }
+    path.strip_prefix(r"\\?\")
+        .or_else(|| path.strip_prefix("//?/"))
+        .unwrap_or(path)
+        .to_string()
+}
+
 /// 项目路径归一化（统一斜杠、去掉尾部斜杠），用于按路径匹配项目/缓存键。
 pub fn normalize_project_path(path: &str) -> String {
     let trimmed = path.trim().replace('\\', "/");

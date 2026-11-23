@@ -455,6 +455,7 @@ const MatchedToolCall = ({
       interactionId: toolCall.interactionId,
       status: toolCall.status,
       result: toolCall.result,
+      startedAt: toolCall.startedAt,
       streamingStdout: toolCall.streamingStdout,
       streamingStderr: toolCall.streamingStderr,
     }),

@@ -14,6 +14,8 @@ This guide covers four code-related areas: the **Git panel** (repositories, bran
 
 The branch selector groups **local branches** and **remote branches** separately. Selecting another entry checks it out and refreshes status. **Create branch** validates the name, rejects duplicates, then creates and switches to the new branch. The branch button's context menu can also copy the current branch name, start branch creation, or refresh the list.
 
+**Delete local branch** in the branch context menu always opens a confirmation dialog and first runs the safe `git branch -d`: only merged branches are removed directly. For an unmerged branch the dialog shows Git's original error; after accepting the loss of those commits, **Force delete** (`git branch -D`) requires another confirmation. Remote branches are never affected. When switching branches, a running session or a branch already checked out in another worktree is reported explicitly instead of failing silently.
+
 ### 1.3 Changes, Staging, and Diffs
 
 | Operation          | Behavior                                                                                                                                      |
@@ -71,6 +73,9 @@ Git WorkTree allows a single repository to mount multiple physical directories c
 - **Welcome Grid**: on an empty chat screen ("What do you want to work on in xxx?"), Snow scans and displays all current worktrees as interactive cards;
 - **One-Click Session Binding**: clicking any worktree card (e.g. `ui` directory on branch `feature/ui-performance`) immediately creates a dedicated conversation bound to that worktree;
 - **Visual Badge**: the bottom-left chat toolbar displays a green branch badge reflecting the bound worktree, ensuring all tool operations and prompts operate strictly inside that directory.
+- **Chat List Marker**: conversations bound to a non-main worktree show a branch icon and branch name in the sidebar list; hovering reveals the full worktree path. The main worktree equals the project root and shows no marker.
+- **Git Panel and TopBar Follow the Session**: opening such a conversation switches the right-hand Git panel and the TopBar branch selector to that worktree's repository — the changes list, commit graph, commit and push all target the worktree. Missing or invalid bindings (e.g. the worktree was deleted externally) fall back to the project directory.
+- **Switch Boundaries**: changing a branch inside the worktree panel only changes that worktree's checkout and never rewrites the session binding; only selecting another worktree rewrites it.
 
 #### 3. Development, Diff, and Commits in a Worktree
 

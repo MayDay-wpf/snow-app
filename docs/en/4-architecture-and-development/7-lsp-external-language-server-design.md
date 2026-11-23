@@ -303,7 +303,7 @@ Rule: `resolve_lang_root` = project root (table above) → `detect::find_lang_ro
 ```
 file-level request (filePath present): walk UP from the file's directory to the nearest stack marker
   native/src/x.rs → native/Cargo.toml hit → session root = native/ (each crate in a monorepo gets its own session)
-project-level request (no file): scan DOWN from the project root (depth <= 2), take the shallowest hit
+project-level request (no file): bounded scan DOWN from the project root, take the shallowest hit
 no hit either way → LspError::NoLangStack, explicit refusal (no start, no exposure)
 ```
 
@@ -311,17 +311,18 @@ no hit either way → LspError::NoLangStack, explicit refusal (no start, no expo
 - **No stack = no start**: no marker file → `NoLangStack` (§9); the exposure layer shares the same decision (§8.0 "exposed = callable"), so the model never sees a call that is bound to fail.
 - **Status badges**: `session_statuses` filters by project with `starts_with` (stack roots below the project root still attribute correctly; manager.rs).
 - Languages without a marker table (custom `lang`): no stack-root constraint (project root = session root, legacy behavior).
+- **Automatic start scope (2026-11-10)**: workspace symbol/diagnostic queries use only each language's shallowest stack layer by default; `package.json` workspaces, `pnpm-workspace.yaml` and Cargo workspace members declared at the project root count as primary. Deeper nested projects are not started automatically and are returned in full in `skippedRoots`. An explicit `filePath`/`workspaceRoot` starts that root on demand, and symbol-only resolution expands to deeper roots only after no primary-root match, then searches all of them. Primary is judged against the **project root**: a session started for an explicitly targeted deep project is not promoted. Primary protection applies only to the current project; when primary roots exceed `maxSessions`, they still use LRU and a system log hints at raising the cap. Workspace members outside the project root are not scanned; open that directory separately.
 
 ### 7.3 Key parameters
 
-| Parameter            | Default                                 | Notes                                                                                                                                         |
-| -------------------- | --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| `max_sessions`       | 3                                       | **Total process cap across (language, project)** (rust-analyzer ~500MB per process; LRU-evict least-recently-used on overflow)                |
-| `idle_timeout`       | 10 min                                  | Idle reclamation (no tool calls)                                                                                                              |
-| `initialize_timeout` | 30 s (default); **120 s for JVM-based** | Per-server default table: `jdtls`/`kotlin-lsp` 120s (JVM startup, per Anthropic claude-plugins-official `startupTimeout: 120000`), others 30s |
-| `request_timeout`    | 10 s (diagnostics) / 5 s (hover)        | Per-request timeout                                                                                                                           |
-| `restart_limit`      | 2                                       | Consecutive crash restart cap                                                                                                                 |
-| Session eviction     | LRU                                     | Evict least-recently-used when over cap                                                                                                       |
+| Parameter            | Default                                 | Notes                                                                                                                                                        |
+| -------------------- | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `max_sessions`       | 5                                       | **Total process cap across (language, project)** (rust-analyzer ~500MB per process; LRU-evict least-recently-used on overflow, primary roots retained first) |
+| `idle_timeout`       | 30 min                                  | Idle reclamation (no tool calls)                                                                                                                             |
+| `initialize_timeout` | 30 s (default); **120 s for JVM-based** | Per-server default table: `jdtls`/`kotlin-lsp` 120s (JVM startup, per Anthropic claude-plugins-official `startupTimeout: 120000`), others 30s                |
+| `request_timeout`    | 10 s (diagnostics) / 5 s (hover)        | Per-request timeout                                                                                                                                          |
+| `restart_limit`      | 2                                       | Consecutive crash restart cap                                                                                                                                |
+| Session eviction     | Primary-first + LRU                     | Evict on-demand deep sessions first (primary protection is current-project only); LRU among primary roots, with a system-log hint when they exceed the cap   |
 
 ### 7.4 Process management essentials
 
@@ -496,7 +497,7 @@ Output (hover content is itself Markdown; pass through + wrap):
 **Key design decisions**:
 
 1. **One call returns both directions** — no direction parameter: agents need both sides for impact analysis; two calls waste a round trip. Incoming call sites live in the caller's file (`from.uri`); outgoing call sites live in the caller (current) file — context-line reads and filePath output follow this distinction.
-2. **Capability filtering (§8.7 + §8.7.2 project-aware)**: `call-hierarchy` is exposed for typescript (tsserver ≥ 3.80) / go / rust / java / swift; `type-hierarchy` for go / java only, and **additionally requires the current project to detect a Go/Java stack** (§8.7.2: reuses detect.rs `detect_project_stack`, depth ≤ 2 scan for go.mod / pom.xml / build.gradle(.kts); no project id / SSH remote / not detected → not exposed. 2026-08-15 user feedback: avoid inducing AI to install gopls/jdtls in unrelated projects). pyright/clangd/csharp-ls/kotlin/lua are not exposed; intelephense 🔒 and ruby-lsp ⚠️ (experimental) are treated as unsupported. The capability table was re-verified against server sources on 2026-08-15 (see Appendix F-1 correction note in the zh-CN doc).
+2. **Capability filtering (§8.7 + §8.7.2 project-aware)**: `call-hierarchy` is exposed for typescript (tsserver ≥ 3.80) / go / rust / java / swift; `type-hierarchy` for go / java only, and **additionally requires the current project to detect a Go/Java stack** (§8.7.2: reuses detect.rs `detect_project_stack`, bounded scan for go.mod / pom.xml / build.gradle(.kts); no project id / SSH remote / not detected → not exposed. 2026-08-15 user feedback: avoid inducing AI to install gopls/jdtls in unrelated projects). pyright/clangd/csharp-ls/kotlin/lua are not exposed; intelephense 🔒 and ruby-lsp ⚠️ (experimental) are treated as unsupported. The capability table was re-verified against server sources on 2026-08-15 (see Appendix F-1 correction note in the zh-CN doc).
 3. **Empty prepare result**: a position that hits no item (e.g. an expression) returns empty incoming/outgoing arrays, not an error.
 4. **Timeout/caps**: reuses `REQUEST_TIMEOUT` (10s) and `MAX_REFERENCES` (100); context-line read failures stay empty (same as references).
 

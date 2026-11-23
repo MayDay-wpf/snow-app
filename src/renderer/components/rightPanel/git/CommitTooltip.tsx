@@ -3,6 +3,7 @@ import { useMemo } from "react";
 import { createPortal } from "react-dom";
 import type { GitLogEntry, GitWorktreeInfo } from "../../../../preload";
 import { useI18n } from "../../../i18n";
+import { formatDisplayPath } from "../../../utils/formatDisplayPath";
 import { imageProxyUrl } from "../../../utils/imageProxyUrl";
 import { getCommitWorktrees, parseRefs } from "./gitGraphRefs";
 import {
@@ -216,7 +217,7 @@ export function CommitTooltip({
               className="git-graph-tooltip-meta-item"
               title={t("git.graphWorktreeTooltip", {
                 values: {
-                  path: worktree.worktreePath,
+                  path: formatDisplayPath(worktree.worktreePath),
                   state: worktree.isDirty
                     ? t("git.worktreeDirty")
                     : t("git.graphWorktreeClean"),
