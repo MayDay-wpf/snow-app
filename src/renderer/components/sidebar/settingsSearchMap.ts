@@ -2262,6 +2262,14 @@ const RAW_GROUPS: RawGroup[] = [
         ["code font size", "代码字号"],
       ],
       [
+        "theme.radius",
+        "section",
+        "settings.themeRadiusTitle",
+        "Corner radius",
+        [],
+        ["corner radius", "rounded", "圆角", "全局圆角"],
+      ],
+      [
         "theme.streamCursor",
         "section",
         "settings.themeStreamCursorTitle",

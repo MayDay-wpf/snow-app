@@ -4507,6 +4507,14 @@ export const en = {
   "settings.themeCodeFontSize": "Code font size",
   "settings.themeTypographyShortcutHint":
     "Shortcuts: {{zoomIn}} zoom in, {{zoomOut}} zoom out, {{zoomReset}} reset",
+  "settings.themeRadiusTitle": "Corner radius",
+  "settings.themeRadiusInfo":
+    "Adjust the global corner radius. When enabled it overrides the radius bundled with the current theme preset and applies to every card, button and input; 0 gives completely square corners.",
+  "settings.themeRadiusSize": "Radius",
+  "settings.themeRadiusEnabledInfo":
+    "Global corner radius is on. Dragging the slider updates the UI instantly.",
+  "settings.themeRadiusDisabledInfo":
+    "Disabled: the current theme preset's own radius is used. Dragging the slider enables it automatically.",
   "settings.themeChatStyleTitle": "IM chat style",
   "settings.themeChatStyleInfo":
     "Show avatars next to messages like an instant messenger. Avatars can be replaced with your own images.",

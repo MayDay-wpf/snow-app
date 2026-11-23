@@ -14,6 +14,7 @@ import {
   applyFontFamilyToDocument,
   applyLayoutStyleToDocument,
   applyPaletteToDocument,
+  applyRadiusToDocument,
   applyThemePresetToDocument,
   applyStreamCursorToDocument,
   applyThemeModeToDocument,
@@ -35,6 +36,7 @@ import type {
   ThemeLayoutStyle,
   ThemeMode,
   ThemePalette,
+  ThemeRadius,
   ThemeSettings,
   ThemeStreamCursor,
   ThemeTypography,
@@ -48,6 +50,7 @@ import { ThemeCharacterCardModal } from "./themeSettings/ThemeCharacterCardModal
 import { ThemeColorEditor } from "./themeSettings/ThemeColorEditor";
 import { ThemeFontSection } from "./themeSettings/ThemeFontSection";
 import { ThemeTypographySection } from "./themeSettings/ThemeTypographySection";
+import { ThemeRadiusSection } from "./themeSettings/ThemeRadiusSection";
 import { ThemeModeSelector } from "./themeSettings/ThemeModeSelector";
 import { ThemeLayoutStyleSelector } from "./themeSettings/ThemeLayoutStyleSelector";
 import { ThemeTranscriptStyleSelector } from "./themeSettings/ThemeTranscriptStyleSelector";
@@ -252,6 +255,7 @@ export function ThemeSettingsPanel(): React.JSX.Element {
     applyFontFamilyToDocument(form.fontFamily);
     applyStreamCursorToDocument(form.streamCursor);
     applyTypographyToDocument(form.typography);
+    applyRadiusToDocument(form.radius);
     applyChatStyleToDocument(form.chatStyle);
 
     // 同步窗口背景色到主进程，使 Electron 窗口背景跟随预览。
@@ -442,6 +446,10 @@ export function ThemeSettingsPanel(): React.JSX.Element {
 
   const handleTypographyChange = (typography: ThemeTypography): void => {
     setForm((previous: ThemeSettings) => ({ ...previous, typography }));
+  };
+
+  const handleRadiusChange = (radius: ThemeRadius): void => {
+    setForm((previous: ThemeSettings) => ({ ...previous, radius }));
   };
 
   const handleChatStyleToggle = (imMode: boolean): void => {
@@ -1091,6 +1099,12 @@ export function ThemeSettingsPanel(): React.JSX.Element {
             typography={form.typography}
             disabled={busy}
             onChange={handleTypographyChange}
+          />
+
+          <ThemeRadiusSection
+            radius={form.radius}
+            disabled={busy}
+            onChange={handleRadiusChange}
           />
 
           <ThemeStreamCursorSection

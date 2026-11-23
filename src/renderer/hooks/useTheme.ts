@@ -5,6 +5,7 @@ import {
   applyFontFamilyToDocument,
   applyLayoutStyleToDocument,
   applyPaletteToDocument,
+  applyRadiusToDocument,
   applyThemePresetToDocument,
   applyStreamCursorToDocument,
   applyThemeModeToDocument,
@@ -50,6 +51,7 @@ export const useTheme = (): {
       applyFontFamilyToDocument(settings.fontFamily);
       applyStreamCursorToDocument(settings.streamCursor);
       applyTypographyToDocument(settings.typography);
+      applyRadiusToDocument(settings.radius);
       applyChatStyleToDocument(settings.chatStyle);
 
       // 将主题快照写入 localStorage，供下次启动时在 React 渲染前同步应用，

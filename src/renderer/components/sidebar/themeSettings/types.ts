@@ -90,6 +90,15 @@ export type ThemeTypography = {
   codeFontSize: number;
 };
 
+/**
+ * 全局圆角：启用后覆盖主题预设自带的圆角档位，size 为 sm 档位基准值（px），
+ * md / lg / xl 按比例派生，size 为 0 时所有档位归零（完全直角）；停用时沿用预设。
+ */
+export type ThemeRadius = {
+  enabled: boolean;
+  size: number;
+};
+
 /** IM 风格角色卡：AI 根据图片生成的角色设定（注入系统提示词）。 */
 export type ThemeCharacterCard = {
   /** 启停开关；停用时保留卡片但不注入提示词。 */
@@ -119,6 +128,7 @@ export type ThemeSettings = {
   fontFamily: string;
   streamCursor: ThemeStreamCursor;
   typography: ThemeTypography;
+  radius: ThemeRadius;
   chatStyle: ThemeChatStyle;
 };
 

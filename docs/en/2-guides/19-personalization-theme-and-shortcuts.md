@@ -126,6 +126,7 @@ The theme is stored as the `theme_settings` record in SQLite `system_settings`, 
 - `background` (source, image list, carousel settings, opacity, and blur);
 - `fontFamily`;
 - `typography` (UI font size, body font weight, chat font size / line height, code font size);
+- `radius` (global corner radius override: enabled flag and base size);
 - `streamCursor`.
 
 The renderer also keeps a fast localStorage theme cache to reduce startup flashing. SQLite remains the persistent settings source.

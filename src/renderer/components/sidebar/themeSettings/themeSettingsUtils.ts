@@ -7,6 +7,7 @@ import type {
   ThemeChatStyle,
   ThemeLayoutStyle,
   ThemePalette,
+  ThemeRadius,
   ThemeSettings,
   ThemeMode,
   ThemeStreamCursor,
@@ -65,6 +66,29 @@ export const CHAT_LINE_HEIGHT_DEFAULT = 1.75;
 export const CODE_FONT_SIZE_MIN = 10;
 export const CODE_FONT_SIZE_MAX = 18;
 export const CODE_FONT_SIZE_DEFAULT = 12.5;
+
+/** 全局圆角范围与默认值：size 为 sm 档位基准值，其余档位按比例派生。 */
+export const RADIUS_SIZE_MIN = 0;
+export const RADIUS_SIZE_MAX = 24;
+export const RADIUS_SIZE_DEFAULT = 6;
+
+/**
+ * md / lg / xl 相对 sm 的倍数，取自 tokens.css 默认档位（6 / 8 / 12 / 16）。
+ * 用倍数而非固定加值，保证基准为 0 时所有档位同时归零（完全直角）。
+ */
+const RADIUS_STEP_SCALES = { md: 8 / 6, lg: 2, xl: 16 / 6 } as const;
+
+/** 全局圆角覆盖的 CSS 变量；pill 档仅在完全直角时归零。 */
+const RADIUS_CSS_VARS = [
+  "--radius-sm",
+  "--radius-md",
+  "--radius-lg",
+  "--radius-xl",
+  "--radius-pill",
+] as const;
+
+/** 圆角像素保留一位小数，避免等比缩放算出 7.999999999999999px。 */
+const roundRadius = (value: number): number => Math.round(value * 10) / 10;
 
 export const PALETTE_ROLE_TO_CSS_VAR: Record<keyof ThemePalette, string> = {
   bgPrimary: "--bg-primary",
@@ -298,6 +322,10 @@ export const DEFAULT_THEME_SETTINGS: ThemeSettings = {
     chatFontSize: CHAT_FONT_SIZE_DEFAULT,
     chatLineHeight: CHAT_LINE_HEIGHT_DEFAULT,
     codeFontSize: CODE_FONT_SIZE_DEFAULT,
+  },
+  radius: {
+    enabled: false,
+    size: RADIUS_SIZE_DEFAULT,
   },
   chatStyle: { ...DEFAULT_CHAT_STYLE },
 };
@@ -562,6 +590,19 @@ export function normalizeThemeTypography(value: unknown): ThemeTypography {
   };
 }
 
+export function normalizeThemeRadius(value: unknown): ThemeRadius {
+  const source = isRecord(value) ? value : {};
+  return {
+    enabled: source.enabled === true,
+    size: pickInRange(
+      source.size,
+      RADIUS_SIZE_MIN,
+      RADIUS_SIZE_MAX,
+      RADIUS_SIZE_DEFAULT,
+    ),
+  };
+}
+
 /** 空角色卡：角色名为空即视为未生成，不注入系统提示词。 */
 export const EMPTY_CHARACTER_CARD: ThemeCharacterCard = {
   enabled: true,
@@ -636,6 +677,7 @@ export function normalizeThemeSettings(value: unknown): ThemeSettings {
     fontFamily: toText(source.fontFamily),
     streamCursor: normalizeThemeStreamCursor(source.streamCursor),
     typography: normalizeThemeTypography(source.typography),
+    radius: normalizeThemeRadius(source.radius),
     chatStyle: normalizeThemeChatStyle(source.chatStyle),
   };
 }
@@ -773,6 +815,49 @@ export function applyTypographyToDocument(typography: ThemeTypography): void {
   }
 }
 
+/**
+ * 将全局圆角应用到 document 根元素。
+ *
+ * 启用时以 sm 为基准等比派生四个档位并写入内联 CSS 变量（内联优先级高于
+ * :root 与主题预设选择器，因此可覆盖预设自带的圆角）；基准为 0 时全部档位
+ * 归零，胶囊档也归零，得到完全直角。停用时移除内联值，圆角回退到当前主题
+ * 预设自带的档位。
+ */
+export function applyRadiusToDocument(radius: ThemeRadius): void {
+  const root = document.documentElement;
+  if (!radius.enabled) {
+    for (const name of RADIUS_CSS_VARS) {
+      root.style.removeProperty(name);
+    }
+    return;
+  }
+  const size = pickInRange(
+    radius.size,
+    RADIUS_SIZE_MIN,
+    RADIUS_SIZE_MAX,
+    RADIUS_SIZE_DEFAULT,
+  );
+  root.style.setProperty("--radius-sm", `${roundRadius(size)}px`);
+  root.style.setProperty(
+    "--radius-md",
+    `${roundRadius(size * RADIUS_STEP_SCALES.md)}px`,
+  );
+  root.style.setProperty(
+    "--radius-lg",
+    `${roundRadius(size * RADIUS_STEP_SCALES.lg)}px`,
+  );
+  root.style.setProperty(
+    "--radius-xl",
+    `${roundRadius(size * RADIUS_STEP_SCALES.xl)}px`,
+  );
+  // 完全直角时胶囊档一并归零；否则沿用预设自带的胶囊形态。
+  if (size === 0) {
+    root.style.setProperty("--radius-pill", "0px");
+  } else {
+    root.style.removeProperty("--radius-pill");
+  }
+}
+
 export function isValidHex(value: string): boolean {
   const trimmed = value.trim();
   if (!trimmed) {
@@ -875,6 +960,7 @@ export const applyThemeCacheToDocument = (): "light" | "dark" | null => {
   applyFontFamilyToDocument(settings.fontFamily);
   applyStreamCursorToDocument(settings.streamCursor);
   applyTypographyToDocument(settings.typography);
+  applyRadiusToDocument(settings.radius);
   applyChatStyleToDocument(settings.chatStyle);
 
   // 同步背景图层快照与 CSS 变量，React 挂载后图片层立即生效。

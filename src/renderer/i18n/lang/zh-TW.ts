@@ -4257,6 +4257,13 @@ export const zhTW = {
   "settings.themeCodeFontSize": "程式碼字號",
   "settings.themeTypographyShortcutHint":
     "快捷鍵：{{zoomIn}} 放大 / {{zoomOut}} 縮小 / {{zoomReset}} 重設",
+  "settings.themeRadiusTitle": "圓角",
+  "settings.themeRadiusInfo":
+    "統一調整全域圓角。啟用後覆蓋目前主題預設自帶的圓角，作用於所有卡片、按鈕與輸入框；拖到 0 即完全直角。",
+  "settings.themeRadiusSize": "圓角大小",
+  "settings.themeRadiusEnabledInfo": "全域圓角已啟用，拖動滑桿即時生效。",
+  "settings.themeRadiusDisabledInfo":
+    "未啟用時沿用目前主題預設自帶的圓角；拖動滑桿會自動啟用。",
   "settings.themeChatStyleTitle": "IM 聊天視窗風格",
   "settings.themeChatStyleInfo":
     "像即時通訊軟體一樣在訊息旁顯示頭像，頭像可替換為自己的圖片。",

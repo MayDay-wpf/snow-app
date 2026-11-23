@@ -25,6 +25,11 @@ const CODE_FONT_SIZE_MIN: f64 = 10.0;
 const CODE_FONT_SIZE_MAX: f64 = 18.0;
 const DEFAULT_CODE_FONT_SIZE: f64 = 12.5;
 
+// 全局圆角范围与默认值，与渲染层 themeSettingsUtils 的 radius 常量保持一致。
+const RADIUS_SIZE_MIN: f64 = 0.0;
+const RADIUS_SIZE_MAX: f64 = 24.0;
+const DEFAULT_RADIUS_SIZE: f64 = 6.0;
+
 // 宠物背景大小（相对视口高度的比例）范围与默认值，与渲染层 themeSettingsUtils 保持一致。
 const PET_BACKGROUND_SCALE_MIN: f64 = 0.2;
 const PET_BACKGROUND_SCALE_MAX: f64 = 1.5;
@@ -350,6 +355,31 @@ impl ThemeTypography {
     }
 }
 
+/// 全局圆角：启用后覆盖主题预设自带的圆角档位，size 为 sm 档位基准值（px）。
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct ThemeRadius {
+    pub enabled: bool,
+    pub size: f64,
+}
+
+impl Default for ThemeRadius {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            size: DEFAULT_RADIUS_SIZE,
+        }
+    }
+}
+
+impl ThemeRadius {
+    fn normalize(&mut self) {
+        if !self.size.is_finite() || self.size < RADIUS_SIZE_MIN || self.size > RADIUS_SIZE_MAX {
+            self.size = DEFAULT_RADIUS_SIZE;
+        }
+    }
+}
+
 /// IM 风格角色卡：AI 根据图片生成的角色设定，注入系统提示词。
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(default, rename_all = "camelCase")]
@@ -424,6 +454,7 @@ pub struct ThemeSettings {
     pub font_family: String,
     pub stream_cursor: ThemeStreamCursor,
     pub typography: ThemeTypography,
+    pub radius: ThemeRadius,
     pub chat_style: ThemeChatStyle,
 }
 
@@ -453,6 +484,7 @@ impl ThemeSettings {
         self.font_family = self.font_family.trim().to_string();
         self.stream_cursor.normalize();
         self.typography.normalize();
+        self.radius.normalize();
         self.chat_style.normalize();
     }
 }

@@ -252,6 +252,30 @@ impl From<ThemeTypographyNapi> for ThemeTypography {
 }
 
 #[napi(object)]
+pub struct ThemeRadiusNapi {
+    pub enabled: bool,
+    pub size: f64,
+}
+
+impl From<ThemeRadius> for ThemeRadiusNapi {
+    fn from(r: ThemeRadius) -> Self {
+        ThemeRadiusNapi {
+            enabled: r.enabled,
+            size: r.size,
+        }
+    }
+}
+
+impl From<ThemeRadiusNapi> for ThemeRadius {
+    fn from(r: ThemeRadiusNapi) -> Self {
+        ThemeRadius {
+            enabled: r.enabled,
+            size: r.size,
+        }
+    }
+}
+
+#[napi(object)]
 pub struct ThemeCharacterCardNapi {
     // 可选：旧调用方未携带时视为启用
     pub enabled: Option<bool>,
@@ -332,6 +356,8 @@ pub struct ThemeSettingsNapi {
     pub stream_cursor: ThemeStreamCursorNapi,
     pub typography: ThemeTypographyNapi,
     // 可选：旧调用方未携带时保持默认值
+    pub radius: Option<ThemeRadiusNapi>,
+    // 可选：旧调用方未携带时保持默认值
     pub chat_style: Option<ThemeChatStyleNapi>,
 }
 
@@ -346,6 +372,7 @@ impl From<ThemeSettings> for ThemeSettingsNapi {
             font_family: s.font_family,
             stream_cursor: s.stream_cursor.into(),
             typography: s.typography.into(),
+            radius: Some(s.radius.into()),
             chat_style: Some(s.chat_style.into()),
         }
     }
@@ -362,6 +389,7 @@ impl From<ThemeSettingsNapi> for ThemeSettings {
             font_family: s.font_family,
             stream_cursor: s.stream_cursor.into(),
             typography: s.typography.into(),
+            radius: s.radius.map(Into::into).unwrap_or_default(),
             chat_style: s.chat_style.map(Into::into).unwrap_or_default(),
         }
     }
