@@ -1,5 +1,28 @@
 # Release Notes
 
+## v0.5.25
+
+### New Features
+
+- **Worktree Conversations**: conversations can be bound to Git worktrees and switched from the Git panel, with a worktree badge in the sidebar.
+- **Sidebar Filter**: a persisted toggle keeps only running and pinned chats visible, folding the rest into a collapsible "History chats" group.
+- **Plugin Tool Cards**: per-tool badge icons, live elapsed time, and inline previews of local images, audio and video through the new `plugin-media://` protocol with Range streaming.
+- **Token Limit Pinning**: context and output limits can follow the selected model or be pinned to fixed values per profile.
+- **Character Card Review**: generated IM character cards are previewed first and applied only after confirmation.
+
+### Improvements
+
+- Exported config files are named after the selected items, and imported configs move to the top of the list.
+- Unpulled commit edges are drawn as red dashed lines; deleting an unmerged branch asks for confirmation before the force delete.
+- UI zoom follows DPI changes when a window moves across displays, and expanded panels clamp to the window width.
+- The model dropdown shows a context window badge, and terminal file tracking reports line counts for creations and deletions.
+
+### Bug Fixes
+
+- Cancelling a run aborts the in-flight tool correction instead of leaving the session stuck in the running state.
+- Expanded tool cards no longer collapse when new calls arrive in the same run.
+- Output limits at or above the context window are discarded, and same-name models without an official spec take a summarized channel value.
+
 ## v0.5.24
 
 ### New Features
