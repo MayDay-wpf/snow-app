@@ -2347,6 +2347,20 @@
   box-shadow: none !important;
 }
 
+/* 新标签页搜索框：胶囊容器负责外观与聚焦反馈，内部输入框不再叠加背景与焦点描边。 */
+:root[data-theme-preset="wenjie"] .browser-newtab-search input {
+  border: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+:root[data-theme-preset="wenjie"] .browser-newtab-search input:focus,
+:root[data-theme-preset="wenjie"] .browser-newtab-search input:focus-visible {
+  border: none !important;
+  outline: none !important;
+  box-shadow: none !important;
+}
+
 @media (max-width: 1100px) {
   :root[data-theme-preset="wenjie"] .api-settings-page {
     padding: 22px 24px 32px !important;
