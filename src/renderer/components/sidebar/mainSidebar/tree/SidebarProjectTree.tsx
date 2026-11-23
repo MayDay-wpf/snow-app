@@ -3,6 +3,8 @@ import {
   ArchiveRestore,
   FolderDown,
   LayoutGrid,
+  LayoutList,
+  ListFilter,
   Loader2,
   Plus,
   Rows3,
@@ -25,6 +27,7 @@ import { CloneTaskList } from "../projects/CloneTaskList";
 import { ProjectsDialogs } from "../projects/ProjectsDialogs";
 import { useDirectoryPagination } from "../projects/useDirectoryPagination";
 import { useProjectsWorkspace } from "../projects/useProjectsWorkspace";
+import { useSidebarOnlyRunningPinnedChats } from "../sidebarChatFilter";
 import { useSidebarDisplayMode } from "../sidebarDisplayMode";
 import type { CrossProjectNotificationGroup } from "../useCrossProjectNotifications";
 import { TreeCollectionNode } from "./TreeCollectionNode";
@@ -59,6 +62,8 @@ export function SidebarProjectTree({
 }: SidebarProjectTreeProps): React.JSX.Element {
   const { t } = useI18n();
   const { toggleMode } = useSidebarDisplayMode();
+  const { onlyRunningPinned, toggleOnlyRunningPinned } =
+    useSidebarOnlyRunningPinnedChats();
   const { activeConversationId, refreshConversations } =
     useChatConversationContext();
 
@@ -298,6 +303,38 @@ export function SidebarProjectTree({
               <Rows3 size={14} />
             </button>
           </Tooltip>
+          {/* 过滤：只显示运行中与置顶会话，释放项目较多时的列表高度 */}
+          {!archived.isArchiveMode ? (
+            <Tooltip
+              content={
+                onlyRunningPinned
+                  ? t("sidebar.chatFilterShowAll", {
+                      defaultValue: "Show all chats",
+                    })
+                  : t("sidebar.chatFilterOnlyRunningPinned", {
+                      defaultValue: "Show running and pinned only",
+                    })
+              }
+              placement="top"
+            >
+              <button
+                aria-label={t("sidebar.chatFilterOnlyRunningPinned", {
+                  defaultValue: "Show running and pinned only",
+                })}
+                aria-pressed={onlyRunningPinned}
+                className="icon-btn ghost"
+                onClick={toggleOnlyRunningPinned}
+                type="button"
+              >
+                {/* 未过滤＝全部会话列表；已过滤＝带漏斗的列表，用形态区分两态 */}
+                {onlyRunningPinned ? (
+                  <ListFilter size={14} />
+                ) : (
+                  <LayoutList size={14} />
+                )}
+              </button>
+            </Tooltip>
+          ) : null}
         </div>
         <div className="section-actions">
           {isBusy ? (
