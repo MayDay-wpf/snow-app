@@ -660,7 +660,7 @@ export const zhCN = {
   "sidebar.chatLoadingMore": "正在加载更多会话...",
   "sidebar.chatLoadMore": "加载更多会话",
   "sidebar.chatAllLoaded": "已加载全部会话",
-  "sidebar.chatFilterOnlyRunningPinned": "仅显示运行中和置顶项",
+  "sidebar.chatFilterOnlyRunningPinned": "仅显示运行中、已完成与置顶项",
   "sidebar.chatFilterShowAll": "显示全部会话",
   "sidebar.chatHistoryGroup": "历史会话",
   "sidebar.chatHistoryToggle": "展开/收起历史会话",

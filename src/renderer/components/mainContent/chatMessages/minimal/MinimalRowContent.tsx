@@ -340,7 +340,7 @@ export const MinimalRowContent = ({
       <MinimalToolRunHeader
         toolCalls={row.toolCalls}
         expanded={row.expanded}
-        onToggle={() => onToggleRow(row.key, true)}
+        onToggle={() => onToggleRow(row.key, row.expanded)}
       />
     );
   }
@@ -350,7 +350,7 @@ export const MinimalRowContent = ({
       <MinimalSameRunHeader
         toolCalls={row.toolCalls}
         expanded={row.expanded}
-        onToggle={() => onToggleRow(row.key, false)}
+        onToggle={() => onToggleRow(row.key, row.expanded)}
       />
     );
   }

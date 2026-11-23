@@ -72,6 +72,12 @@ export function TreeProjectChats({
   );
   const pausedConversationIds = usePausedConversationIds(sessions);
 
+  // 过滤模式下保留在主列表的会话：运行中、需关注与已完成待查看。
+  const keptConversationIds = useMemo(
+    () => new Set([...runningConversationIds, ...completedConversationIds]),
+    [runningConversationIds, completedConversationIds],
+  );
+
   const { onlyRunningPinned } = useSidebarOnlyRunningPinnedChats();
   // 过滤模式下历史会话收纳为「加载更多会话」，按项目独立展开
   const [isHistoryRevealed, setIsHistoryRevealed] = useState(false);
@@ -113,7 +119,7 @@ export function TreeProjectChats({
     getOrderedConversationIds: () =>
       (onlyRunningPinned && !isHistoryRevealed
         ? list.conversations.filter((conversation) =>
-            runningConversationIds.has(conversation.conversationId),
+            keptConversationIds.has(conversation.conversationId),
           )
         : list.conversations
       ).map((conversation) => conversation.conversationId),
@@ -155,34 +161,33 @@ export function TreeProjectChats({
     upsertedConversation,
   });
 
-  // 只显示运行中与置顶：置顶会话单独渲染，主体只留运行中会话，
-  // 其余历史会话收进独立的「历史会话」分组，由分组头展开/收起。
+  // 只显示活动会话与置顶：置顶会话单独渲染，主体保留运行中、需关注与
+  // 已完成待查看的会话，其余历史会话收进「历史会话」分组展开/收起。
   const isHistoryCollapsed = onlyRunningPinned && !isHistoryRevealed;
-  const runningConversations = onlyRunningPinned
+  const keptConversations = onlyRunningPinned
     ? list.conversations.filter((conversation) =>
-        runningConversationIds.has(conversation.conversationId),
+        keptConversationIds.has(conversation.conversationId),
       )
     : list.conversations;
   const historyConversations = onlyRunningPinned
     ? list.conversations.filter(
-        (conversation) =>
-          !runningConversationIds.has(conversation.conversationId),
+        (conversation) => !keptConversationIds.has(conversation.conversationId),
       )
     : [];
 
-  // 分组计数用项目会话总数推算（总数 - 已落库的运行中会话），
+  // 分组计数用项目会话总数推算（总数 - 已落库的活动会话），
   // 直接数已加载行只会显示分页大小（20），没有参考意义。
   const historyTotal = useMemo(() => {
     if (!onlyRunningPinned) {
       return 0;
     }
-    const runningDbCount = runningConversations.filter(
+    const keptDbCount = keptConversations.filter(
       (conversation) => !isPendingSessionKey(conversation.conversationId),
     ).length;
-    return Math.max(historyConversations.length, list.total - runningDbCount);
+    return Math.max(historyConversations.length, list.total - keptDbCount);
   }, [
     onlyRunningPinned,
-    runningConversations,
+    keptConversations,
     historyConversations.length,
     list.total,
   ]);
@@ -438,7 +443,7 @@ export function TreeProjectChats({
                 {renderConversationRow(conversation)}
               </Fragment>
             ))}
-          {(onlyRunningPinned ? runningConversations : list.conversations).map(
+          {(onlyRunningPinned ? keptConversations : list.conversations).map(
             (conversation) => (
               <Fragment key={list.getConversationKey(conversation)}>
                 {renderConversationRow(conversation)}

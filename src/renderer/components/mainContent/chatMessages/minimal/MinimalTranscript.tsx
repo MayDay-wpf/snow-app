@@ -97,9 +97,9 @@ export const MinimalTranscript = ({
 }: MinimalTranscriptProps): React.JSX.Element => {
   // 工具集合 / 同名工具组的开合状态：由列表层持有，行被虚拟化卸载后
   // 再回来仍是用户上次的选择。
-  const [expandedRows, setExpandedRows] = useState<ReadonlyMap<string, boolean>>(
-    () => new Map(),
-  );
+  const [expandedRows, setExpandedRows] = useState<
+    ReadonlyMap<string, boolean>
+  >(() => new Map());
   const [interactedKeys, setInteractedKeys] = useState<ReadonlySet<string>>(
     () => new Set(),
   );
@@ -162,6 +162,7 @@ export const MinimalTranscript = ({
         forkedFromConversationId,
         authorizationHostKey,
         isRowExpanded,
+        interactedRowKeys: interactedKeys,
       }),
     [
       messages,
@@ -179,6 +180,7 @@ export const MinimalTranscript = ({
       forkedFromConversationId,
       authorizationHostKey,
       isRowExpanded,
+      interactedKeys,
     ],
   );
 

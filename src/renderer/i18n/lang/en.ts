@@ -698,7 +698,8 @@ export const en = {
   "sidebar.chatLoadingMore": "Loading more chats...",
   "sidebar.chatLoadMore": "Load more chats",
   "sidebar.chatAllLoaded": "All chats loaded",
-  "sidebar.chatFilterOnlyRunningPinned": "Show running and pinned only",
+  "sidebar.chatFilterOnlyRunningPinned":
+    "Show running, completed and pinned only",
   "sidebar.chatFilterShowAll": "Show all chats",
   "sidebar.chatHistoryGroup": "History chats",
   "sidebar.chatHistoryToggle": "Expand/collapse history chats",

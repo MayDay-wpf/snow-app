@@ -303,7 +303,7 @@ export function SidebarProjectTree({
               <Rows3 size={14} />
             </button>
           </Tooltip>
-          {/* 过滤：只显示运行中与置顶会话，释放项目较多时的列表高度 */}
+          {/* 过滤：只显示运行中、已完成待查看与置顶会话，释放项目较多时的列表高度 */}
           {!archived.isArchiveMode ? (
             <Tooltip
               content={
@@ -312,14 +312,14 @@ export function SidebarProjectTree({
                       defaultValue: "Show all chats",
                     })
                   : t("sidebar.chatFilterOnlyRunningPinned", {
-                      defaultValue: "Show running and pinned only",
+                      defaultValue: "Show running, completed and pinned only",
                     })
               }
               placement="top"
             >
               <button
                 aria-label={t("sidebar.chatFilterOnlyRunningPinned", {
-                  defaultValue: "Show running and pinned only",
+                  defaultValue: "Show running, completed and pinned only",
                 })}
                 aria-pressed={onlyRunningPinned}
                 className="icon-btn ghost"

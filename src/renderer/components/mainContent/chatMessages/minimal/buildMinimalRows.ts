@@ -8,10 +8,7 @@ import {
   hasPendingUserInteraction,
   isAwaitingUserAction,
 } from "../utils/toolCallInteraction";
-import type {
-  MinimalRow,
-  MinimalToolGroupKind,
-} from "./types";
+import type { MinimalRow, MinimalToolGroupKind } from "./types";
 
 const ASK_TOOL_NAME = "user-interaction-askUserQuestion";
 const IMAGE_TOOL_NAME = "imagegen-generate";
@@ -19,14 +16,18 @@ const IMAGE_TOOL_NAME = "imagegen-generate";
 type MinimalToolEntry =
   | { type: "single"; toolCall: ToolCallInfo }
   | { type: "sameRun"; toolCalls: ToolCallInfo[] }
-  | { type: "group"; groupKind: MinimalToolGroupKind; toolCalls: ToolCallInfo[] };
+  | {
+      type: "group";
+      groupKind: MinimalToolGroupKind;
+      toolCalls: ToolCallInfo[];
+    };
 
 const groupMinimalTools = (
   toolCalls: readonly ToolCallInfo[],
   pendingAuthorizationIds: ReadonlySet<string>,
 ): MinimalToolEntry[] => {
   const entries: MinimalToolEntry[] = [];
-  for (let index = 0; index < toolCalls.length; ) {
+  for (let index = 0; index < toolCalls.length;) {
     const name = toolCalls[index].name;
     if (name === IMAGE_TOOL_NAME || name === ASK_TOOL_NAME) {
       let end = index;
@@ -90,6 +91,8 @@ export type BuildMinimalRowsInput = {
   /** 承载授权弹窗的 renderKey（tailHost 或最后一条响应）。 */
   authorizationHostKey: string | null;
   isRowExpanded: (key: string, fallback: boolean) => boolean;
+  /** 用户点击交互过的行 key：同组工具因此默认展开，查看中的内容不被收起。 */
+  interactedRowKeys: ReadonlySet<string>;
 };
 
 /**
@@ -114,6 +117,7 @@ export const buildMinimalRows = ({
   forkedFromConversationId,
   authorizationHostKey,
   isRowExpanded,
+  interactedRowKeys,
 }: BuildMinimalRowsInput): MinimalRow[] => {
   const rows: MinimalRow[] = [];
   const pendingAuthorizationIds = new Set(
@@ -178,10 +182,15 @@ export const buildMinimalRows = ({
       }
     }
 
+    // 工具行身份只取 interactionId：新调用导致重新分组或锚点迁移时 key 不变，
+    // React 复用原组件实例，用户已展开的卡片内容不会被重置。
+    const toolRowKey = (toolCall: ToolCallInfo): string =>
+      `minimal-tool:${toolCall.interactionId}`;
+
     const pushToolRow = (toolCall: ToolCallInfo): void => {
       rows.push({
         kind: "tool",
-        key: `minimal-tool:${anchorRenderKey}:${toolCall.interactionId}`,
+        key: toolRowKey(toolCall),
         messageId: anchorMessageId,
         renderKey: anchorRenderKey,
         toolCall,
@@ -211,8 +220,13 @@ export const buildMinimalRows = ({
         continue;
       }
       const sameRunKey = `minimal-same-run:${anchorRenderKey}:${entry.toolCalls[0].interactionId}`;
+      // 用户在组内展开查看过工具时，组默认展开：新到的同名调用只会在下方
+      // 追加行，不会把正在查看的卡片一起吞进折叠组。用户手动开合仍然优先。
+      const viewingInGroup = entry.toolCalls.some((toolCall) =>
+        interactedRowKeys.has(toolRowKey(toolCall)),
+      );
       const sameRunExpanded =
-        isRowExpanded(sameRunKey, false) ||
+        isRowExpanded(sameRunKey, viewingInGroup) ||
         hasPendingUserInteraction(entry.toolCalls);
       rows.push({
         kind: "same-run-header",

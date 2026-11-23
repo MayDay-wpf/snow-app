@@ -661,7 +661,7 @@ export const zhTW = {
   "sidebar.chatLoadingMore": "正在載入更多對話...",
   "sidebar.chatLoadMore": "載入更多對話",
   "sidebar.chatAllLoaded": "已載入全部對話",
-  "sidebar.chatFilterOnlyRunningPinned": "僅顯示執行中與置頂項目",
+  "sidebar.chatFilterOnlyRunningPinned": "僅顯示執行中、已完成與置頂項目",
   "sidebar.chatFilterShowAll": "顯示全部對話",
   "sidebar.chatHistoryGroup": "歷史對話",
   "sidebar.chatHistoryToggle": "展開/收合歷史對話",
