@@ -14,7 +14,8 @@ use napi_derive::napi;
 use serde_json::{json, Map, Value};
 
 use super::super::{ApiConfigInput, ApiConfigRecord};
-use super::api_configs::{list_api_configs, upsert_api_config};
+use super::api_configs::{list_api_configs, reorder_api_configs, upsert_api_config};
+use super::export_file_name::build_export_file_name;
 
 /// 迁移文档标识与版本；导入时据此识别文件类型。
 const DOCUMENT_KIND: &str = "snow-app-api-configs";
@@ -55,11 +56,12 @@ pub struct ApiConfigImportOutcome {
     pub activated_profile_name: Option<String>,
 }
 
-/// 导出结果：迁移文档文本 + 实际导出条数。
+/// 导出结果：迁移文档文本 + 实际导出条数 + 建议文件名。
 #[napi(object)]
 pub struct ApiConfigExportResult {
     pub content: String,
     pub exported_count: i32,
+    pub file_name: String,
 }
 
 /// 导出选中配置为迁移文档 JSON 文本。
@@ -80,15 +82,11 @@ pub fn export_api_configs(
     }
 
     let configs = list_api_configs(database_path)?;
-    let mut selected: Vec<&ApiConfigRecord> = Vec::new();
-    for name in &requested {
-        if selected.iter().any(|config| &config.profile_name == name) {
-            continue;
-        }
-        if let Some(config) = configs.iter().find(|config| &config.profile_name == name) {
-            selected.push(config);
-        }
-    }
+    // 按列表展示顺序收集，导出文档与文件名都以首个配置为准。
+    let selected: Vec<&ApiConfigRecord> = configs
+        .iter()
+        .filter(|config| requested.iter().any(|name| name == &config.profile_name))
+        .collect();
     if selected.is_empty() {
         return Err(Error::new(
             Status::InvalidArg,
@@ -113,9 +111,16 @@ pub fn export_api_configs(
         )
     })?;
 
+    let first_label = selected
+        .first()
+        .map(|config| config.display_name.as_str())
+        .unwrap_or_default();
+    let file_name = build_export_file_name(first_label, selected.len(), "api-configs");
+
     Ok(ApiConfigExportResult {
         content,
         exported_count: selected.len() as i32,
+        file_name,
     })
 }
 
@@ -218,6 +223,18 @@ pub fn import_api_configs(
             activated_profile_name = Some(name.clone());
         }
     }
+
+    // 导入结果按文件顺序置顶，其余档案保持原有相对顺序。
+    let mut ordered: Vec<String> = prepared
+        .iter()
+        .map(|(name, _, _)| name.clone())
+        .collect();
+    for config in &existing {
+        if !ordered.iter().any(|name| name == &config.profile_name) {
+            ordered.push(config.profile_name.clone());
+        }
+    }
+    reorder_api_configs(database_path, &ordered)?;
 
     Ok(ApiConfigImportOutcome {
         imported_count: prepared.len() as i32,

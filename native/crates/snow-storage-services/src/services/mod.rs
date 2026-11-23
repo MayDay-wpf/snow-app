@@ -16,6 +16,7 @@ pub mod conversation_export;
 pub mod custom_commands;
 pub use snow_storage::custom_header_schemes;
 pub mod diff_review_comments;
+pub(crate) mod export_file_name;
 pub mod file_review_annotations;
 pub mod file_scanner;
 pub mod prompt_context_policy;

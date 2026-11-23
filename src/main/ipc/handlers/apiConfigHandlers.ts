@@ -286,13 +286,12 @@ export const registerApiConfigHandlers = (native: NativeBridge): void => {
     "api-configs:export-file",
     async (event, profileNames: unknown) => {
       const names = normalizeExportProfileNames(profileNames);
-      const { content, exportedCount } = await native.exportApiConfigs(names);
+      const { content, exportedCount, fileName } =
+        await native.exportApiConfigs(names);
 
       const options: Electron.SaveDialogOptions = {
         title: "Export API profiles",
-        defaultPath: `snow-api-configs-${new Date()
-          .toISOString()
-          .slice(0, 10)}.json`,
+        defaultPath: fileName,
         filters: [{ name: "JSON", extensions: ["json"] }],
       };
       const browserWindow = BrowserWindow.fromWebContents(event.sender);
@@ -357,16 +356,12 @@ export const registerApiConfigHandlers = (native: NativeBridge): void => {
     "model-configs:export-file",
     async (event, kind: unknown, ids: unknown) => {
       const transferKind = readModelTransferKind(kind);
-      const { content, exportedCount } = await native.exportModelConfigs(
-        transferKind,
-        normalizeExportIds(ids),
-      );
+      const { content, exportedCount, fileName } =
+        await native.exportModelConfigs(transferKind, normalizeExportIds(ids));
 
       const options: Electron.SaveDialogOptions = {
         title: "Export configs",
-        defaultPath: `snow-${transferKind}-configs-${new Date()
-          .toISOString()
-          .slice(0, 10)}.json`,
+        defaultPath: fileName,
         filters: [{ name: "JSON", extensions: ["json"] }],
       };
       const browserWindow = pickWindowFor(event);

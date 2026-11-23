@@ -188,10 +188,12 @@ export type ApiConfigImportOutcome = {
   activatedProfileName?: string | null;
 };
 
-/** 导出结果：迁移文档文本 + 实际导出条数。 */
+/** 导出结果：迁移文档文本 + 实际导出条数 + 建议文件名。 */
 export type ApiConfigExportResult = {
   content: string;
   exportedCount: number;
+  /** 保存对话框预填文件名（单个用名称，多个用「首个名称等N个」）。 */
+  fileName: string;
 };
 
 /** 支持批量迁移的非 LLM 配置类别。 */

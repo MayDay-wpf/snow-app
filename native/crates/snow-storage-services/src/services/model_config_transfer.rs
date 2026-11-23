@@ -13,6 +13,7 @@ use serde_json::{json, Map, Value};
 use super::model_registry::{
     self, DecisionModelEntry, EmbeddingModelEntry, RegisteredModelKind, RerankingModelEntry,
 };
+use super::export_file_name::build_export_file_name;
 use super::system_settings::{get_system_setting_value, set_system_setting};
 use crate::database::create_snowflake_id;
 
@@ -53,6 +54,7 @@ pub struct ModelConfigImportOutcome {
 pub struct ModelConfigExportResult {
     pub content: String,
     pub exported_count: i32,
+    pub file_name: String,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -307,9 +309,11 @@ pub fn export_model_configs(
     }
 
     let items = load_items(database_path, kind)?;
-    let selected: Vec<Value> = requested
+    // 按列表展示顺序收集，导出文档与文件名都以首项为准。
+    let selected: Vec<Value> = items
         .iter()
-        .filter_map(|id| items.iter().find(|item| &text(item, "id") == id).cloned())
+        .filter(|item| requested.iter().any(|id| id == &text(item, "id")))
+        .cloned()
         .collect();
     if selected.is_empty() {
         return Err(invalid("None of the selected items exist any more"));
@@ -328,9 +332,13 @@ pub fn export_model_configs(
         )
     })?;
 
+    let first_label = selected.first().map(|item| label(kind, item)).unwrap_or_default();
+    let file_name = build_export_file_name(&first_label, selected.len(), kind.document_kind());
+
     Ok(ModelConfigExportResult {
         content,
         exported_count: selected.len() as i32,
+        file_name,
     })
 }
 
@@ -430,7 +438,10 @@ pub fn import_model_configs(
     match kind {
         TransferKind::ImageGen => {
             let mut root = image_gen_root.take().unwrap_or_default();
-            root.insert("channels".to_string(), Value::Array(merged));
+            root.insert(
+                "channels".to_string(),
+                Value::Array(hoist_imported_items(&merged, &changed)),
+            );
             set_system_setting(
                 database_path,
                 IMAGE_GEN_SETTING_NAME,
@@ -439,9 +450,15 @@ pub fn import_model_configs(
             )?;
         }
         TransferKind::Model(model_kind) => {
+            let mut imported_ids: Vec<String> = Vec::with_capacity(changed.len());
             for item in changed.iter().cloned() {
-                upsert_model(database_path, model_kind, item)?;
+                let model_id = upsert_model(database_path, model_kind, item)?;
+                if !model_id.trim().is_empty() && !imported_ids.iter().any(|id| id == &model_id) {
+                    imported_ids.push(model_id);
+                }
             }
+            // 导入项按文件顺序置顶，其余模型保持原有相对顺序。
+            model_registry::reorder_models(database_path, model_kind, &imported_ids)?;
         }
     }
 
@@ -453,21 +470,42 @@ pub fn import_model_configs(
     })
 }
 
-fn upsert_model(database_path: &Path, kind: RegisteredModelKind, item: Value) -> Result<()> {
+/// 把导入项（按文件顺序）提到列表最前，其余项保持原顺序。
+fn hoist_imported_items(merged: &[Value], changed: &[Value]) -> Vec<Value> {
+    let mut ordered: Vec<Value> = Vec::with_capacity(merged.len());
+    for item in changed {
+        let id = text(item, "id");
+        if id.is_empty() || ordered.iter().any(|existing| text(existing, "id") == id) {
+            continue;
+        }
+        if let Some(found) = merged.iter().find(|candidate| text(candidate, "id") == id) {
+            ordered.push(found.clone());
+        }
+    }
+    for item in merged {
+        let id = text(item, "id");
+        if !ordered.iter().any(|existing| text(existing, "id") == id) {
+            ordered.push(item.clone());
+        }
+    }
+    ordered
+}
+
+fn upsert_model(database_path: &Path, kind: RegisteredModelKind, item: Value) -> Result<String> {
     let parse_error =
         |error: serde_json::Error| invalid(format!("Invalid model config in import file: {error}"));
     match kind {
         RegisteredModelKind::Embedding => {
             let entry = serde_json::from_value::<EmbeddingModelEntry>(item).map_err(parse_error)?;
-            model_registry::upsert_embedding_model(database_path, entry).map(|_| ())
+            model_registry::upsert_embedding_model(database_path, entry).map(|saved| saved.id)
         }
         RegisteredModelKind::Reranking => {
             let entry = serde_json::from_value::<RerankingModelEntry>(item).map_err(parse_error)?;
-            model_registry::upsert_reranking_model(database_path, entry).map(|_| ())
+            model_registry::upsert_reranking_model(database_path, entry).map(|saved| saved.id)
         }
         RegisteredModelKind::Decision => {
             let entry = serde_json::from_value::<DecisionModelEntry>(item).map_err(parse_error)?;
-            model_registry::upsert_decision_model(database_path, entry).map(|_| ())
+            model_registry::upsert_decision_model(database_path, entry).map(|saved| saved.id)
         }
     }
 }

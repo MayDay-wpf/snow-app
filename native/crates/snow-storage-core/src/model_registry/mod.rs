@@ -505,6 +505,50 @@ fn next_sort_order(connection: &Connection, kind: RegisteredModelKind) -> rusqli
     )
 }
 
+/// 按给定 model_id 顺序重写 sort_order（导入置顶）；未列出的模型排在其后。
+pub fn reorder_models(
+    database_path: &Path,
+    kind: RegisteredModelKind,
+    ordered_model_ids: &[String],
+) -> Result<()> {
+    with_connection(database_path, "reorder models", |connection| {
+        let mut statement =
+            connection.prepare(&format!("SELECT model_id FROM {} {ORDER_BY}", kind.table()))?;
+        let existing: Vec<String> = statement
+            .query_map([], |row| row.get::<_, String>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        drop(statement);
+
+        let mut ordered: Vec<String> = Vec::with_capacity(existing.len());
+        for id in ordered_model_ids {
+            let id = id.trim();
+            if id.is_empty()
+                || !existing.iter().any(|item| item == id)
+                || ordered.iter().any(|item| item == id)
+            {
+                continue;
+            }
+            ordered.push(id.to_string());
+        }
+        for id in existing {
+            if !ordered.iter().any(|item| item == &id) {
+                ordered.push(id);
+            }
+        }
+
+        for (index, model_id) in ordered.iter().enumerate() {
+            connection.execute(
+                &format!(
+                    "UPDATE {} SET sort_order = ?1 WHERE model_id = ?2",
+                    kind.table()
+                ),
+                params![index as i64, model_id],
+            )?;
+        }
+        Ok(())
+    })
+}
+
 /// 新增或更新（按 model_id）；id 为空时生成。更新保留原排序与自检结果。
 pub fn upsert_embedding_model_with_connection(
     connection: &Connection,
