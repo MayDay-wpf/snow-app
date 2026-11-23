@@ -5,11 +5,11 @@ export interface GraphRow {
   dotLane: number;
   topLines: number[];
   topColors: string[];
-  /** 与 topColors 同索引：该车道竖线是否为未推送边（虚线）。 */
+  /** 与 topColors 同索引：该车道竖线是否为未推送 / 未拉取边（虚线）。 */
   topDashed: boolean[];
   bottomLines: number[];
   bottomColors: string[];
-  /** 与 bottomColors 同索引：该车道竖线是否为未推送边（虚线）。 */
+  /** 与 bottomColors 同索引：该车道竖线是否为未推送 / 未拉取边（虚线）。 */
   bottomDashed: boolean[];
   curves: { from: number; to: number; color: string; dashed: boolean }[];
   merges: { from: number; color: string; dashed: boolean }[];
@@ -33,6 +33,9 @@ export const LANE_COLORS = [
 
 /** 未推送提交的边：与空心绿点同色，并绘成虚线区别于已推送的历史。 */
 export const UNPUSHED_COLOR = "var(--accent-green)";
+/** 落后（未拉取）提交的边：与红色虚线圆环同色。 */
+export const BEHIND_COLOR = "var(--accent-red)";
+/** 未推送 / 落后状态的边共用同一虚线节奏。 */
 export const UNPUSHED_DASH = "3 2.5";
 
 export function computeGraph(
@@ -45,7 +48,7 @@ export function computeGraph(
   const hashToLane = new Map<string, number>();
   const lanes: (string | null)[] = [];
   const laneColors: (string | null)[] = [];
-  // 车道自身颜色（不受未推送绿线影响），供后续边沿用同色。
+  // 车道自身颜色（不受未推送 / 未拉取状态色影响），供后续边沿用同色。
   const laneBaseColors: (string | null)[] = [];
   const laneDashed: boolean[] = [];
   const rows: GraphRow[] = [];
@@ -99,8 +102,8 @@ export function computeGraph(
     const topDashed = laneDashed.map((dashed) => dashed === true);
 
     // 本提交所在线条的颜色：继续向前延伸的第一父边沿用它，让一条分支从
-    // 分叉点到汇合点保持同色。未推送边会把显示色换成绿色，因此基础色
-    // 单独记录，避免已推送的历史被染绿。
+    // 分叉点到汇合点保持同色。未推送 / 未拉取的边会把显示色换成状态色，
+    // 因此基础色单独记录，避免已推送的历史被染色。
     const lineBase = laneBaseColors[dotLane] ?? topColors[dotLane];
 
     lanes[dotLane] = null;
@@ -119,8 +122,13 @@ export function computeGraph(
       color: string;
       dashed: boolean;
     }[] = [];
-    // 本提交尚未推送到远端：它连向父提交的边同样标成未推送样式。
-    const unpushed = !commit.pushed;
+    // 本提交自身的边状态色：落后（远端已有、本地未拉取）优先于未推送，
+    // 连向父提交的边与圆环同色并同样画成虚线。
+    const ownStatus = commit.behind
+      ? BEHIND_COLOR
+      : commit.pushed
+        ? null
+        : UNPUSHED_COLOR;
 
     for (let p = 0; p < commit.parents.length; p++) {
       const parentHash = commit.parents[p];
@@ -134,6 +142,12 @@ export function computeGraph(
         continue;
       }
 
+      // 父提交本身落后时，接入它的边也要染红：本地分支可能直接基于远端
+      // 未拉取的提交，此时子提交并不落后，只看子提交会漏掉这条边。
+      const statusColor =
+        ownStatus ??
+        (commitByHash.get(parentHash)?.behind ? BEHIND_COLOR : null);
+
       if (hashToLane.has(parentHash)) {
         const parentLane = hashToLane.get(parentHash)!;
         if (isFirstParent) {
@@ -141,11 +155,9 @@ export function computeGraph(
           // 父提交所在行再弯入圆点；主线提交让父提交的圆点回到主线车道。
           const edgeBase = worktreeColor ?? lineBase;
           lanes[dotLane] = parentHash;
-          laneColors[dotLane] = unpushed
-            ? (worktreeColor ?? UNPUSHED_COLOR)
-            : edgeBase;
+          laneColors[dotLane] = worktreeColor ?? statusColor ?? edgeBase;
           laneBaseColors[dotLane] = edgeBase;
-          laneDashed[dotLane] = unpushed;
+          laneDashed[dotLane] = statusColor !== null;
           if (mainline.has(commit.hash)) {
             hashToLane.set(parentHash, dotLane);
           }
@@ -164,19 +176,17 @@ export function computeGraph(
         }
         const edgeBase =
           worktreeColor ?? LANE_COLORS[edgeLane % LANE_COLORS.length];
-        const edgeColor = unpushed
-          ? (worktreeColor ?? UNPUSHED_COLOR)
-          : edgeBase;
+        const edgeColor = worktreeColor ?? statusColor ?? edgeBase;
         lanes[edgeLane] = parentHash;
         laneColors[edgeLane] = edgeColor;
         laneBaseColors[edgeLane] = edgeBase;
-        laneDashed[edgeLane] = unpushed;
+        laneDashed[edgeLane] = statusColor !== null;
         if (edgeLane !== dotLane) {
           curves.push({
             from: dotLane,
             to: edgeLane,
             color: edgeColor,
-            dashed: unpushed,
+            dashed: statusColor !== null,
           });
         }
         continue;
@@ -198,17 +208,17 @@ export function computeGraph(
       hashToLane.set(parentHash, parentLane);
       const edgeBase =
         worktreeColor ?? LANE_COLORS[parentLane % LANE_COLORS.length];
-      const edgeColor = unpushed ? (worktreeColor ?? UNPUSHED_COLOR) : edgeBase;
+      const edgeColor = worktreeColor ?? statusColor ?? edgeBase;
       lanes[parentLane] = parentHash;
       laneColors[parentLane] = edgeColor;
       laneBaseColors[parentLane] = edgeBase;
-      laneDashed[parentLane] = unpushed;
+      laneDashed[parentLane] = statusColor !== null;
       if (parentLane !== dotLane) {
         curves.push({
           from: dotLane,
           to: parentLane,
           color: edgeColor,
-          dashed: unpushed,
+          dashed: statusColor !== null,
         });
       }
     }

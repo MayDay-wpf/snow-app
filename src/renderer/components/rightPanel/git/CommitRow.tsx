@@ -9,6 +9,7 @@ import { useI18n } from "../../../i18n";
 import { CommitDetail } from "./CommitDetail";
 import { GitRefBadge } from "./GitRefBadge";
 import {
+  BEHIND_COLOR,
   DOT_RADIUS,
   LANE_COLORS,
   LANE_WIDTH,
@@ -29,8 +30,6 @@ import { formatDate } from "./gitGraphUtils";
 const ARC_KAPPA = 0.5523;
 // 未推送提交的空心圆填充（绿色，区别于泳道色）
 const UNPUSHED_FILL = "var(--accent-green-bg)";
-// 落后（未拉取）提交：红色虚线空心圆
-const BEHIND_COLOR = "var(--accent-red)";
 
 type CommitRowProps = {
   row: GraphRow;
