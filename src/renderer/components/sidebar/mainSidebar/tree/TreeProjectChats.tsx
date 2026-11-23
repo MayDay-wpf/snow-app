@@ -196,6 +196,7 @@ export function TreeProjectChats({
     ],
     [pinned.pinnedConversations, list.conversations],
   );
+  const worktreeBindings = useConversationWorktreeBindings(cycleOrderIds);
   useConversationCycleShortcut({
     activeConversationId,
     enabled: activeDirectoryId === directoryId,
