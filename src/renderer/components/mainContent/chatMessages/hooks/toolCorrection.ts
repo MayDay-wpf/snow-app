@@ -184,9 +184,57 @@ export const serializeToolCorrectionState = (
     })),
   });
 
+/** 纠错阶段可能在等模型 / 授权 / 重新执行，取消标记按此间隔轮询。 */
+const CANCEL_POLL_MS = 120;
+
+const CANCELLED = Symbol("tool-correction-cancelled");
+
+type Cancellable<T> = T | typeof CANCELLED;
+
+/**
+ * 让一次等待与「整个 AI Loop 取消」赛跑：运行已取消时立即返回取消哨兵，
+ * 不再等底层的模型请求或工具执行返回。被放弃的等待之后的结果一律忽略。
+ */
+const raceCancellation = <T>(
+  wait: Promise<T>,
+  isCancelled: () => boolean,
+): Promise<Cancellable<T>> =>
+  new Promise<Cancellable<T>>((resolve, reject) => {
+    let settled = false;
+    let timer = 0;
+    const stop = (): boolean => {
+      if (settled) {
+        return false;
+      }
+      settled = true;
+      window.clearInterval(timer);
+      return true;
+    };
+    wait.then(
+      (value) => {
+        if (stop()) {
+          resolve(value);
+        }
+      },
+      (error: unknown) => {
+        if (stop()) {
+          reject(error);
+        }
+      },
+    );
+    timer = window.setInterval(() => {
+      if (isCancelled() && stop()) {
+        resolve(CANCELLED);
+      }
+    }, CANCEL_POLL_MS);
+    if (isCancelled() && stop()) {
+      resolve(CANCELLED);
+    }
+  });
+
 /**
  * 纠错主循环：最多 3 次「模型给出修正参数 -> 重新授权 -> 重新执行」。
- * 成功后返回最终参数与结果；失败时返回 null，调用方继续使用原始错误。
+ * 成功后返回最终参数与结果；失败或运行被取消时返回 null，调用方继续使用原始错误。
  */
 export const runToolCorrection = async (
   options: ToolCorrectionRunOptions,
@@ -203,6 +251,13 @@ export const runToolCorrection = async (
       attempts: state.attempts.map((attempt) => ({ ...attempt })),
     });
   };
+  /** 运行被取消：立刻结束纠错并落定，绝不继续占用 AI Loop。 */
+  const abandonCancelled = (): null => {
+    state.status = "abandoned";
+    state.failureCode = "cancelled";
+    publish();
+    return null;
+  };
 
   publish();
 
@@ -216,10 +271,7 @@ export const runToolCorrection = async (
     attemptIndex++
   ) {
     if (options.isCancelled()) {
-      state.status = "abandoned";
-      state.failureCode = "cancelled";
-      publish();
-      return null;
+      return abandonCancelled();
     }
 
     let response: {
@@ -228,23 +280,33 @@ export const runToolCorrection = async (
       reasoning: string;
     };
     try {
-      response = await options.requestCorrection({
-        toolName: options.toolName,
-        toolDescription: definition?.description ?? "",
-        inputSchemaJson: definition?.inputSchemaJson ?? "",
-        originalArgumentsJson: options.originalArguments,
-        failure: originalFailure,
-        attemptsJson: JSON.stringify(
-          state.attempts.map((attempt) => ({
-            argumentsJson: attempt.arguments,
-            error: attempt.error ?? "",
-          })),
-        ),
-        attempt: attemptIndex,
-        apiProfile: options.apiProfile,
-        conversationId: options.conversationId,
-      });
+      const pending = await raceCancellation(
+        options.requestCorrection({
+          toolName: options.toolName,
+          toolDescription: definition?.description ?? "",
+          inputSchemaJson: definition?.inputSchemaJson ?? "",
+          originalArgumentsJson: options.originalArguments,
+          failure: originalFailure,
+          attemptsJson: JSON.stringify(
+            state.attempts.map((attempt) => ({
+              argumentsJson: attempt.arguments,
+              error: attempt.error ?? "",
+            })),
+          ),
+          attempt: attemptIndex,
+          apiProfile: options.apiProfile,
+          conversationId: options.conversationId,
+        }),
+        options.isCancelled,
+      );
+      if (pending === CANCELLED) {
+        return abandonCancelled();
+      }
+      response = pending;
     } catch (error) {
+      if (options.isCancelled()) {
+        return abandonCancelled();
+      }
       state.status = "failed";
       state.failureCode = "model_error";
       state.failureDetail = errorText(error);
@@ -289,9 +351,25 @@ export const runToolCorrection = async (
 
     let approved = false;
     try {
-      approved = await options.authorize(correctedArguments, attemptIndex);
+      const decision = await raceCancellation(
+        options.authorize(correctedArguments, attemptIndex),
+        options.isCancelled,
+      );
+      if (decision === CANCELLED) {
+        attempt.status = "failed";
+        attempt.error = "Conversation cancelled";
+        attempt.finishedAt = Date.now();
+        return abandonCancelled();
+      }
+      approved = decision;
     } catch {
       approved = false;
+    }
+    if (options.isCancelled()) {
+      attempt.status = "failed";
+      attempt.error = "Conversation cancelled";
+      attempt.finishedAt = Date.now();
+      return abandonCancelled();
     }
     if (!approved) {
       attempt.status = "rejected";
@@ -302,21 +380,29 @@ export const runToolCorrection = async (
       return null;
     }
 
+    let correctedResult: string;
+    try {
+      const executed = await raceCancellation(
+        options.execute(correctedArguments, attemptIndex),
+        options.isCancelled,
+      );
+      if (executed === CANCELLED) {
+        attempt.status = "failed";
+        attempt.error = "Conversation cancelled";
+        attempt.finishedAt = Date.now();
+        return abandonCancelled();
+      }
+      correctedResult = executed;
+    } catch (error) {
+      correctedResult = JSON.stringify({ error: errorText(error) });
+    }
+
+    // 取消晚于执行返回：结果作废，不再把修正结果交给模型。
     if (options.isCancelled()) {
       attempt.status = "failed";
       attempt.error = "Conversation cancelled";
       attempt.finishedAt = Date.now();
-      state.status = "abandoned";
-      state.failureCode = "cancelled";
-      publish();
-      return null;
-    }
-
-    let correctedResult: string;
-    try {
-      correctedResult = await options.execute(correctedArguments, attemptIndex);
-    } catch (error) {
-      correctedResult = JSON.stringify({ error: errorText(error) });
+      return abandonCancelled();
     }
 
     const failure = detectToolFailure(correctedResult);

@@ -1042,6 +1042,11 @@ export const useConversationManagement = (
    */
   const abortSubAgentTree = useCallback(
     (subKey: string): void => {
+      // 级联中止同样要停掉子代理自己的纠错请求，否则它的 Loop 会继续等待
+      // 修复结果，子代理会话永远停在运行态。
+      if (!isPendingSessionKey(subKey)) {
+        void window.snow.cancelToolCorrection(subKey).catch(() => false);
+      }
       if (isDurableSubAgentConversation(subKey)) {
         void stopSubAgentParentTask(ctx, subKey).catch((error) =>
           reportSubAgentParentError(ctx, subKey, error),
@@ -1128,6 +1133,9 @@ export const useConversationManagement = (
           : (ctx.activeSessionKeyRef.current ?? PENDING_SESSION_KEY);
       const ref = ctx.sessionsRefData.current.get(key);
       if (!isPendingSessionKey(key)) {
+        // 纠错请求虽然跑在 AI Loop 内部，却是独立的辅助请求：必须先取消它，
+        // 否则 Loop 会一直等修复结果，会话停在运行态（新消息排队、无法回退）。
+        void window.snow.cancelToolCorrection(key).catch(() => false);
         // 子代理的「立即发送」只软中断当前回合（forceSendAbort 已预置），
         // 不能取消其持久运行：回合收尾后由强行发送循环在本会话继续。
         const durableChild = isDurableSubAgentConversation(key);
@@ -1239,6 +1247,12 @@ export const useConversationManagement = (
     (conversationId: string): void => {
       const ref = ctx.sessionsRefData.current.get(conversationId);
 
+      // 删除/移除会话：在途纠错请求必须一并中止，不能让它继续占用该会话。
+      if (!isPendingSessionKey(conversationId)) {
+        void window.snow
+          .cancelToolCorrection(conversationId)
+          .catch(() => false);
+      }
       rejectToolAuthorizations(conversationId);
       rejectPendingUserQuestions(conversationId);
       killRunningToolExecutions(

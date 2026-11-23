@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 
 use napi::bindgen_prelude::*;
@@ -156,6 +157,73 @@ pub fn cancel_summary(conversation_id: &str) -> bool {
 pub fn unregister_summary(conversation_id: &str) {
     with_summary_registry(|registry| {
         registry.remove(conversation_id);
+    });
+}
+
+// ============================================================================
+// Tool-call correction cancellation, keyed by conversation id. The repair
+// request belongs to the conversation's AI loop but runs as an auxiliary
+// (ephemeral) HTTP call with no stream id, so aborting the loop used to leave
+// it running: the loop kept awaiting the repair answer, the session stayed in
+// the running state and no new message could be sent / rolled back. Aborts now
+// cancel the token here as well. Each registration carries a generation so a
+// late finisher cannot evict the token of a newer request.
+// ============================================================================
+
+type CorrectionEntry = (u64, CancellationToken);
+
+static CORRECTION_REGISTRY: Mutex<Option<HashMap<String, CorrectionEntry>>> = Mutex::new(None);
+static CORRECTION_GENERATION: AtomicU64 = AtomicU64::new(1);
+
+fn with_correction_registry<F, R>(f: F) -> R
+where
+    F: FnOnce(&mut HashMap<String, CorrectionEntry>) -> R,
+{
+    let mut guard = CORRECTION_REGISTRY
+        .lock()
+        .expect("Correction registry mutex poisoned");
+    let registry = guard.get_or_insert_with(HashMap::new);
+    f(registry)
+}
+
+/// Register the correction token of a conversation and return its generation.
+/// A still-registered token (a request left over from a previous run) is
+/// cancelled before being replaced.
+pub fn register_correction(conversation_id: &str, token: CancellationToken) -> u64 {
+    let generation = CORRECTION_GENERATION.fetch_add(1, Ordering::Relaxed);
+    let previous = with_correction_registry(|registry| {
+        registry.insert(conversation_id.to_string(), (generation, token))
+    });
+    if let Some((_, previous)) = previous {
+        previous.cancel();
+    }
+    generation
+}
+
+/// Cancel the in-flight correction of a conversation. Returns `true` when a
+/// request was running. Unlike stream cancellation this never records a
+/// pre-cancelled id: cancelling with nothing in flight must not poison the
+/// next correction of the same conversation.
+pub fn cancel_correction(conversation_id: &str) -> bool {
+    with_correction_registry(|registry| match registry.remove(conversation_id) {
+        Some((_, token)) => {
+            token.cancel();
+            true
+        }
+        None => false,
+    })
+}
+
+/// Remove the correction token without cancelling it. Only the registration
+/// that still owns the entry may remove it (guarded by its generation).
+pub fn unregister_correction(conversation_id: &str, generation: u64) {
+    with_correction_registry(|registry| {
+        let owned = registry
+            .get(conversation_id)
+            .is_some_and(|(current, _)| *current == generation);
+        if owned {
+            registry.remove(conversation_id);
+        }
     });
 }
 

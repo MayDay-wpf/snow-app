@@ -855,6 +855,15 @@ export const registerNativeHandlers = (native: NativeBridge): void => {
           : undefined,
     });
   });
+  ipcMain.handle(
+    "mcp:cancel-tool-correction",
+    (_event, conversationId: unknown) => {
+      if (typeof conversationId !== "string" || !conversationId.trim()) {
+        throw new Error("Conversation ID is required to cancel a correction");
+      }
+      return native.cancelToolCorrection(conversationId.trim());
+    },
+  );
   ipcMain.handle("chat:predict-reply", (_event, request: unknown) => {
     if (!request || typeof request !== "object" || Array.isArray(request)) {
       throw new Error("Reply prediction request is required");

@@ -3440,6 +3440,8 @@ export type NativeBridge = ImageGenerationNativeApi & {
   correctToolCall: (
     request: ToolCorrectionRequest,
   ) => Promise<ToolCorrectionResponse>;
+  /** 取消指定会话在途的工具纠错请求（AI Loop 被取消时调用）。 */
+  cancelToolCorrection: (conversationId: string) => boolean;
   /** 基础模型预测用户下一条消息（回复预测）。 */
   predictReply: (
     request: ReplyPredictionRequest,

@@ -178,6 +178,7 @@ const createUnavailableBridge = (): NativeBridge => {
     revokePromptContextAccess: undefined,
     getPromptContextSourcePreview: undefined,
     abortToolExecution: () => false,
+    cancelToolCorrection: () => false,
     migrateCheckpointLayout: () => Promise.resolve(0),
     setRemoteControlRendererBridge: () => {},
     setCheckpointRemoteCallback: () => {},

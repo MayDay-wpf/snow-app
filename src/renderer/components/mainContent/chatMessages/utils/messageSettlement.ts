@@ -42,15 +42,34 @@ const settleMessage = (
   // 传输层空闲超时导致的中止要留下原因：否则这条消息会静默收尾，用户与日志
   // 都看不出「是超时，不是自己停的」。其余中止不写中断原因。
   interruptionReason: interruptionReason ?? message.interruptionReason,
-  toolCalls: message.toolCalls?.map((toolCall) =>
-    toolCall.status === "running" || toolCall.status === "pending"
-      ? {
-          ...toolCall,
-          status: "error" as const,
-          result: toolCall.result ?? "Interrupted by user",
-        }
-      : toolCall,
-  ),
+  toolCalls: message.toolCalls?.map((toolCall) => {
+    const interrupted =
+      toolCall.status === "running" || toolCall.status === "pending";
+    // 纠错同样属于被中止的回合：状态停在 running 会让卡片一直显示「纠错中」。
+    const correction = toolCall.correction;
+    const correctionInterrupted = correction?.status === "running";
+    if (!interrupted && !correctionInterrupted) {
+      return toolCall;
+    }
+    return {
+      ...toolCall,
+      ...(interrupted
+        ? {
+            status: "error" as const,
+            result: toolCall.result ?? "Interrupted by user",
+          }
+        : {}),
+      ...(correction && correctionInterrupted
+        ? {
+            correction: {
+              ...correction,
+              status: "abandoned" as const,
+              failureCode: "cancelled" as const,
+            },
+          }
+        : {}),
+    };
+  }),
 });
 
 /**

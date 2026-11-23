@@ -66,35 +66,76 @@ pub struct ToolCorrectionResponse {
     pub reasoning: String,
 }
 
+/// 稳定的取消错误文本：渲染层据此把纠错标记为「会话已取消」而不是模型故障。
+pub const CANCELLED_ERROR: &str = "Tool correction cancelled";
+
 pub async fn correct_tool_call(
     request: ToolCorrectionRequest,
 ) -> Result<ToolCorrectionResponse> {
-    let tool_name = request.tool_name.trim();
-    if tool_name.is_empty() {
+    if request.tool_name.trim().is_empty() {
         return Err(Error::from_reason(
             "Tool name is required for tool-call correction.",
         ));
     }
 
-    let (database_path, api_config, custom_headers, model) =
-        resolve_correction_llm_context(
-            request.api_profile.as_deref(),
-            request.conversation_id.as_deref().unwrap_or(""),
-        )?;
-    let user_content = build_correction_user_content(&request);
+    // 纠错请求属于该会话的 AI Loop：Loop 被取消时必须一并中止，否则 Loop 一直
+    // 等修复结果，会话停在运行态，新消息发不出去也无法回退。
+    let conversation_id = request
+        .conversation_id
+        .as_deref()
+        .map(str::trim)
+        .unwrap_or("")
+        .to_string();
+    let cancel_token = CancellationToken::new();
+    let generation = if conversation_id.is_empty() {
+        None
+    } else {
+        Some(crate::api::cancel::register_correction(
+            &conversation_id,
+            cancel_token.clone(),
+        ))
+    };
 
-    let text = tokio::time::timeout(
-        std::time::Duration::from_secs(60),
-        request_correction_text(
-            database_path,
-            api_config,
-            custom_headers,
-            &model,
-            &user_content,
-        ),
-    )
-    .await
-    .map_err(|_| Error::from_reason("Tool correction request timed out."))??;
+    let result = request_correction_response(&request, cancel_token).await;
+
+    if let Some(generation) = generation {
+        crate::api::cancel::unregister_correction(&conversation_id, generation);
+    }
+    result
+}
+
+/// 解析上下文并请求修复文本；取消优先于超时，取消后立即返回。
+async fn request_correction_response(
+    request: &ToolCorrectionRequest,
+    cancel_token: CancellationToken,
+) -> Result<ToolCorrectionResponse> {
+    let (database_path, api_config, custom_headers, model) = resolve_correction_llm_context(
+        request.api_profile.as_deref(),
+        request.conversation_id.as_deref().unwrap_or(""),
+    )?;
+    let user_content = build_correction_user_content(request);
+
+    let text = tokio::select! {
+        biased;
+        _ = cancel_token.cancelled() => {
+            return Err(Error::from_reason(CANCELLED_ERROR));
+        }
+        result = tokio::time::timeout(
+            std::time::Duration::from_secs(60),
+            request_correction_text(
+                database_path,
+                api_config,
+                custom_headers,
+                &model,
+                &user_content,
+                cancel_token.clone(),
+            ),
+        ) => result.map_err(|_| Error::from_reason("Tool correction request timed out."))??,
+    };
+
+    if cancel_token.is_cancelled() {
+        return Err(Error::from_reason(CANCELLED_ERROR));
+    }
 
     parse_correction_response(&text)
 }
@@ -142,6 +183,7 @@ async fn request_correction_text(
     custom_headers: HashMap<String, String>,
     model: &str,
     user_content: &str,
+    cancel_token: CancellationToken,
 ) -> Result<String> {
     let mut correction_messages = vec![
         ResponsesApiMessage {
@@ -205,7 +247,6 @@ async fn request_correction_text(
     };
 
     let method = api_config.request_method.clone();
-    let cancel_token = CancellationToken::new();
     let result = crate::api::ephemeral::run(request, move |request| async move {
         match method.as_str() {
             "responses" => crate::api::responses::create_response_stream_with_context(

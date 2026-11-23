@@ -90,6 +90,11 @@ export const useRollback = (ctx: ConversationContextValue) => {
       // original delegation while the preview or owner preparation awaits I/O.
       revokeSubAgentParentOwnership(key);
       if (!isPendingSessionKey(key)) abortConversationRun(key);
+      // 回退前先停掉在途纠错请求：它属于即将被截断的回合，继续等待只会让
+      // 会话停在运行态，回退链路与后续新消息都会被拖住。
+      if (!isPendingSessionKey(key)) {
+        void window.snow.cancelToolCorrection(key).catch(() => false);
+      }
 
       // Abort any in-flight stream before rolling back.
       const ref = ctx.sessionsRefData.current.get(key);

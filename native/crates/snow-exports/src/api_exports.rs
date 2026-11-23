@@ -203,6 +203,23 @@ pub async fn correct_tool_call(
     crate::utils::panic_guard::guard_panic(correct_tool_call_impl(request)).await
 }
 
+/// Cancel the in-flight tool-call correction of a conversation. The correction
+/// belongs to the conversation's AI loop, so stopping that loop must abort the
+/// repair request as well; otherwise the loop keeps waiting for the answer and
+/// the session stays locked (no new message, no rollback). Returns whether a
+/// request was running.
+#[napi]
+pub fn cancel_tool_correction(conversation_id: String) -> napi::Result<bool> {
+    let normalized = conversation_id.trim();
+    if normalized.is_empty() {
+        return Err(Error::new(
+            Status::InvalidArg,
+            "Conversation ID is required to cancel a tool correction".to_string(),
+        ));
+    }
+    Ok(crate::api::cancel::cancel_correction(normalized))
+}
+
 /// 注册（或清除）对话请求代理回调。主进程初始化时调用一次：请求体发出前与
 /// SSE 响应事件送达前，Rust 通过该回调把数据交给用户可编辑的代理脚本处理。
 #[napi]

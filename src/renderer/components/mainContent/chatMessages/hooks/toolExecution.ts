@@ -4,6 +4,7 @@ import {
   getErrorMessage,
   isValidToolName,
   isUserQuestionCancellationResult,
+  killRunningToolExecutions,
   resolveConversationWorkspacePath,
   updateFirstMatchingToolCall,
   validateToolCall,
@@ -737,6 +738,20 @@ export function createToolExecutor(
           },
           isCancelled: () => isRunCancelled(effectiveKey),
         });
+
+        // 纠错被取消时，重新执行可能才拿到 execution id（abort 早于 chunk 到达）：
+        // 这里再回收一次。只处理本回合自己的消息——强行发送会立刻开始新回合，
+        // 不能误杀新回合的工具执行。
+        if (!outcome && isRunCancelled(effectiveKey)) {
+          const interruptedMessage = ctx.sessionsRef.current?.[
+            effectiveKey
+          ]?.messages.find(
+            (message) => message.id === currentAssistantMessageId,
+          );
+          if (interruptedMessage) {
+            killRunningToolExecutions([interruptedMessage]);
+          }
+        }
 
         if (outcome) {
           await persistCorrectedArguments(correctedCall, outcome.arguments);

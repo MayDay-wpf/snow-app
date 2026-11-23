@@ -799,6 +799,8 @@ export const systemApi = {
     request: ToolCorrectionRequest,
   ): Promise<ToolCorrectionResponse> =>
     ipcRenderer.invoke("mcp:correct-tool-call", request),
+  cancelToolCorrection: (conversationId: string): Promise<boolean> =>
+    ipcRenderer.invoke("mcp:cancel-tool-correction", conversationId),
   predictReply: (
     request: ReplyPredictionRequest,
   ): Promise<ReplyPredictionResult> =>
