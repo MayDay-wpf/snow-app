@@ -29,6 +29,7 @@ import { openImageLightbox } from "./overlays";
 import { openRollbackSheet } from "./rollback";
 import { createStreamCursorNode, streamCursorDigest } from "./streamCursor";
 import { createAskGroupEl, createToolCallEl } from "./tools";
+import { getTranscriptStyle } from "./transcriptStyle";
 import { correctionDigest } from "./tools/correction";
 import {
   attachMessageNode,
@@ -425,6 +426,52 @@ const contentBlockSig = (message: SnowRemoteMessage): string => {
   );
 };
 
+/**
+ * 工具活动块：经典 / 简洁方案是纯列表；极简方案把整段活动合并成一个恒展开的
+ * 集合（标题 + 工具列表），与桌面 minimal 的「工具集合」同构。
+ */
+const createActivityBlock = (
+  tools: SnowRemoteToolCall[],
+  minimal: boolean,
+): HTMLElement => {
+  const list = document.createElement("div");
+  list.className = "activity";
+  syncToolList(list, tools);
+  if (!minimal) return list;
+
+  const collection = document.createElement("details");
+  collection.className = "activity-collection";
+  collection.open = true;
+  const summary = document.createElement("summary");
+  summary.className = "activity-collection-head";
+  const title = document.createElement("span");
+  title.className = "activity-collection-title";
+  title.textContent = t("remote.timeline.tools");
+  const count = document.createElement("span");
+  count.className = "activity-collection-count";
+  count.textContent = String(tools.length);
+  const chevron = document.createElement("span");
+  chevron.className = "tc-chevron";
+  summary.append(title, count, chevron);
+  collection.append(summary, list);
+  return collection;
+};
+
+/** 工具活动块的数据更新：列表走工具级 diff，集合标题的计数同步刷新。 */
+const patchActivityBlock = (
+  host: HTMLElement,
+  tools: SnowRemoteToolCall[],
+  minimal: boolean,
+): void => {
+  const list = minimal ? host.querySelector<HTMLElement>(".activity") : host;
+  if (!list) return;
+  syncToolList(list, tools);
+  const count = minimal
+    ? host.querySelector<HTMLElement>(".activity-collection-count")
+    : null;
+  if (count) count.textContent = String(tools.length);
+};
+
 const buildMessageBlocks = (
   message: SnowRemoteMessage,
   index: number,
@@ -433,10 +480,12 @@ const buildMessageBlocks = (
 ): BlockSpec[] => {
   const role = message.role || "assistant";
   const body = message.content || "";
+  const transcriptStyle = getTranscriptStyle();
   const blocks: BlockSpec[] = [];
 
   const thinking = message.thinking || "";
-  if (thinking) {
+  // 极简方案隐藏思考块（与桌面 minimal 一致）。
+  if (thinking && transcriptStyle !== "minimal") {
     const thinkingActive = isThinkingDisplayActive(message);
     const summaryText = thinkingActive
       ? t("remote.message.thinkingActive")
@@ -497,16 +546,13 @@ const buildMessageBlocks = (
   // 节点进度更新（patch）不会重建其它工具条目。
   const activityTools = tools.filter((tool) => !isWorkflowCardTool(tool));
   if (activityTools.length) {
+    const minimal = transcriptStyle === "minimal";
     blocks.push({
-      key: "activity",
-      sig: toolSummary(activityTools),
-      create: () => {
-        const el = document.createElement("div");
-        el.className = "activity";
-        syncToolList(el, activityTools);
-        return el;
-      },
-      patch: (el) => syncToolList(el, activityTools),
+      // 方案参与 key：切换方案必须重建工具活动块（极简是集合结构，与列表不同构）。
+      key: `activity:${transcriptStyle}`,
+      sig: `${transcriptStyle}\u0001${toolSummary(activityTools)}`,
+      create: () => createActivityBlock(activityTools, minimal),
+      patch: (el) => patchActivityBlock(el, activityTools, minimal),
     });
   }
   for (const tool of tools) {
@@ -606,6 +652,8 @@ const messageSignature = (
   return [
     message.id,
     role,
+    // 会话记录方案参与签名：切换方案后所有消息都要按新结构重建。
+    getTranscriptStyle(),
     message.status || "",
     contentBlockSig(message),
     contentDigest(message.thinking || ""),
@@ -1361,6 +1409,11 @@ export const renderTimeline = (
     rebuild: conversationChanged,
   });
   updateLoadEarlierButton();
+};
+
+/** 会话记录方案变化后按当前快照重绘（方案已进入消息签名，相关块会重建）。 */
+export const rerenderTimeline = (): void => {
+  if (currentState) renderTimeline(currentState, false);
 };
 
 /**

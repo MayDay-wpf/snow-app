@@ -4968,3 +4968,291 @@ html[data-theme="light"] .interaction-more {
   /* 浅色底上 var(--blue)（#276ee8）偏深，改用略亮一档的蓝保证可读 */
   color: #2f6fdd;
 }
+
+/* ── 设置页（入口固定在会话列表底部；正文按分组堆叠，后续设置项直接追加） ── */
+.thread-sheet {
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+.sheet-footer {
+  display: grid;
+  gap: 2px;
+  padding: 6px 10px calc(10px + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--line);
+}
+.sheet-footer-button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 620;
+  text-align: left;
+}
+.sheet-footer-button:active {
+  background: var(--panel2);
+}
+.sheet-footer-button .icn {
+  width: 16px;
+  height: 16px;
+  color: var(--muted);
+}
+.sheet-footer-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.sheet-footer-chevron {
+  display: inline-flex;
+  flex: none;
+  color: var(--dim);
+}
+.sheet-footer-chevron .icn {
+  width: 14px;
+  height: 14px;
+}
+
+.settings-body {
+  display: grid;
+  gap: 16px;
+  padding-bottom: 4px;
+}
+.settings-group {
+  display: grid;
+  gap: 8px;
+}
+.settings-group-title {
+  font-size: 12px;
+  font-weight: 650;
+}
+.settings-group-hint {
+  margin-top: -3px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+.settings-options {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+.settings-option {
+  display: grid;
+  gap: 3px;
+  padding: 9px 6px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.035);
+  color: var(--text);
+  text-align: center;
+}
+.settings-option:active {
+  transform: scale(0.98);
+}
+.settings-option.active {
+  border-color: var(--accent-color-border);
+  background: var(--accent-color-dim);
+}
+.settings-option-label {
+  font-size: 12px;
+  font-weight: 650;
+}
+.settings-option-hint {
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.35;
+}
+html[data-theme="light"] .settings-option {
+  background: rgba(15, 23, 42, 0.04);
+}
+
+/* ── 会话记录显示方案（data-tool-card-style，与桌面三档同语义） ──────────── */
+
+/* 简洁：工具行压成紧凑胶囊，状态改由分类图标颜色表达。 */
+:root[data-tool-card-style="chips"] .activity {
+  display: grid;
+  gap: 2px;
+  margin: 6px 0 10px;
+  padding-left: 0;
+  border-left: 0;
+}
+:root[data-tool-card-style="chips"] details.tool.tcn {
+  margin: 0;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  overflow: visible;
+}
+:root[data-tool-card-style="chips"] details.tool.tcn > summary.tc-summary {
+  gap: 6px;
+  min-height: 28px;
+  padding: 0 9px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  font-size: 12px;
+}
+:root[data-tool-card-style="chips"] details.tool.tcn[open] > summary.tc-summary {
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.07);
+}
+:root[data-tool-card-style="chips"]
+  details.tool.tcn
+  > summary.tc-summary
+  > .tool-dot,
+:root[data-tool-card-style="chips"]
+  details.tool.tcn
+  > summary.tc-summary
+  > .tool-state {
+  display: none;
+}
+:root[data-tool-card-style="chips"]
+  details.tool.tcn.running
+  > summary
+  .tool-name-icon,
+:root[data-tool-card-style="chips"]
+  details.tool.tcn.pending
+  > summary
+  .tool-name-icon {
+  color: var(--amber);
+}
+:root[data-tool-card-style="chips"]
+  details.tool.tcn.completed
+  > summary
+  .tool-name-icon {
+  color: var(--green);
+}
+:root[data-tool-card-style="chips"]
+  details.tool.tcn.error
+  > summary
+  .tool-name-icon {
+  color: var(--red);
+}
+:root[data-tool-card-style="chips"] details.tool.tcn > .tc-body {
+  margin: 3px 0 4px 12px;
+  padding: 8px 9px;
+}
+html[data-theme="light"][data-tool-card-style="chips"]
+  details.tool.tcn
+  > summary.tc-summary {
+  background: rgba(15, 23, 42, 0.045);
+}
+html[data-theme="light"][data-tool-card-style="chips"]
+  details.tool.tcn[open]
+  > summary.tc-summary {
+  background: rgba(15, 23, 42, 0.07);
+}
+
+/* 极简：隐藏思考，工具合并成一个恒展开的集合，工具行是纯文本。 */
+:root[data-tool-card-style="minimal"] .thinking {
+  display: none;
+}
+:root[data-tool-card-style="minimal"] .activity-collection {
+  margin: 6px 0 10px;
+}
+.activity-collection-title {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.activity-collection-count {
+  flex: none;
+  color: var(--dim);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+:root[data-tool-card-style="minimal"]
+  .activity-collection
+  > summary.activity-collection-head {
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+:root[data-tool-card-style="minimal"]
+  .activity-collection
+  > summary.activity-collection-head::-webkit-details-marker {
+  display: none;
+}
+:root[data-tool-card-style="minimal"]
+  .activity-collection
+  > summary.activity-collection-head
+  .tc-chevron {
+  margin-left: 1px;
+}
+.activity-collection[open] > summary .tc-chevron {
+  transform: rotate(225deg) translate(-1px, -1px);
+}
+:root[data-tool-card-style="minimal"] .activity {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding-left: 0;
+  border-left: 0;
+}
+:root[data-tool-card-style="minimal"] details.tool.tcn {
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  overflow: visible;
+}
+:root[data-tool-card-style="minimal"] details.tool.tcn > summary.tc-summary {
+  gap: 5px;
+  min-height: 26px;
+  padding: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+:root[data-tool-card-style="minimal"]
+  details.tool.tcn
+  > summary.tc-summary
+  > .tool-dot,
+:root[data-tool-card-style="minimal"]
+  details.tool.tcn
+  > summary.tc-summary
+  > .tool-state {
+  display: none;
+}
+:root[data-tool-card-style="minimal"]
+  details.tool.tcn.running
+  > summary
+  .tool-name-icon,
+:root[data-tool-card-style="minimal"]
+  details.tool.tcn.pending
+  > summary
+  .tool-name-icon {
+  color: var(--amber);
+}
+:root[data-tool-card-style="minimal"]
+  details.tool.tcn.completed
+  > summary
+  .tool-name-icon {
+  color: var(--green);
+}
+:root[data-tool-card-style="minimal"]
+  details.tool.tcn.error
+  > summary
+  .tool-name-icon {
+  color: var(--red);
+}
+:root[data-tool-card-style="minimal"] details.tool.tcn > .tc-body {
+  margin: 2px 0 8px 7px;
+  padding: 2px 0 2px 9px;
+  border: 0;
+  border-left: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+}

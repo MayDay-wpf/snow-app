@@ -463,6 +463,21 @@
       </section>
 
       <section
+        id="settingsPanel"
+        class="remote-panel"
+        aria-label="设置"
+        data-i18n-aria-label="remote.settings.title"
+      >
+        <div class="panel-head">
+          <h2>
+            <span class="icn-slot" data-icon="settings"></span>
+            <span data-i18n="remote.settings.title"></span>
+          </h2>
+        </div>
+        <div id="settingsBody" class="settings-body"></div>
+      </section>
+
+      <section
         id="todosPanel"
         class="remote-panel"
         aria-label="待办列表"
@@ -654,7 +669,7 @@
     <div id="scrim" class="scrim"></div>
     <section
       id="threadSheet"
-      class="sheet"
+      class="sheet thread-sheet"
       aria-modal="true"
       role="dialog"
       aria-label="选择会话"
@@ -671,6 +686,19 @@
         ></button>
       </div>
       <div id="threadList" class="thread-scroll"></div>
+      <div class="sheet-footer">
+        <button
+          id="threadSettingsButton"
+          class="sheet-footer-button"
+          type="button"
+          aria-label="设置"
+          data-i18n-aria-label="remote.settings.open"
+        >
+          <span class="icn-slot" data-icon="settings"></span>
+          <span class="sheet-footer-label" data-i18n="remote.settings.title"></span>
+          <span class="sheet-footer-chevron" data-icon="chevron-right"></span>
+        </button>
+      </div>
     </section>
 
     <div id="rollbackScrim" class="scrim"></div>

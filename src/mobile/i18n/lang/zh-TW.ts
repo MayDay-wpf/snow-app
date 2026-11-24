@@ -52,6 +52,7 @@ export const zhTW: Record<string, string> = {
   "remote.timeline.scrollToBottom": "捲動到底部",
   "remote.timeline.loadEarlier": "載入更早的紀錄",
   "remote.timeline.loadingEarlier": "正在載入更早的紀錄…",
+  "remote.timeline.tools": "工具活動",
 
   // 輸入區
   "remote.composer.placeholder": "@ 引用檔案，# 選擇技能",
@@ -422,6 +423,18 @@ export const zhTW: Record<string, string> = {
   "remote.threads.collapseChildren": "收起子工作階段",
   "remote.threads.expandGroup": "展開專案會話",
   "remote.threads.collapseGroup": "收起專案會話",
+
+  // 設定頁
+  "remote.settings.title": "設定",
+  "remote.settings.open": "開啟設定",
+  "remote.settings.transcript": "工作階段記錄",
+  "remote.settings.transcriptHint": "控制工具呼叫與思考在工作階段中的呈現方式。",
+  "remote.settings.transcriptClassic": "經典",
+  "remote.settings.transcriptClassicHint": "完整工具卡",
+  "remote.settings.transcriptChips": "簡潔",
+  "remote.settings.transcriptChipsHint": "緊湊膠囊列",
+  "remote.settings.transcriptMinimal": "極簡",
+  "remote.settings.transcriptMinimalHint": "隱藏思考，合併工具",
 
   // 相對時間
   "remote.time.justNow": "剛剛",

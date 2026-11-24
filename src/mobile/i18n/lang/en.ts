@@ -56,6 +56,7 @@ export const en: Record<string, string> = {
   "remote.timeline.scrollToBottom": "Scroll to bottom",
   "remote.timeline.loadEarlier": "Load earlier messages",
   "remote.timeline.loadingEarlier": "Loading earlier messages…",
+  "remote.timeline.tools": "Tool activity",
   "remote.compaction.generating": "Compacting context…",
   "remote.compaction.summary": "Context summary",
   "remote.compaction.compacted":
@@ -441,6 +442,19 @@ export const en: Record<string, string> = {
   "remote.threads.collapseChildren": "Collapse child sessions",
   "remote.threads.expandGroup": "Expand project conversations",
   "remote.threads.collapseGroup": "Collapse project conversations",
+
+  // Settings
+  "remote.settings.title": "Settings",
+  "remote.settings.open": "Open settings",
+  "remote.settings.transcript": "Transcript display",
+  "remote.settings.transcriptHint":
+    "Controls how tool calls and thinking appear in the transcript.",
+  "remote.settings.transcriptClassic": "Classic",
+  "remote.settings.transcriptClassicHint": "Full tool cards",
+  "remote.settings.transcriptChips": "Chips",
+  "remote.settings.transcriptChipsHint": "Compact chip rows",
+  "remote.settings.transcriptMinimal": "Minimal",
+  "remote.settings.transcriptMinimalHint": "Hide thinking, merge tools",
 
   // Relative time
   "remote.time.justNow": "Just now",

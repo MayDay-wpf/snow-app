@@ -57,6 +57,7 @@ export const zhCN: Record<string, string> = {
   "remote.timeline.scrollToBottom": "滚动到底部",
   "remote.timeline.loadEarlier": "加载更早的记录",
   "remote.timeline.loadingEarlier": "正在加载更早的记录…",
+  "remote.timeline.tools": "工具活动",
 
   // 输入区
   "remote.composer.placeholder": "@ 引用文件，# 选择技能",
@@ -427,6 +428,18 @@ export const zhCN: Record<string, string> = {
   "remote.threads.collapseChildren": "收起子会话",
   "remote.threads.expandGroup": "展开项目会话",
   "remote.threads.collapseGroup": "收起项目会话",
+
+  // 设置页
+  "remote.settings.title": "设置",
+  "remote.settings.open": "打开设置",
+  "remote.settings.transcript": "会话记录",
+  "remote.settings.transcriptHint": "控制工具调用与思考在会话中的呈现方式。",
+  "remote.settings.transcriptClassic": "经典",
+  "remote.settings.transcriptClassicHint": "完整工具卡",
+  "remote.settings.transcriptChips": "简洁",
+  "remote.settings.transcriptChipsHint": "紧凑胶囊行",
+  "remote.settings.transcriptMinimal": "极简",
+  "remote.settings.transcriptMinimalHint": "隐藏思考，合并工具",
 
   // 相对时间
   "remote.time.justNow": "刚刚",
