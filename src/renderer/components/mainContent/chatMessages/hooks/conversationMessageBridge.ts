@@ -20,9 +20,23 @@ export type ConversationMessageReceipt = {
   status: "started" | "queued";
 };
 
+/**
+ * 程序化发送的一次性模型选择：模型是请求级参数，只作用于本回合，
+ * 不写入档案配置，也不触发档案的上下文窗口上限同步。
+ */
+export type ConversationMessageSendOptions = {
+  /** 主请求模型；空白视为未指定，回落到档案的 advancedModel。 */
+  model?: string;
+  /** 仅用于首条消息标题生成的一次性基础模型。 */
+  basicModel?: string;
+  /** 本回合思考强度（缺省跟随档案配置）。 */
+  thinkingStrength?: string;
+};
+
 type ConversationMessageSender = (
   conversationId: string,
   text: string,
+  options?: ConversationMessageSendOptions,
 ) => Promise<ConversationMessageReceipt>;
 
 let activeSender: ConversationMessageSender | null = null;
@@ -39,11 +53,12 @@ let activeAborter: ConversationAborter | null = null;
 export const sendMessageToConversation = (
   conversationId: string,
   text: string,
+  options?: ConversationMessageSendOptions,
 ): Promise<ConversationMessageReceipt> => {
   if (!activeSender) {
     return Promise.reject(new Error("Chat runtime is not ready"));
   }
-  return activeSender(conversationId, text);
+  return activeSender(conversationId, text, options);
 };
 
 const prepareBackgroundSession = async (
@@ -109,6 +124,7 @@ const deliverMessage = async (
   ctx: ConversationContextValue,
   conversationId: string,
   text: string,
+  sendOverrides?: ConversationMessageSendOptions,
 ): Promise<ConversationMessageReceipt> => {
   const trimmed = text.trim();
   if (!trimmed) {
@@ -122,6 +138,14 @@ const deliverMessage = async (
     targetSessionKey: conversationId,
     origin: "internal",
   };
+  // 模型随请求下发：只有显式给出才写字段，空白按未指定处理，由 Native
+  // 回落到档案默认值；不修改档案配置，也不同步模型窗口上限。
+  const model = sendOverrides?.model?.trim();
+  if (model) options.model = model;
+  const basicModel = sendOverrides?.basicModel?.trim();
+  if (basicModel) options.basicModel = basicModel;
+  const thinkingStrength = sendOverrides?.thinkingStrength?.trim();
+  if (thinkingStrength) options.thinkingStrength = thinkingStrength;
   ctx.handleSendMessageRef.current(trimmed, options);
   return { conversationId, status: wasBusy ? "queued" : "started" };
 };
@@ -136,8 +160,8 @@ export const useConversationMessageBridge = (
   const ctxRef = useRef(ctx);
   ctxRef.current = ctx;
   useEffect(() => {
-    const sender: ConversationMessageSender = (conversationId, text) =>
-      deliverMessage(ctxRef.current, conversationId, text);
+    const sender: ConversationMessageSender = (conversationId, text, options) =>
+      deliverMessage(ctxRef.current, conversationId, text, options);
     activeSender = sender;
     return () => {
       if (activeSender === sender) {

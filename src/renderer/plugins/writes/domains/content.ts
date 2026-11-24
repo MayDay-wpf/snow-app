@@ -494,14 +494,18 @@ export const CONTENT_WRITE_ACTIONS: PluginWriteActionDefinition[] = [
     action: "sendMessage",
     scope: "conversations",
     summary: l10n(
-      "Send a user message to a specific conversation",
-      "向指定会话投递用户消息",
-      "向指定工作階段投遞使用者訊息",
+      "Send a user message to a specific conversation (optional model, basicModel or thinkingStrength for this turn)",
+      "向指定会话投递用户消息（可选 model / basicModel / thinkingStrength 覆盖本回合）",
+      "向指定工作階段投遞使用者訊息（可選 model / basicModel / thinkingStrength 覆寫本回合）",
     ),
     invoke: async ({ params }) => {
       const conversationId = requireString(params, "conversationId");
       const text = requireString(params, "text");
-      return await sendMessageToConversation(conversationId, text);
+      return await sendMessageToConversation(conversationId, text, {
+        model: optionalString(params, "model"),
+        basicModel: optionalString(params, "basicModel"),
+        thinkingStrength: optionalString(params, "thinkingStrength"),
+      });
     },
   },
   {
@@ -524,9 +528,9 @@ export const CONTENT_WRITE_ACTIONS: PluginWriteActionDefinition[] = [
     action: "create",
     scope: "conversations",
     summary: l10n(
-      "Create a conversation in a project, optionally with initial text and a bound API profile",
-      "在项目中新建会话，可携带初始内容并绑定 API 档案",
-      "在專案中新增工作階段，可附帶初始內容並綁定 API 檔案",
+      "Create a conversation in a project, optionally with initial text, a bound API profile and a reply model",
+      "在项目中新建会话，可携带初始内容、绑定 API 档案并指定回复模型",
+      "在專案中新增工作階段，可附帶初始內容、綁定 API 檔案並指定回覆模型",
     ),
     invoke: async ({ params }) => {
       return await createConversationInDirectory({
@@ -535,6 +539,9 @@ export const CONTENT_WRITE_ACTIONS: PluginWriteActionDefinition[] = [
         text: optionalString(params, "text"),
         autoReply: optionalBoolean(params, "autoReply") ?? false,
         apiProfile: optionalString(params, "apiProfile"),
+        model: optionalString(params, "model"),
+        basicModel: optionalString(params, "basicModel"),
+        thinkingStrength: optionalString(params, "thinkingStrength"),
       });
     },
   },
