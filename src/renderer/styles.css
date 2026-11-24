@@ -65609,6 +65609,13 @@ img.plugin-icon {
   padding-bottom: 2px;
 }
 
+/* 无运行中/置顶会话时历史分组紧贴项目行：收窄顶部内边距，与底部间隙对称 */
+.tree-project-chats
+  > .tree-chat-history-group:first-child
+  .chat-time-group-header {
+  padding-top: 2px;
+}
+
 /* 多选操作栏吸顶（与项目行吸顶同一套偏移）：树列表整体滚动，
    多选栏跟随所属项目固定在项目行下方，不随会话行滚走，
    top = 项目行吸顶偏移 + 一行高度 */
