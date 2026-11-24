@@ -148,6 +148,18 @@ export function useProjectsWorkspace({
     void loadProjectCollections();
   }, [loadProjectCollections, loadWorkspaceDirectories]);
 
+  const handleMigrated = useCallback((): void => {
+    setHistoryTarget(null);
+    setDirectoryError(null);
+    void loadWorkspaceDirectories();
+    void loadProjectCollections();
+  }, [
+    loadProjectCollections,
+    loadWorkspaceDirectories,
+    setDirectoryError,
+    setHistoryTarget,
+  ]);
+
   const isActionLocked =
     isSavingDirectory || isReorderingDirectories || isSwitchingDirectory;
 
@@ -199,6 +211,7 @@ export function useProjectsWorkspace({
     openLinkProjects,
     handleRelinked,
     handleRelinkUndone,
+    handleMigrated,
   };
 }
 

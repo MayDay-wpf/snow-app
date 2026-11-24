@@ -363,7 +363,12 @@ export const zhTW = {
   "sidebar.relinkDirectoryMerged": "該位置已有記錄，將執行合併。",
   "sidebar.relinkDirectoryReindex": "程式碼庫索引會被清除，之後可重新建立。",
   "sidebar.relinkDirectoryConfirm": "重新定位",
-  "sidebar.directoryRelinkHistory": "遷移記錄",
+  "sidebar.directoryMigrate": "遷移",
+  "sidebar.migrateDirectoryTitle": "遷移",
+  "sidebar.migrateDirectoryTargetLabel": "移動到",
+  "sidebar.migrateDirectorySelectTitle": "選擇專案要移動到的資料夾",
+  "sidebar.migrateDirectoryConfirm": "遷移",
+  "sidebar.migrateDirectoryPreviewLoading": "正在產生遷移預覽…",
   "sidebar.relinkHistoryTitle": "遷移記錄",
   "sidebar.relinkHistoryLoading": "正在載入遷移記錄…",
   "sidebar.relinkHistoryEmpty":

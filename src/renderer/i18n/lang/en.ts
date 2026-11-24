@@ -391,7 +391,12 @@ export const en = {
   "sidebar.relinkDirectoryReindex":
     "The codebase index will be cleared and can be rebuilt afterwards.",
   "sidebar.relinkDirectoryConfirm": "Relink",
-  "sidebar.directoryRelinkHistory": "Relocation history",
+  "sidebar.directoryMigrate": "Migrate",
+  "sidebar.migrateDirectoryTitle": "Migrate",
+  "sidebar.migrateDirectoryTargetLabel": "Move to",
+  "sidebar.migrateDirectorySelectTitle": "Select the folder to move the project to",
+  "sidebar.migrateDirectoryConfirm": "Migrate",
+  "sidebar.migrateDirectoryPreviewLoading": "Preparing the migration preview…",
   "sidebar.relinkHistoryTitle": "Relocation history",
   "sidebar.relinkHistoryLoading": "Loading relocation history…",
   "sidebar.relinkHistoryEmpty":

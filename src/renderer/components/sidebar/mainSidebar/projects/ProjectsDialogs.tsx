@@ -2,8 +2,8 @@ import { useMemo } from "react";
 
 import { useI18n } from "../../../../i18n";
 import { ConfirmDialog } from "../../../common/ConfirmDialog";
+import { MigrateDirectoryDialog } from "../MigrateDirectoryDialog";
 import { RelinkDirectoryDialog } from "../RelinkDirectoryDialog";
-import { RelinkHistoryDialog } from "../RelinkHistoryDialog";
 import { AddDirectoryMenuDialog } from "./dialogs/AddDirectoryMenuDialog";
 import { AddLocalDirectoryDialog } from "./dialogs/AddLocalDirectoryDialog";
 import { CloneRepositoryDialog } from "./dialogs/CloneRepositoryDialog";
@@ -42,6 +42,7 @@ export function ProjectsDialogs({
     setHistoryTarget,
     handleRelinked,
     handleRelinkUndone,
+    handleMigrated,
     isProjectGridOpen,
     setIsProjectGridOpen,
   } = workspace;
@@ -173,9 +174,10 @@ export function ProjectsDialogs({
         onRelinked={handleRelinked}
       />
 
-      <RelinkHistoryDialog
+      <MigrateDirectoryDialog
         directory={historyTarget}
         onCancel={() => setHistoryTarget(null)}
+        onMigrated={handleMigrated}
         onUndone={handleRelinkUndone}
       />
 

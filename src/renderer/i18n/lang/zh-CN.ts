@@ -362,7 +362,12 @@ export const zhCN = {
   "sidebar.relinkDirectoryMerged": "该位置已有记录，将执行合并。",
   "sidebar.relinkDirectoryReindex": "代码库索引会被清除，之后可重新建立。",
   "sidebar.relinkDirectoryConfirm": "重新定位",
-  "sidebar.directoryRelinkHistory": "迁移记录",
+  "sidebar.directoryMigrate": "迁移",
+  "sidebar.migrateDirectoryTitle": "迁移",
+  "sidebar.migrateDirectoryTargetLabel": "移动到",
+  "sidebar.migrateDirectorySelectTitle": "选择项目要移动到的文件夹",
+  "sidebar.migrateDirectoryConfirm": "迁移",
+  "sidebar.migrateDirectoryPreviewLoading": "正在生成迁移预览…",
   "sidebar.relinkHistoryTitle": "迁移记录",
   "sidebar.relinkHistoryLoading": "正在加载迁移记录…",
   "sidebar.relinkHistoryEmpty":

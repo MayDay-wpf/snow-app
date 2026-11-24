@@ -6,7 +6,7 @@ import {
   Ellipsis,
   FileSearch,
   FolderMinus,
-  History,
+  FolderSymlink,
   Link2,
   Loader2,
   Pencil,
@@ -611,10 +611,10 @@ export function WorkspaceDirectoryMenu({
                     onClick={handleShowRelinkHistoryClick}
                     role="menuitem"
                   >
-                    <History size={13} />
+                    <FolderSymlink size={13} />
                     <span>
-                      {t("sidebar.directoryRelinkHistory", {
-                        defaultValue: "Relocation history",
+                      {t("sidebar.directoryMigrate", {
+                        defaultValue: "Migrate",
                       })}
                     </span>
                   </button>

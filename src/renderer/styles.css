@@ -4584,6 +4584,28 @@ body.is-panel-resizing * {
   gap: 6px;
 }
 
+/* 迁移对话框：更换目录区与迁移记录区 */
+.migrate-directory-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.migrate-directory-section + .migrate-directory-section {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-color);
+}
+
+.migrate-directory-history-label {
+  display: block;
+}
+
+.migrate-directory-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
 /* 迁移记录列表 */
 .relink-history-list {
   display: flex;
