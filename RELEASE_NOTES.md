@@ -1,5 +1,18 @@
 # Release Notes
 
+## v0.5.26
+
+### New Features
+
+- **Directory Migration**: the local project menu opens a Migrate dialog where you pick a new folder, preview the affected data before confirming, and review or undo past relocations.
+- **Mobile Settings**: a settings entry at the bottom of the thread sheet switches how tool calls and thinking render in the transcript (classic, chips, minimal) and remembers the choice on the device.
+- **Global Corner Radius**: theme settings gain a radius switch and slider (0–24px) that overrides the radius bundled with the preset, with live preview; 0 turns everything square.
+- **Per-Turn Model Overrides**: `conversations.sendMessage` and `conversations.create` accept optional `model`, `basicModel` and `thinkingStrength` that apply only to the current turn without touching the API profile; `create` echoes the model used.
+
+### Improvements
+
+- Less top spacing on the sidebar history group header.
+
 ## v0.5.25
 
 ### New Features
