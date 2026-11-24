@@ -182,7 +182,16 @@ export function ApiSettingsTreePanel({
       const list = await window.snow.upsertApiConfig(
         toApiConfigPayload(addForm, addForm.isActive, configs.length),
       );
-      setConfigs(list);
+      // 手动新增的档案固定排在第一行：upsert 默认追加到末尾，
+      // 这里按名称顺序重新落库，其余档案保持原有相对顺序。
+      setConfigs(
+        await window.snow.reorderApiConfigs([
+          profileName,
+          ...list
+            .map((config) => config.profileName)
+            .filter((name) => name !== profileName),
+        ]),
+      );
       setAddForm(emptyApiConfigForm(list.length + 1, false));
       setShowAddForm(false);
       setStatus(
