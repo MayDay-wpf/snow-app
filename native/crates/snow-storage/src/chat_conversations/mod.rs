@@ -70,14 +70,19 @@ pub struct ChatContextMessage {
     /// For assistant messages, the reasoning/thinking text produced by the
     /// model. Chat Completions providers emit this as `reasoning_content`;
     /// Gemini emits it as a `thought` text part. The plain text is NOT
-    /// round-tripped to Anthropic (which needs signed blocks); use
-    /// `thinking_blocks_json` for Anthropic round-tripping instead.
+    /// round-tripped to Anthropic; that uses `content_blocks_json`.
     pub thinking: Option<String>,
-    /// JSON array of complete Anthropic thinking blocks (each with
-    /// type/thinking/signature). Only populated for assistant messages from
-    /// the Anthropic provider. Passed back verbatim to the Anthropic API so
-    /// thinking continuity is preserved across turns.
+    /// Provider-native reasoning replay payload. Gemini stores its
+    /// thought-signature parts here and OpenAI Responses its reasoning items;
+    /// both replay it verbatim to their own protocol.
     pub thinking_blocks_json: Option<String>,
+    /// Assistant turn content blocks in their original response order
+    /// (`text` / `thinking` / `redacted_thinking` / `tool_use`). Only populated
+    /// for turns produced by the Anthropic adapter. The Anthropic payload
+    /// builder replays these verbatim: the API requires thinking blocks and
+    /// their signatures to keep the exact original text, order and block
+    /// boundaries, so the turn must never be reconstructed from text + tools.
+    pub content_blocks_json: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -165,6 +170,10 @@ pub struct StoreChatExchangeInput<'a> {
     pub token_usage: ChatTokenUsage,
     pub response_thinking: &'a str,
     pub response_thinking_blocks_json: &'a str,
+    /// Assistant turn content blocks in original order (see
+    /// `ChatContextMessage::content_blocks_json`). `"[]"` for protocols that
+    /// have no ordered-block replay payload.
+    pub response_content_blocks_json: &'a str,
     /// Wall-clock duration (ms) between the first and last thinking delta of
     /// this response's stream. Persisted for the thinking block summary UI.
     pub response_thinking_duration_ms: i64,
@@ -299,6 +308,7 @@ pub fn create_chat_conversation(
                     "{}",
                     "",
                     "[]",
+                    "[]",
                     0,
                     0,
                     "[]",
@@ -342,7 +352,7 @@ pub fn load_context_view(
     database::open_connection(database_path)
         .and_then(|connection| {
             let mut statement = connection.prepare(
-                "SELECT role, content, tool_calls_json, raw_json, thinking, thinking_blocks_json, origin, id, status
+                "SELECT role, content, tool_calls_json, raw_json, thinking, thinking_blocks_json, content_blocks_json, origin, id, status
                    FROM chat_messages
                   WHERE conversation_id = ?1
                     AND id >= COALESCE(
@@ -359,6 +369,7 @@ pub fn load_context_view(
                       content <> ''
                       OR (role = 'assistant' AND tool_calls_json <> '' AND tool_calls_json <> '[]')
                       OR (role = 'assistant' AND thinking <> '')
+                      OR (role = 'assistant' AND content_blocks_json <> '' AND content_blocks_json <> '[]')
                     )
                     AND NOT (role = 'assistant' AND status = 'error')
                     AND NOT (
@@ -387,7 +398,8 @@ pub fn load_context_view(
                 let raw_json: String = row.get(3)?;
                 let thinking_raw: String = row.get(4)?;
                 let thinking_blocks_raw: String = row.get(5)?;
-                let status: String = row.get(8)?;
+                let content_blocks_raw: String = row.get(6)?;
+                let status: String = row.get(9)?;
                 let fold = (status == "context_compaction")
                     .then(|| ContextFoldMeta::parse(&raw_json))
                     .flatten();
@@ -414,9 +426,9 @@ pub fn load_context_view(
                 } else {
                     Some(thinking_raw)
                 };
-                // For assistant messages, restore the complete Anthropic
-                // thinking blocks (with signatures) so the Anthropic provider
-                // can round-trip them verbatim on the next request.
+                // For assistant messages, restore the provider-native reasoning
+                // replay payload (Gemini thought signatures / Responses
+                // reasoning items) so those protocols can round-trip it.
                 let thinking_blocks_json = if role.trim() == "assistant"
                     && !thinking_blocks_raw.is_empty()
                     && thinking_blocks_raw != "[]"
@@ -425,17 +437,29 @@ pub fn load_context_view(
                 } else {
                     None
                 };
+                // For assistant messages, restore the Anthropic content blocks
+                // in their original order so the Anthropic provider can replay
+                // the turn verbatim (thinking signatures must not be rewritten).
+                let content_blocks_json = if role.trim() == "assistant"
+                    && !content_blocks_raw.is_empty()
+                    && content_blocks_raw != "[]"
+                {
+                    Some(content_blocks_raw)
+                } else {
+                    None
+                };
                 Ok(ContextRow {
-                    id: row.get(7)?,
+                    id: row.get(8)?,
                     fold,
                     message: ChatContextMessage {
                         role,
-                        origin: row.get(6)?,
+                        origin: row.get(7)?,
                         content,
                         tool_calls_json,
                         tool_results_json,
                         thinking,
                         thinking_blocks_json,
+                        content_blocks_json,
                     },
                 })
             })?;
@@ -608,6 +632,7 @@ pub fn store_chat_exchange(
                     &raw_json,
                     "",
                     "[]",
+                    "[]",
                     0,
                     0,
                     "[]",
@@ -638,6 +663,7 @@ pub fn store_chat_exchange(
                                 None,
                                 "{}",
                                 "",
+                                "[]",
                                 "[]",
                                 0,
                                 0,
@@ -730,6 +756,7 @@ pub fn store_chat_exchange(
                             &raw_json,
                             "",
                             "[]",
+                            "[]",
                             0,
                             0,
                             "[]",
@@ -758,6 +785,7 @@ pub fn store_chat_exchange(
                     input.raw_response_json,
                     input.response_thinking,
                     input.response_thinking_blocks_json,
+                    input.response_content_blocks_json,
                     input.response_thinking_duration_ms,
                     input.response_thinking_token_count,
                     input.tool_calls_json,
@@ -915,6 +943,7 @@ pub fn store_failed_chat_exchange(
                 tool_results_json: message.tool_results_json.clone(),
                 thinking: message.thinking.clone(),
                 thinking_blocks_json: message.thinking_blocks_json.clone(),
+                content_blocks_json: message.content_blocks_json.clone(),
             })
         })
         .collect::<Vec<_>>();
@@ -963,6 +992,7 @@ pub fn store_failed_chat_exchange(
             token_usage: ChatTokenUsage::default(),
             response_thinking: "",
             response_thinking_blocks_json: "[]",
+            response_content_blocks_json: "[]",
             response_thinking_duration_ms: 0,
             response_thinking_token_count: 0,
             tool_calls_json: "[]",
@@ -1015,6 +1045,7 @@ pub fn append_tool_message(
                 None,
                 "{}",
                 "",
+                "[]",
                 "[]",
                 0,
                 0,
@@ -1081,6 +1112,7 @@ fn insert_message(
     raw_json: &str,
     thinking: &str,
     thinking_blocks_json: &str,
+    content_blocks_json: &str,
     thinking_duration_ms: i64,
     thinking_token_count: i64,
     tool_calls_json: &str,
@@ -1110,6 +1142,7 @@ fn insert_message(
            thinking_duration_ms,
            thinking_token_count,
            thinking_blocks_json,
+           content_blocks_json,
            tool_calls_json,
            input_tokens,
            output_tokens,
@@ -1120,7 +1153,7 @@ fn insert_message(
            origin,
            created_at
          ) VALUES (
-           ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, datetime('now', 'localtime')
+           ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, datetime('now', 'localtime')
          )",
         params![
             id,
@@ -1139,6 +1172,7 @@ fn insert_message(
             thinking_duration_ms,
             thinking_token_count,
             thinking_blocks_json,
+            content_blocks_json,
             tool_calls_json,
             token_usage.map(|usage| usage.input_tokens).unwrap_or(0),
             token_usage.map(|usage| usage.output_tokens).unwrap_or(0),

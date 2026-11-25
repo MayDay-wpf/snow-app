@@ -665,6 +665,7 @@ pub fn ensure_tool_pairing(messages: &mut Vec<ChatContextMessage>) {
 
         if role == "assistant" {
             // Filter out orphan tool calls (calls without matching results).
+            let mut calls_removed = false;
             if let Some(ref raw) = messages[i].tool_calls_json {
                 if let Ok(Value::Array(calls)) = serde_json::from_str::<Value>(raw) {
                     let filtered: Vec<Value> = calls
@@ -680,29 +681,52 @@ pub fn ensure_tool_pairing(messages: &mut Vec<ChatContextMessage>) {
 
                     if filtered.is_empty() {
                         messages[i].tool_calls_json = None;
-                        // Remove the message entirely if it has no other content.
-                        let has_content = !messages[i].content.trim().is_empty();
-                        let has_thinking = messages[i]
-                            .thinking
-                            .as_deref()
-                            .map(|t| !t.is_empty())
-                            .unwrap_or(false);
-                        let has_reasoning = messages[i]
-                            .thinking_blocks_json
-                            .as_deref()
-                            .map(|raw| {
-                                serde_json::from_str::<Value>(raw)
-                                    .ok()
-                                    .and_then(|v| v.as_array().map(|a| !a.is_empty()))
-                                    .unwrap_or(false)
-                            })
-                            .unwrap_or(false);
-                        if !has_content && !has_thinking && !has_reasoning {
-                            messages.remove(i);
-                        }
+                        calls_removed = true;
                     } else {
                         messages[i].tool_calls_json = serde_json::to_string(&filtered).ok();
                     }
+                }
+            }
+            // Anthropic 回放完全依赖有序内容块：孤儿 tool_use 必须同步裁掉，
+            // 否则块里会留下没有配对结果的工具调用，上游同样拒绝整个请求。
+            let mut blocks_removed = false;
+            if let Some(raw) = messages[i].content_blocks_json.clone() {
+                if let Ok(Value::Array(blocks)) = serde_json::from_str::<Value>(&raw) {
+                    let filtered: Vec<Value> = blocks
+                        .into_iter()
+                        .filter(|block| {
+                            if block.get("type").and_then(Value::as_str) != Some("tool_use") {
+                                return true;
+                            }
+                            let id = block.get("id").and_then(Value::as_str).unwrap_or_default();
+                            !id.is_empty() && all_result_ids.contains(id)
+                        })
+                        .collect();
+                    if filtered.is_empty() {
+                        messages[i].content_blocks_json = None;
+                        blocks_removed = true;
+                    } else {
+                        messages[i].content_blocks_json = serde_json::to_string(&filtered).ok();
+                    }
+                }
+            }
+            if calls_removed || blocks_removed {
+                // Remove the message entirely if nothing replayable remains.
+                let has_entries = |raw: Option<&str>| {
+                    raw.and_then(|raw| serde_json::from_str::<Value>(raw).ok())
+                        .and_then(|value| value.as_array().map(|items| !items.is_empty()))
+                        .unwrap_or(false)
+                };
+                let has_content = !messages[i].content.trim().is_empty();
+                let has_thinking = messages[i]
+                    .thinking
+                    .as_deref()
+                    .map(|text| !text.is_empty())
+                    .unwrap_or(false);
+                let has_reasoning = has_entries(messages[i].thinking_blocks_json.as_deref());
+                let has_blocks = has_entries(messages[i].content_blocks_json.as_deref());
+                if !has_content && !has_thinking && !has_reasoning && !has_blocks {
+                    messages.remove(i);
                 }
             }
         } else if role == "tool" {

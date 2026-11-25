@@ -506,7 +506,6 @@ async fn request_review_text(
             content: system_prompt.to_string(),
             tool_results_json: None,
             thinking: None,
-            thinking_blocks_json: None,
             tool_calls_json: None,
         },
         ResponsesApiMessage {
@@ -515,7 +514,6 @@ async fn request_review_text(
             content: user_content.to_string(),
             tool_results_json: None,
             thinking: None,
-            thinking_blocks_json: None,
             tool_calls_json: None,
         },
     ];

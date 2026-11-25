@@ -278,22 +278,36 @@ pub(super) fn build_anthropic_payload(
             continue;
         }
 
+        // --- Assistant turns produced by the Anthropic adapter ---
+        // Replay the stored block array verbatim. The API requires the latest
+        // assistant turn's thinking blocks (text + signature + order, with no
+        // merging or moving across tool boundaries) to stay identical to the
+        // original response, and adaptive thinking emits interleaved
+        // thinking / tool_use blocks.
+        if role == "assistant" {
+            let stored_blocks: Vec<Value> = message
+                .content_blocks_json
+                .as_deref()
+                .and_then(|raw| serde_json::from_str::<Value>(raw).ok())
+                .and_then(|value| value.as_array().cloned())
+                .unwrap_or_default();
+            if !stored_blocks.is_empty() {
+                anthropic_messages.push(json!({
+                    "role": "assistant",
+                    "content": stored_blocks,
+                }));
+                continue;
+            }
+        }
+
         if content.is_empty() && message.tool_calls_json.is_none() {
             continue;
         }
 
-        // --- Assistant messages with tool_calls ---
+        // --- Assistant turns produced by other protocols ---
+        // They carry no signed Anthropic blocks, so the turn is rebuilt from
+        // text + tool_use and its unsigned reasoning is not replayed.
         if role == "assistant" {
-            // Parse persisted thinking blocks (with signatures) so they can
-            // be round-tripped verbatim to the Anthropic API, preserving
-            // thinking continuity across turns.
-            let thinking_blocks: Vec<Value> = message
-                .thinking_blocks_json
-                .as_deref()
-                .and_then(|raw| serde_json::from_str::<Value>(raw).ok())
-                .and_then(|v| v.as_array().map(|a| a.clone()))
-                .unwrap_or_default();
-
             if let Some(ref tool_calls_raw) = message.tool_calls_json {
                 let tool_use_blocks =
                     crate::api::conversation::tool_messages::tool_calls_as_anthropic_blocks(
@@ -301,9 +315,6 @@ pub(super) fn build_anthropic_payload(
                     );
                 if !tool_use_blocks.is_empty() {
                     let mut content_blocks = Vec::new();
-                    // Thinking blocks must come first so the API can verify
-                    // the signature chain before processing text/tool_use.
-                    content_blocks.extend(thinking_blocks.iter().cloned());
                     if !content.is_empty() {
                         content_blocks.push(json!({ "type": "text", "text": content }));
                     }
@@ -314,18 +325,6 @@ pub(super) fn build_anthropic_payload(
                     }));
                     continue;
                 }
-            }
-            // Fall through: assistant message without tool_calls but with
-            // thinking blocks needs an array-format content so the thinking
-            // blocks can be included.
-            if !thinking_blocks.is_empty() && !content.is_empty() {
-                let mut content_blocks: Vec<Value> = thinking_blocks;
-                content_blocks.push(json!({ "type": "text", "text": content }));
-                anthropic_messages.push(json!({
-                    "role": "assistant",
-                    "content": content_blocks,
-                }));
-                continue;
             }
         }
 

@@ -98,6 +98,7 @@ pub fn run_post_schema_migrations(connection: &Connection) -> rusqlite::Result<(
     migrate_chat_messages_token_usage(connection)?;
     migrate_chat_messages_retry_metadata(connection)?;
     migrate_chat_messages_tool_corrections(connection)?;
+    migrate_chat_messages_content_blocks(connection)?;
     add_column_if_missing(connection, "chat_messages", "origin", "TEXT NOT NULL DEFAULT 'unknown'")?;
     migrate_chat_messages_cancelled_terminal_cleanup(connection)?;
     purge_assistant_raw_json_blobs(connection)?;
@@ -929,6 +930,102 @@ fn migrate_chat_messages_tool_corrections(connection: &Connection) -> rusqlite::
         connection.execute(
             "ALTER TABLE chat_messages ADD COLUMN tool_corrections_json TEXT NOT NULL DEFAULT '{}'",
             [],
+        )?;
+    }
+
+    Ok(())
+}
+
+/// 只接受 Anthropic 原生思考块的数组：`thinking` / `redacted_thinking`。
+///
+/// Gemini 的 thought-signature parts 与 Responses 的 reasoning items 也复用
+/// `thinking_blocks_json` 列，但它们的形状不同，不能当成 Anthropic 块回放。
+fn anthropic_thinking_blocks(raw: &str) -> Option<Vec<Value>> {
+    let Value::Array(blocks) = serde_json::from_str::<Value>(raw).ok()? else {
+        return None;
+    };
+    if blocks.is_empty() {
+        return None;
+    }
+    blocks
+        .iter()
+        .all(|block| {
+            matches!(
+                block.get("type").and_then(Value::as_str),
+                Some("thinking") | Some("redacted_thinking")
+            )
+        })
+        .then_some(blocks)
+}
+
+/// v72：给 `chat_messages` 加 `content_blocks_json`，并迁移历史 Anthropic 助手行。
+///
+/// 旧版本把思考块（`thinking_blocks_json`）与工具调用（`tool_calls_json`）分列
+/// 存储，回放时重建为「思考 → 文本 → 工具」，交错思考的回合因此被重排，上游以
+/// `thinking blocks ... cannot be modified` 拒绝整轮请求。新列按响应原始顺序保存
+/// 完整内容块数组。
+///
+/// 历史行从未记录过块间顺序，只能按旧的回放顺序折叠一次（与旧行为等价，不会
+/// 比迁移前更差），随后清空 `thinking_blocks_json`，避免同一数据有两处来源。
+/// 已是新格式（思考块列已清空）的行不会被二次处理，重复执行安全。
+fn migrate_chat_messages_content_blocks(connection: &Connection) -> rusqlite::Result<()> {
+    let mut statement = connection.prepare("PRAGMA table_info(chat_messages)")?;
+    let columns: Vec<String> = statement
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    if !columns.iter().any(|column| column == "content_blocks_json") {
+        connection.execute(
+            "ALTER TABLE chat_messages ADD COLUMN content_blocks_json TEXT NOT NULL DEFAULT '[]'",
+            [],
+        )?;
+    }
+
+    // 一次性回填：user_version 在所有迁移之后才提升，已升级的库直接跳过，
+    // 避免每次启动都把 Gemini / Responses 的推理载荷整表解析一遍。
+    let version: i64 = connection.query_row("PRAGMA user_version", [], |row| row.get(0))?;
+    if version >= 72 {
+        return Ok(());
+    }
+
+    let mut statement = connection.prepare(
+        "SELECT id, content, thinking_blocks_json, tool_calls_json
+           FROM chat_messages
+          WHERE role = 'assistant'
+            AND thinking_blocks_json <> ''
+            AND thinking_blocks_json <> '[]'",
+    )?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+            ))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+
+    for (id, content, thinking_blocks_raw, tool_calls_raw) in rows {
+        let Some(mut blocks) = anthropic_thinking_blocks(&thinking_blocks_raw) else {
+            continue;
+        };
+        let text = content.trim();
+        let tool_blocks = crate::tool_messages::tool_calls_as_anthropic_blocks(&tool_calls_raw);
+        // 旧回放整条跳过「无正文、无工具调用」的助手行，这里保持同样的语义。
+        if text.is_empty() && tool_blocks.is_empty() {
+            continue;
+        }
+        if !text.is_empty() {
+            blocks.push(json!({ "type": "text", "text": text }));
+        }
+        blocks.extend(tool_blocks);
+        let serialized = serde_json::to_string(&blocks).unwrap_or_else(|_| "[]".to_string());
+        connection.execute(
+            "UPDATE chat_messages
+                SET content_blocks_json = ?2,
+                    thinking_blocks_json = '[]'
+              WHERE id = ?1",
+            params![id, serialized],
         )?;
     }
 

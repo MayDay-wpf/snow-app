@@ -440,7 +440,6 @@ fn text_message(role: &str, content: String) -> ResponsesApiMessage {
         content,
         tool_results_json: None,
         thinking: None,
-        thinking_blocks_json: None,
         tool_calls_json: None,
     }
 }
@@ -517,6 +516,7 @@ pub async fn prepare_context_request(
             tool_results_json: None,
             thinking: None,
             thinking_blocks_json: None,
+            content_blocks_json: None,
         });
         messages
     } else {
@@ -619,6 +619,7 @@ pub async fn prepare_context_request(
             tool_results_json: None,
             thinking: None,
             thinking_blocks_json: None,
+            content_blocks_json: None,
         });
     }
 
@@ -692,6 +693,7 @@ pub async fn prepare_context_request(
                     tool_results_json: None,
                     thinking: None,
                     thinking_blocks_json: None,
+                    content_blocks_json: None,
                 },
             );
         }
@@ -706,6 +708,7 @@ pub async fn prepare_context_request(
                 tool_results_json: None,
                 thinking: None,
                 thinking_blocks_json: None,
+                content_blocks_json: None,
             },
         );
     }
@@ -738,6 +741,7 @@ pub async fn prepare_context_request(
                     tool_results_json: None,
                     thinking: None,
                     thinking_blocks_json: None,
+                    content_blocks_json: None,
                 });
             }
         }
@@ -796,6 +800,7 @@ fn normalize_messages(messages: &[ChatContextMessage]) -> Vec<ChatContextMessage
                 tool_results_json: message.tool_results_json.clone(),
                 thinking: message.thinking.clone(),
                 thinking_blocks_json: message.thinking_blocks_json.clone(),
+                content_blocks_json: message.content_blocks_json.clone(),
             })
         })
         .collect()

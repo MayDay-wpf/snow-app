@@ -201,6 +201,7 @@ pub(super) fn plan_context_fold(
             tool_results_json: None,
             thinking: None,
             thinking_blocks_json: None,
+            content_blocks_json: None,
         },
         record: ContextFoldRecord {
             meta,

@@ -641,6 +641,7 @@ pub async fn store_manual_tool_exchange(
                 tool_results_json: message.tool_results_json,
                 thinking: None,
                 thinking_blocks_json: None,
+                content_blocks_json: None,
             })
         }).collect::<napi::Result<_>>()?;
         let tool_calls: Vec<_> = request.tool_calls.into_iter()

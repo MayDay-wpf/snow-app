@@ -89,6 +89,7 @@ impl ContextViewItem {
                 tool_results_json: None,
                 thinking: None,
                 thinking_blocks_json: None,
+                content_blocks_json: None,
             },
         }
     }

@@ -378,7 +378,6 @@ fn text_message(role: &str, content: String) -> ResponsesApiMessage {
         content,
         tool_results_json: None,
         thinking: None,
-        thinking_blocks_json: None,
         tool_calls_json: None,
     }
 }

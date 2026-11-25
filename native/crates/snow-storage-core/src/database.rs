@@ -10,6 +10,9 @@ use rusqlite::Connection;
 
 /// Bumped whenever the schema changes; written to `PRAGMA user_version` after
 /// a successful `create_schema` so the app can detect stale databases.
+/// 72: chat_messages.content_blocks_json — Anthropic assistant turns keep the
+/// original ordered content blocks (text / thinking / tool_use interleaved),
+/// replacing the lossy thinking+tool_calls split on replay.
 /// 71: strip Windows verbatim (`\\?\`) prefixes from persisted worktree paths.
 /// 70: sensitive_command_feedback table (learned user decisions on sensitive commands).
 /// 69: chat message origin, preserving unknown provenance for existing rows.
@@ -58,7 +61,7 @@ use rusqlite::Connection;
 /// 32: api_configs canonical config_json migration plus conversation runtime config columns.
 /// 31: main's scheduled-tasks pre-script migration (30) + PR #65's three
 /// stream-interruption migrations (29 baseline + 4 total additions).
-pub const CURRENT_SCHEMA_VERSION: i64 = 71;
+pub const CURRENT_SCHEMA_VERSION: i64 = 72;
 const SNOWFLAKE_EPOCH_MS: u64 = 1_704_067_200_000;
 const SNOWFLAKE_WORKER_ID_BITS: u64 = 10;
 const SNOWFLAKE_SEQUENCE_BITS: u64 = 12;

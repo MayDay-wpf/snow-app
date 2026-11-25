@@ -56,10 +56,6 @@ pub struct ResponsesApiMessage {
     /// Anthropic thinking blocks require a cryptographic signature (not
     /// available here), so this field is ignored by the Anthropic provider.
     pub thinking: Option<String>,
-    /// JSON array of complete Anthropic thinking blocks (each with
-    /// type/thinking/signature). Only used by the Anthropic provider to
-    /// round-trip thinking blocks verbatim.
-    pub thinking_blocks_json: Option<String>,
     /// Serialized tool calls for role="assistant" messages, in the same
     /// provider-native shape the conversation history persists. Stateless
     /// callers (skip_context side channels such as the desktop pet chat) have
@@ -79,7 +75,8 @@ impl ResponsesApiMessage {
             tool_calls_json: self.tool_calls_json.clone(),
             tool_results_json: self.tool_results_json.clone(),
             thinking: self.thinking.clone(),
-            thinking_blocks_json: self.thinking_blocks_json.clone(),
+            thinking_blocks_json: None,
+            content_blocks_json: None,
         })
     }
 }
@@ -675,6 +672,7 @@ async fn create_response_async(
                 token_usage: streamed_response.token_usage,
                 response_thinking: &streamed_response.thinking,
                 response_thinking_blocks_json: &streamed_response.reasoning_items_json,
+                response_content_blocks_json: "[]",
                 response_thinking_duration_ms: streamed_response.thinking_duration_ms,
                 response_thinking_token_count: streamed_response.thinking_token_count,
                 tool_calls_json: &streamed_response.tool_calls_json,

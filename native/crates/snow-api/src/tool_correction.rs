@@ -192,7 +192,6 @@ async fn request_correction_text(
             content: CORRECTION_SYSTEM_PROMPT.to_string(),
             tool_results_json: None,
             thinking: None,
-            thinking_blocks_json: None,
             tool_calls_json: None,
         },
         ResponsesApiMessage {
@@ -201,7 +200,6 @@ async fn request_correction_text(
             content: user_content.to_string(),
             tool_results_json: None,
             thinking: None,
-            thinking_blocks_json: None,
             tool_calls_json: None,
         },
     ];

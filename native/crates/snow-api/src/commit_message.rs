@@ -65,7 +65,6 @@ fn build_request(staged_diff: &str, hint: &str) -> ResponsesApiRequest {
                 content: COMMIT_SYSTEM_PROMPT.to_string(),
                 tool_results_json: None,
                 thinking: None,
-                thinking_blocks_json: None,
                 tool_calls_json: None,
             },
             crate::api::responses::ResponsesApiMessage {
@@ -74,7 +73,6 @@ fn build_request(staged_diff: &str, hint: &str) -> ResponsesApiRequest {
                 content: user_content,
                 tool_results_json: None,
                 thinking: None,
-                thinking_blocks_json: None,
                 tool_calls_json: None,
             },
         ],

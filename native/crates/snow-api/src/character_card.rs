@@ -58,7 +58,6 @@ fn build_request(image_data_url: &str, language: &str) -> ResponsesApiRequest {
                 content: CHARACTER_CARD_SYSTEM_PROMPT.to_string(),
                 tool_results_json: None,
                 thinking: None,
-                thinking_blocks_json: None,
                 tool_calls_json: None,
             },
             ResponsesApiMessage {
@@ -72,7 +71,6 @@ fn build_request(image_data_url: &str, language: &str) -> ResponsesApiRequest {
                 ),
                 tool_results_json: None,
                 thinking: None,
-                thinking_blocks_json: None,
                 tool_calls_json: None,
             },
         ],

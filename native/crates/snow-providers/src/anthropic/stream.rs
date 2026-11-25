@@ -32,10 +32,11 @@ pub(super) struct AnthropicStreamResult {
     pub id: String,
     pub content: String,
     pub thinking: String,
-    /// JSON array of complete thinking blocks (each with type/thinking/signature)
-    /// captured from the stream. Persisted so the assistant turn can be
-    /// round-tripped back to the Anthropic API verbatim on the next request.
-    pub thinking_blocks_json: String,
+    /// JSON array of the response's content blocks in their original order
+    /// (text / thinking / redacted_thinking / tool_use). Persisted so the
+    /// assistant turn can be replayed verbatim: the API rejects any reordering
+    /// or rewriting of thinking blocks and their signatures.
+    pub content_blocks_json: String,
     pub model: String,
     pub status: String,
     pub interruption_reason: Option<StreamInterruptionReason>,
@@ -53,9 +54,9 @@ pub(super) struct AnthropicStreamResult {
 struct AnthropicAttemptState {
     content_chunks: Vec<String>,
     thinking_chunks: Vec<String>,
-    thinking_blocks: Vec<Value>,
-    tool_calls: Vec<Value>,
-    tool_call_positions_by_index: HashMap<usize, usize>,
+    /// Original ordered content blocks; the only source for replay.
+    content_blocks: Vec<Value>,
+    block_positions_by_index: HashMap<usize, usize>,
     tool_input_json_by_index: HashMap<usize, String>,
     tool_parse_errors: Vec<String>,
     response_id: String,
@@ -72,9 +73,8 @@ impl Default for AnthropicAttemptState {
         Self {
             content_chunks: Vec::new(),
             thinking_chunks: Vec::new(),
-            thinking_blocks: Vec::new(),
-            tool_calls: Vec::new(),
-            tool_call_positions_by_index: HashMap::new(),
+            content_blocks: Vec::new(),
+            block_positions_by_index: HashMap::new(),
             tool_input_json_by_index: HashMap::new(),
             tool_parse_errors: Vec::new(),
             response_id: String::new(),
@@ -98,9 +98,8 @@ impl AnthropicAttemptState {
             event_block,
             &mut self.content_chunks,
             &mut self.thinking_chunks,
-            &mut self.thinking_blocks,
-            &mut self.tool_calls,
-            &mut self.tool_call_positions_by_index,
+            &mut self.content_blocks,
+            &mut self.block_positions_by_index,
             &mut self.tool_input_json_by_index,
             &mut self.response_id,
             &mut self.response_model,
@@ -118,9 +117,24 @@ impl AnthropicAttemptState {
         )
     }
 
+    fn has_tool_use(&self) -> bool {
+        self.content_blocks
+            .iter()
+            .any(|block| block.get("type").and_then(Value::as_str) == Some("tool_use"))
+    }
+
+    fn tool_use_blocks(&self) -> Vec<Value> {
+        self.content_blocks
+            .iter()
+            .filter(|block| block.get("type").and_then(Value::as_str) == Some("tool_use"))
+            .cloned()
+            .collect()
+    }
+
     fn clear_tool_state(&mut self) {
-        self.tool_calls.clear();
-        self.tool_call_positions_by_index.clear();
+        self.content_blocks
+            .retain(|block| block.get("type").and_then(Value::as_str) != Some("tool_use"));
+        self.block_positions_by_index.clear();
         self.tool_input_json_by_index.clear();
         self.tool_parse_errors.clear();
     }
@@ -221,7 +235,7 @@ pub(super) async fn collect_anthropic_stream(
                     id: String::new(),
                     content: String::new(),
                     thinking: String::new(),
-                    thinking_blocks_json: "[]".to_string(),
+                    content_blocks_json: "[]".to_string(),
                     model: String::new(),
                     status: String::from("cancelled"),
                     interruption_reason: None,
@@ -257,7 +271,7 @@ pub(super) async fn collect_anthropic_stream(
                         id: String::new(),
                         content: String::new(),
                         thinking: String::new(),
-                        thinking_blocks_json: "[]".to_string(),
+                        content_blocks_json: "[]".to_string(),
                         model: String::new(),
                         status: String::from("cancelled"),
                         interruption_reason: None,
@@ -454,7 +468,7 @@ pub(super) async fn collect_anthropic_stream(
                         attempt_has_payload(
                             &attempt_state.content_chunks,
                             &attempt_state.thinking_chunks,
-                            !attempt_state.tool_calls.is_empty(),
+                            attempt_state.has_tool_use(),
                         ),
                     )
                 {
@@ -478,7 +492,7 @@ pub(super) async fn collect_anthropic_stream(
         };
         let progress = StreamAttemptProgress {
             visible_content_chars: visible_content_char_count(&attempt_state.content_chunks),
-            has_tool_state: !attempt_state.tool_calls.is_empty(),
+            has_tool_state: attempt_state.has_tool_use(),
             has_pending_tool_fragments: !attempt_state.tool_input_json_by_index.is_empty(),
             provider_terminal: attempt_state.stream_finished,
             user_cancelled: cancel_token.is_cancelled(),
@@ -498,7 +512,7 @@ pub(super) async fn collect_anthropic_stream(
                         attempt_has_payload(
                             &attempt_state.content_chunks,
                             &attempt_state.thinking_chunks,
-                            !attempt_state.tool_calls.is_empty(),
+                            attempt_state.has_tool_use(),
                         ),
                     )
                 {
@@ -573,10 +587,10 @@ pub(super) async fn collect_anthropic_stream(
 
     let content = attempt_state.content_chunks.join("").trim().to_string();
     let thinking = attempt_state.thinking_chunks.join("").trim().to_string();
-    let tool_calls_json =
-        serde_json::to_string(&attempt_state.tool_calls).unwrap_or_else(|_| "[]".to_string());
-    let thinking_blocks_json =
-        serde_json::to_string(&attempt_state.thinking_blocks).unwrap_or_else(|_| "[]".to_string());
+    let tool_calls_json = serde_json::to_string(&attempt_state.tool_use_blocks())
+        .unwrap_or_else(|_| "[]".to_string());
+    let content_blocks_json = serde_json::to_string(&attempt_state.content_blocks)
+        .unwrap_or_else(|_| "[]".to_string());
 
     // Anthropic returns input_tokens, cache_creation_input_tokens, and
     // cache_read_input_tokens as disjoint values. Normalize so input_tokens
@@ -589,7 +603,7 @@ pub(super) async fn collect_anthropic_stream(
         id: attempt_state.response_id,
         content,
         thinking,
-        thinking_blocks_json,
+        content_blocks_json,
         model: attempt_state.response_model,
         status: attempt_state.response_status,
         interruption_reason: attempt_state.interruption_reason,

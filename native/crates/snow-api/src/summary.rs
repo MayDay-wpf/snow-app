@@ -96,7 +96,6 @@ pub async fn generate_conversation_summary(
         content: build_structured_user_content(&build_conversation_text(&messages)),
         tool_results_json: None,
         thinking: None,
-        thinking_blocks_json: None,
         tool_calls_json: None,
     });
 

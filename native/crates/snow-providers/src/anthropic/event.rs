@@ -9,6 +9,34 @@ use serde_json::Value;
 use crate::api::common::{push_trimmed_string, read_path_i64, read_string, truncate_utf8_safe};
 use crate::storage::services::chat_conversations::ChatTokenUsage;
 
+/// Read the SSE content block index carried by start/stop/delta events.
+fn event_block_index(event: &Value) -> Option<usize> {
+    event
+        .get("index")
+        .and_then(Value::as_u64)
+        .and_then(|value| usize::try_from(value).ok())
+}
+
+/// Resolve the accumulated block for one SSE index. Blocks keep the exact
+/// order the provider emitted them in, so replay can stay byte-for-byte.
+fn block_at_index<'a>(
+    content_blocks: &'a mut [Value],
+    block_positions_by_index: &HashMap<usize, usize>,
+    index: usize,
+) -> Option<&'a mut Value> {
+    block_positions_by_index
+        .get(&index)
+        .and_then(|position| content_blocks.get_mut(*position))
+}
+
+/// Append streamed text to one string field of a content block.
+fn append_block_text(block: &mut Value, field: &str, text: &str) {
+    if let Some(object) = block.as_object_mut() {
+        let existing = object.get(field).and_then(Value::as_str).unwrap_or_default();
+        object.insert(field.to_string(), Value::String(format!("{existing}{text}")));
+    }
+}
+
 /// Process a raw SSE event block (text between two separators) for the
 /// Anthropic streaming protocol. Each `data:` line is parsed independently.
 #[allow(clippy::too_many_arguments)]
@@ -16,9 +44,8 @@ pub(super) fn process_anthropic_sse_event_block(
     event_block: &str,
     content_chunks: &mut Vec<String>,
     thinking_chunks: &mut Vec<String>,
-    thinking_blocks: &mut Vec<Value>,
-    tool_calls: &mut Vec<Value>,
-    tool_call_positions_by_index: &mut HashMap<usize, usize>,
+    content_blocks: &mut Vec<Value>,
+    block_positions_by_index: &mut HashMap<usize, usize>,
     tool_input_json_by_index: &mut HashMap<usize, String>,
     response_id: &mut String,
     response_model: &mut String,
@@ -72,9 +99,8 @@ pub(super) fn process_anthropic_sse_event_block(
             &event,
             content_chunks,
             thinking_chunks,
-            thinking_blocks,
-            tool_calls,
-            tool_call_positions_by_index,
+            content_blocks,
+            block_positions_by_index,
             tool_input_json_by_index,
             response_id,
             response_model,
@@ -118,9 +144,8 @@ pub(super) fn process_anthropic_sse_event_block(
                 &event,
                 content_chunks,
                 thinking_chunks,
-                thinking_blocks,
-                tool_calls,
-                tool_call_positions_by_index,
+                content_blocks,
+                block_positions_by_index,
                 tool_input_json_by_index,
                 response_id,
                 response_model,
@@ -180,9 +205,8 @@ fn process_anthropic_event(
     event: &Value,
     content_chunks: &mut Vec<String>,
     thinking_chunks: &mut Vec<String>,
-    thinking_blocks: &mut Vec<Value>,
-    tool_calls: &mut Vec<Value>,
-    tool_call_positions_by_index: &mut HashMap<usize, usize>,
+    content_blocks: &mut Vec<Value>,
+    block_positions_by_index: &mut HashMap<usize, usize>,
     tool_input_json_by_index: &mut HashMap<usize, String>,
     response_id: &mut String,
     response_model: &mut String,
@@ -212,70 +236,59 @@ fn process_anthropic_event(
             }
         }
         "content_block_start" => {
-            if let Some(content_block) = event.get("content_block") {
+            if let (Some(index), Some(content_block)) =
+                (event_block_index(event), event.get("content_block"))
+            {
                 let block_type = content_block
                     .get("type")
                     .and_then(Value::as_str)
                     .unwrap_or_default();
-                if block_type == "tool_use" {
-                    if let Some(index) = event
-                        .get("index")
-                        .and_then(Value::as_u64)
-                        .and_then(|value| usize::try_from(value).ok())
-                    {
-                        tool_call_positions_by_index.insert(index, tool_calls.len());
-                    }
-                    tool_calls.push(content_block.clone());
-                } else if block_type == "thinking" || block_type == "redacted_thinking" {
-                    // Capture the raw thinking block so it can be round-tripped
-                    // back to the API verbatim on the next request (with its
-                    // signature intact). thinking_delta and signature_delta
-                    // events that follow will mutate the last block in-place.
-                    thinking_blocks.push(content_block.clone());
+                // Only replayable Anthropic blocks are captured. Snow never
+                // produces server-side tool blocks, and unknown block types
+                // have no replay semantics, so they are ignored.
+                if matches!(
+                    block_type,
+                    "text" | "thinking" | "redacted_thinking" | "tool_use"
+                ) {
+                    block_positions_by_index.insert(index, content_blocks.len());
+                    content_blocks.push(content_block.clone());
                 }
             }
         }
         "content_block_stop" => {
-            // Finalize tool input: parse the accumulated JSON fragments
-            // and update the tool_call's "input" field. This is critical
-            // because input_json_delta only sets "input" when the
-            // accumulated string happens to be valid JSON at an
-            // intermediate point — the complete JSON is only available
-            // after all deltas have been received.
-            if let Some(index) = event
-                .get("index")
-                .and_then(Value::as_u64)
-                .and_then(|value| usize::try_from(value).ok())
-            {
-                if let Some(accumulated) = tool_input_json_by_index.get(&index) {
-                    match serde_json::from_str::<Value>(accumulated.as_str()) {
-                        Ok(input) => {
-                            if let Some(position) =
-                                tool_call_positions_by_index.get(&index).copied()
-                            {
-                                if let Some(tool_call) =
-                                    tool_calls.get_mut(position).and_then(Value::as_object_mut)
-                                {
-                                    tool_call.insert("input".to_string(), input);
-                                }
-                            }
-                        }
-                        Err(parse_err) => {
-                            let tool_name = tool_call_positions_by_index
-                                .get(&index)
-                                .and_then(|pos| tool_calls.get(*pos))
-                                .and_then(|tc| tc.get("name"))
-                                .and_then(Value::as_str)
-                                .unwrap_or("unknown");
-                            tool_parse_errors.push(format!(
-                                "tool={}, index={}, error={}, raw={}",
-                                tool_name,
-                                index,
-                                parse_err,
-                                truncate_utf8_safe(&accumulated, 200)
-                            ));
+            // Finalize tool input: parse the accumulated JSON fragments and
+            // update the tool_use block's "input" field. input_json_delta only
+            // sets "input" when the accumulated string already happens to be
+            // valid JSON, so the authoritative value only exists once every
+            // delta has arrived.
+            let Some(index) = event_block_index(event) else {
+                return Ok(());
+            };
+            let Some(accumulated) = tool_input_json_by_index.get(&index) else {
+                return Ok(());
+            };
+            match serde_json::from_str::<Value>(accumulated.as_str()) {
+                Ok(input) => {
+                    if let Some(block) =
+                        block_at_index(content_blocks, block_positions_by_index, index)
+                    {
+                        if let Some(object) = block.as_object_mut() {
+                            object.insert("input".to_string(), input);
                         }
                     }
+                }
+                Err(parse_err) => {
+                    let tool_name = block_at_index(content_blocks, block_positions_by_index, index)
+                        .and_then(|block| block.get("name"))
+                        .and_then(Value::as_str)
+                        .unwrap_or("unknown");
+                    tool_parse_errors.push(format!(
+                        "tool={}, index={}, error={}, raw={}",
+                        tool_name,
+                        index,
+                        parse_err,
+                        truncate_utf8_safe(accumulated, 200)
+                    ));
                 }
             }
         }
@@ -285,54 +298,56 @@ fn process_anthropic_event(
                     .get("type")
                     .and_then(Value::as_str)
                     .unwrap_or_default();
+                let index = event_block_index(event);
                 match delta_type {
                     "text_delta" => {
                         push_trimmed_string(delta.get("text"), content_chunks);
+                        if let (Some(index), Some(text)) =
+                            (index, delta.get("text").and_then(Value::as_str))
+                        {
+                            if let Some(block) =
+                                block_at_index(content_blocks, block_positions_by_index, index)
+                            {
+                                append_block_text(block, "text", text);
+                            }
+                        }
                     }
                     "thinking_delta" => {
                         push_trimmed_string(delta.get("thinking"), thinking_chunks);
-                        // Append the thinking text to the last thinking block
-                        // so the block stays complete for round-tripping.
-                        if let Some(thinking_block) = thinking_blocks.last_mut() {
-                            if let Some(text) = delta.get("thinking").and_then(Value::as_str) {
-                                if !text.is_empty() {
-                                    if let Some(obj) = thinking_block.as_object_mut() {
-                                        let existing = obj
-                                            .get("thinking")
-                                            .and_then(Value::as_str)
-                                            .unwrap_or_default();
-                                        obj.insert(
-                                            "thinking".to_string(),
-                                            Value::String(format!("{existing}{text}")),
-                                        );
-                                    }
-                                }
+                        if let (Some(index), Some(text)) =
+                            (index, delta.get("thinking").and_then(Value::as_str))
+                        {
+                            if let Some(block) =
+                                block_at_index(content_blocks, block_positions_by_index, index)
+                            {
+                                append_block_text(block, "thinking", text);
                             }
                         }
                     }
                     "signature_delta" => {
-                        // Write the cryptographic signature into the last
-                        // thinking block. Anthropic requires thinking blocks
-                        // to carry their original signature when passed back.
-                        if let Some(signature) = delta.get("signature").and_then(Value::as_str) {
-                            if !signature.is_empty() {
-                                if let Some(thinking_block) = thinking_blocks.last_mut() {
-                                    if let Some(obj) = thinking_block.as_object_mut() {
-                                        obj.insert(
-                                            "signature".to_string(),
-                                            Value::String(signature.to_string()),
-                                        );
-                                    }
+                        // The signature must stay attached to the exact block it
+                        // was issued for: the API rejects any reissue.
+                        if let (Some(index), Some(signature)) = (
+                            index,
+                            delta
+                                .get("signature")
+                                .and_then(Value::as_str)
+                                .filter(|signature| !signature.is_empty()),
+                        ) {
+                            if let Some(block) =
+                                block_at_index(content_blocks, block_positions_by_index, index)
+                            {
+                                if let Some(object) = block.as_object_mut() {
+                                    object.insert(
+                                        "signature".to_string(),
+                                        Value::String(signature.to_string()),
+                                    );
                                 }
                             }
                         }
                     }
                     "input_json_delta" => {
-                        if let Some(index) = event
-                            .get("index")
-                            .and_then(Value::as_u64)
-                            .and_then(|value| usize::try_from(value).ok())
-                        {
+                        if let Some(index) = index {
                             if let Some(partial_json) = delta
                                 .get("partial_json")
                                 .and_then(Value::as_str)
@@ -345,19 +360,18 @@ fn process_anthropic_event(
                                 // tool arguments in real time.
                                 tool_args_delta.push_str(partial_json);
 
-                                // Best-effort intermediate parse for early UI updates.
-                                // The final, authoritative parse happens in content_block_stop.
+                                // Best-effort intermediate parse for early UI
+                                // updates; content_block_stop is authoritative.
                                 if let Ok(input) =
                                     serde_json::from_str::<Value>(input_json.as_str())
                                 {
-                                    if let Some(position) =
-                                        tool_call_positions_by_index.get(&index).copied()
-                                    {
-                                        if let Some(tool_call) = tool_calls
-                                            .get_mut(position)
-                                            .and_then(Value::as_object_mut)
-                                        {
-                                            tool_call.insert("input".to_string(), input);
+                                    if let Some(block) = block_at_index(
+                                        content_blocks,
+                                        block_positions_by_index,
+                                        index,
+                                    ) {
+                                        if let Some(object) = block.as_object_mut() {
+                                            object.insert("input".to_string(), input);
                                         }
                                     }
                                 }
