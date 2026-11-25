@@ -12,6 +12,7 @@ import { useI18n } from "../../../i18n";
 import { isImeComposing } from "../../../../shared/imeKeyboard";
 import { shortcutEvents } from "../../shortcutEvents";
 import {
+  CONVERSATION_INPUT_STATE_CHANGED_EVENT,
   PLUGIN_INSERT_INPUT_TEXT_EVENT,
   PLUGIN_SEND_INPUT_MESSAGE_EVENT,
 } from "../../../plugins/pluginEvents";
@@ -151,6 +152,28 @@ export const useChatInputController = ({
   // A token is stronger than a cancelled flag when the same mounted instance
   // receives a new target before an older model request resolves.
   const hydrationRequestTokenRef = useRef(0);
+  // 程序化发送改写内存态选择后递增，触发重新 hydration。
+  const [externalInputStateRevision, setExternalInputStateRevision] =
+    useState(0);
+
+  useEffect(() => {
+    if (!conversationId) {
+      return;
+    }
+    const handler = (event: Event): void => {
+      const detail = (event as CustomEvent<{ conversationId?: string }>).detail;
+      if (detail?.conversationId === conversationId) {
+        setExternalInputStateRevision((revision) => revision + 1);
+      }
+    };
+    window.addEventListener(CONVERSATION_INPUT_STATE_CHANGED_EVENT, handler);
+    return () => {
+      window.removeEventListener(
+        CONVERSATION_INPUT_STATE_CHANGED_EVENT,
+        handler,
+      );
+    };
+  }, [conversationId]);
 
   const labels = useMemo(
     () => ({
@@ -346,6 +369,7 @@ export const useChatInputController = ({
     labels,
     rollbackInputState,
     getRuntimeInputState,
+    externalInputStateRevision,
   ]);
 
   useEffect(() => {

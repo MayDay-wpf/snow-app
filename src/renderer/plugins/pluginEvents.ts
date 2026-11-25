@@ -12,6 +12,20 @@ export const PLUGIN_OPEN_SETTINGS_EVENT = "app-control:open-settings";
 export const PLUGIN_CONVERSATION_LIST_CHANGED_EVENT =
   "snow:plugin-conversation-list-changed";
 
+/** 程序化发送改写了会话内存态输入选择，查看该会话的输入区需重新取值。 */
+export const CONVERSATION_INPUT_STATE_CHANGED_EVENT =
+  "snow:conversation-input-state-changed";
+
+export const notifyConversationInputStateChanged = (
+  conversationId: string,
+): void => {
+  window.dispatchEvent(
+    new CustomEvent(CONVERSATION_INPUT_STATE_CHANGED_EVENT, {
+      detail: { conversationId },
+    }),
+  );
+};
+
 export type PluginConversationListChangedDetail = {
   /** 由监听方在同步回调中置为 true，表示宿主会话列表已接管刷新。 */
   handled: boolean;

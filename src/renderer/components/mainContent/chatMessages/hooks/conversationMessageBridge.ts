@@ -3,6 +3,8 @@ import {
   prepareSubAgentDeletion,
 } from "./subAgentParentInbox";
 import { useEffect, useRef } from "react";
+import type { ChatConversationRecord } from "../../../../../preload";
+import { notifyConversationInputStateChanged } from "../../../../plugins/pluginEvents";
 import type { ChatInputSendOptions } from "../../chatInput/types";
 import {
   buildConversationMessages,
@@ -64,7 +66,7 @@ export const sendMessageToConversation = (
 const prepareBackgroundSession = async (
   ctx: ConversationContextValue,
   conversationId: string,
-): Promise<void> => {
+): Promise<ChatConversationRecord> => {
   const record = await window.snow.getChatConversation(conversationId);
   if (!record) {
     throw new Error(`Conversation not found: ${conversationId}`);
@@ -81,7 +83,7 @@ const prepareBackgroundSession = async (
   // 与进行中的视图加载共享同一请求，避免重复拉取并覆盖其结果。
   await ctx.historyLoadPromisesRef.current.get(conversationId);
   if (ctx.sessionsRef.current[conversationId]) {
-    return;
+    return record;
   }
 
   const [page, modes] = await Promise.all([
@@ -118,6 +120,40 @@ const prepareBackgroundSession = async (
       },
     };
   });
+  return record;
+};
+
+/**
+ * 请求级模型写入会话内存态输入选择：输入区展示与后续手动发送跟随实际请求
+ * 模型，而不是回落档案 advancedModel。
+ */
+const rememberRequestModel = async (
+  ctx: ConversationContextValue,
+  conversationId: string,
+  apiProfile: string,
+  model: string,
+): Promise<void> => {
+  const current = ctx.runtimeInputStateRef.current[conversationId];
+  let thinkingStrength: string | null = null;
+  let responsesFastMode: string | null = null;
+  if (current && current.apiProfile.trim() === apiProfile) {
+    thinkingStrength = current.thinkingStrength;
+    responsesFastMode = current.responsesFastMode;
+  } else {
+    // 档案不同则内存态覆盖不适用，改用会话持久化的覆盖值。
+    const persisted = await window.snow
+      .getConversationRuntimeConfig(conversationId)
+      .catch(() => null);
+    thinkingStrength = persisted?.thinkingStrength ?? null;
+    responsesFastMode = persisted?.responsesFastMode ?? null;
+  }
+  ctx.runtimeInputStateRef.current[conversationId] = {
+    model,
+    apiProfile,
+    thinkingStrength,
+    responsesFastMode,
+  };
+  notifyConversationInputStateChanged(conversationId);
 };
 
 const deliverMessage = async (
@@ -130,7 +166,14 @@ const deliverMessage = async (
   if (!trimmed) {
     throw new Error("Message text must not be blank");
   }
-  await prepareBackgroundSession(ctx, conversationId);
+  const record = await prepareBackgroundSession(ctx, conversationId);
+  const boundProfile = record.apiProfileName?.trim() ?? "";
+  // 模型随请求下发：只有显式给出才写字段，空白按未指定处理，由 Native
+  // 回落到档案默认值；不修改档案配置，也不同步模型窗口上限。
+  const model = sendOverrides?.model?.trim();
+  if (model) {
+    await rememberRequestModel(ctx, conversationId, boundProfile, model);
+  }
   const wasBusy =
     ctx.sessionsRefData.current.get(conversationId)?.isSending === true;
   // 程序化发送省略 deliveryMode 时始终排队；会话空闲则直接开始新回合。
@@ -138,9 +181,8 @@ const deliverMessage = async (
     targetSessionKey: conversationId,
     origin: "internal",
   };
-  // 模型随请求下发：只有显式给出才写字段，空白按未指定处理，由 Native
-  // 回落到档案默认值；不修改档案配置，也不同步模型窗口上限。
-  const model = sendOverrides?.model?.trim();
+  // 快照带上会话绑定档案：子代理继承与主请求解析一致；未绑定时仍跟随全局激活档案。
+  if (boundProfile) options.apiProfile = boundProfile;
   if (model) options.model = model;
   const basicModel = sendOverrides?.basicModel?.trim();
   if (basicModel) options.basicModel = basicModel;
