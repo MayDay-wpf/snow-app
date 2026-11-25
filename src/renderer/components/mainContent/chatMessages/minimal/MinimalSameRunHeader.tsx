@@ -3,9 +3,9 @@ import { useMemo } from "react";
 
 import { useI18n } from "../../../../i18n";
 import { getFileTypeIcon } from "../../../../utils/fileIcons";
-import { getCompareDiffStats } from "../../../../utils/generateComparePatch";
 import type { ToolCallInfo } from "../utils/conversationTypes";
 import { describeToolTarget } from "../utils/toolActivitySummary";
+import { summarizeSameRunEditDiff } from "../utils/toolDiffStats";
 import { resolveToolDisplayName } from "../toolCalls/shared/toolDisplayName";
 
 type MinimalSameRunHeaderProps = {
@@ -14,41 +14,8 @@ type MinimalSameRunHeaderProps = {
   onToggle: () => void;
 };
 
-type DiffTotals = { additions: number; deletions: number };
-
 const isCallRunning = (toolCall: ToolCallInfo): boolean =>
-  toolCall.status === "running" ||
-  toolCall.correction?.status === "running";
-
-/** replace_edit 的增删汇总；组内含其他工具或参数不可信时不汇总。 */
-const summarizeEditDiff = (
-  toolCalls: readonly ToolCallInfo[],
-): DiffTotals | null => {
-  let totals: DiffTotals | null = null;
-  for (const toolCall of toolCalls) {
-    if (toolCall.name !== "filesystem-replace_edit") {
-      return null;
-    }
-    let args: { searchContent?: unknown; replaceContent?: unknown } | null;
-    try {
-      args = JSON.parse(toolCall.arguments) as typeof args;
-    } catch {
-      return null;
-    }
-    if (
-      !args ||
-      typeof args.searchContent !== "string" ||
-      typeof args.replaceContent !== "string"
-    ) {
-      return null;
-    }
-    const stats = getCompareDiffStats(args.searchContent, args.replaceContent);
-    totals ??= { additions: 0, deletions: 0 };
-    totals.additions += stats.additions;
-    totals.deletions += stats.deletions;
-  }
-  return totals;
-};
+  toolCall.status === "running" || toolCall.correction?.status === "running";
 
 /**
  * 极简模式的同名连续工具组标题行。
@@ -66,7 +33,7 @@ export const MinimalSameRunHeader = ({
   const latest = toolCalls[toolCalls.length - 1];
   const latestTarget = useMemo(() => describeToolTarget(latest), [latest]);
   const diffTotals = useMemo(
-    () => summarizeEditDiff(toolCalls),
+    () => summarizeSameRunEditDiff(toolCalls),
     [toolCalls],
   );
   const anyRunning = toolCalls.some(isCallRunning);
@@ -94,12 +61,8 @@ export const MinimalSameRunHeader = ({
         <span className="tsr-count">×{toolCalls.length}</span>
         {diffTotals ? (
           <span className="tool-call-diff-stats tsr-diff">
-            <span className="tool-call-diff-add">
-              +{diffTotals.additions}
-            </span>
-            <span className="tool-call-diff-del">
-              -{diffTotals.deletions}
-            </span>
+            <span className="tool-call-diff-add">+{diffTotals.additions}</span>
+            <span className="tool-call-diff-del">-{diffTotals.deletions}</span>
           </span>
         ) : null}
         {!expanded && latestTarget ? (
@@ -111,9 +74,7 @@ export const MinimalSameRunHeader = ({
                 })}
               </span>
             ) : null}
-            <span className="tsr-latest-target-text">
-              {latestTarget.text}
-            </span>
+            <span className="tsr-latest-target-text">{latestTarget.text}</span>
           </span>
         ) : null}
         {hasError ? (

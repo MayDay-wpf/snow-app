@@ -551,3 +551,10 @@
   margin: 0;
 }
 
+/* 极简 transcript 的行会在流式增长、重新分组、虚拟化回显时反复重挂载：
+   行内集合标题与工具卡不再单独播入场，否则每次新增工具都会复播
+   chat-enter 的 4px 位移 + 淡入，观感就是会话记录向上抖一下。 */
+.minimal-row .tcg,
+.minimal-row .tcn {
+  animation: none;
+}

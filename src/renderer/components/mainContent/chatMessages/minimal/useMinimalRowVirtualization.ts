@@ -38,9 +38,11 @@ const DEFAULT_ROW_HEIGHTS: Record<MinimalRow["kind"], number> = {
   response: 120,
   // 尾部行大多为空（非最后一条且带工具时没有操作栏）。
   "response-tail": 0,
-  "tool-run-header": 24,
+  // 集合标题行 = 24px 标题 + 12px 与上一行的间距（非 group-start 时）。
+  "tool-run-header": 36,
   "same-run-header": 24,
-  tool: 28,
+  // 极简工具行只有 24px 头部，没有经典风格的额外间距。
+  tool: 24,
   "tool-group": 72,
   authorization: 0,
   divider: 40,

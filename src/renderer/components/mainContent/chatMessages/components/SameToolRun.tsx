@@ -5,8 +5,8 @@ import { getFileTypeIcon } from "../../../../utils/fileIcons";
 import type { ToolCallInfo } from "../utils/conversationTypes";
 import { hasPendingUserInteraction } from "../utils/toolCallInteraction";
 import { describeToolTarget } from "../utils/toolActivitySummary";
+import { summarizeSameRunEditDiff } from "../utils/toolDiffStats";
 import { resolveToolDisplayName } from "../toolCalls/shared/toolDisplayName";
-import { getCompareDiffStats } from "../../../../utils/generateComparePatch";
 import {
   EntranceProvider,
   SUPPRESSED_ENTRANCE,
@@ -24,38 +24,6 @@ const COLLAPSE_MS = 220;
 
 const isCallRunning = (tc: ToolCallInfo): boolean =>
   tc.status === "running" || tc.correction?.status === "running";
-
-type DiffTotals = { additions: number; deletions: number };
-
-/** replace_edit 的增删汇总；组内含其他工具或参数不可信时不汇总。 */
-const summarizeEditDiff = (
-  toolCalls: readonly ToolCallInfo[],
-): DiffTotals | null => {
-  let totals: DiffTotals | null = null;
-  for (const toolCall of toolCalls) {
-    if (toolCall.name !== "filesystem-replace_edit") {
-      return null;
-    }
-    let args: { searchContent?: unknown; replaceContent?: unknown } | null;
-    try {
-      args = JSON.parse(toolCall.arguments) as typeof args;
-    } catch {
-      return null;
-    }
-    if (
-      !args ||
-      typeof args.searchContent !== "string" ||
-      typeof args.replaceContent !== "string"
-    ) {
-      return null;
-    }
-    const stats = getCompareDiffStats(args.searchContent, args.replaceContent);
-    totals ??= { additions: 0, deletions: 0 };
-    totals.additions += stats.additions;
-    totals.deletions += stats.deletions;
-  }
-  return totals;
-};
 
 /**
  * 极简模式：连续同名工具收为一组。
@@ -103,7 +71,7 @@ export const SameToolRun = ({
   const latest = toolCalls[toolCalls.length - 1];
   const latestTarget = useMemo(() => describeToolTarget(latest), [latest]);
   const diffTotals = useMemo(
-    () => (merged ? summarizeEditDiff(toolCalls) : null),
+    () => (merged ? summarizeSameRunEditDiff(toolCalls) : null),
     [merged, toolCalls],
   );
   const parentClock = useEntranceClock();
