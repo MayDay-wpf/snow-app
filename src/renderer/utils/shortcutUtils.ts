@@ -235,6 +235,7 @@ export const SHORTCUT_ACTIONS: KeyboardShortcutAction[] = [
   "openSearch",
   "openMemo",
   "openTodo",
+  "openUserMessageRail",
   "cycleProject",
   "openProjectExplorer",
   "openProjectMemory",
@@ -342,6 +343,11 @@ export const SHORTCUT_META: Record<KeyboardShortcutAction, ShortcutMeta> = {
   openTodo: {
     descKey: "settings.shortcutOpenTodo",
     descDefault: "Open todo list",
+    group: "navigation",
+  },
+  openUserMessageRail: {
+    descKey: "settings.shortcutOpenUserMessageRail",
+    descDefault: "Open/close user message panel",
     group: "navigation",
   },
   cycleProject: {

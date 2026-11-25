@@ -21,6 +21,7 @@ const GLOBAL_ACTIONS = [
   "openSearch",
   "openMemo",
   "openTodo",
+  "openUserMessageRail",
   "cycleProject",
   "openProjectExplorer",
   "openProjectMemory",

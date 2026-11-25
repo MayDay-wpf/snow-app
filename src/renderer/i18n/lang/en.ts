@@ -394,7 +394,8 @@ export const en = {
   "sidebar.directoryMigrate": "Migrate",
   "sidebar.migrateDirectoryTitle": "Migrate",
   "sidebar.migrateDirectoryTargetLabel": "Move to",
-  "sidebar.migrateDirectorySelectTitle": "Select the folder to move the project to",
+  "sidebar.migrateDirectorySelectTitle":
+    "Select the folder to move the project to",
   "sidebar.migrateDirectoryConfirm": "Migrate",
   "sidebar.migrateDirectoryPreviewLoading": "Preparing the migration preview…",
   "sidebar.relinkHistoryTitle": "Relocation history",
@@ -889,6 +890,10 @@ export const en = {
   "chat.userMessageRail.goToMessageNumber": "Jump to message #{{number}}",
   "chat.userMessageRail.navigateHint": "navigate",
   "chat.userMessageRail.jumpHint": "jump",
+  "chat.userMessageRail.orderNewest": "Newest",
+  "chat.userMessageRail.orderOldest": "Oldest",
+  "chat.userMessageRail.orderToggleToNewest": "Switch to newest first",
+  "chat.userMessageRail.orderToggleToOldest": "Switch to oldest first",
   "chat.hook.unknownWarning": "The hook reported an unknown warning",
   "chat.hook.unknownBlock": "Hook blocked the action",
   "chat.responseFailedFallback":
@@ -4699,6 +4704,7 @@ export const en = {
   "settings.shortcutOpenSearch": "Open global search",
   "settings.shortcutOpenMemo": "Open memos",
   "settings.shortcutOpenTodo": "Open todo list",
+  "settings.shortcutOpenUserMessageRail": "Open/close user message panel",
   "settings.shortcutCycleProject": "Cycle through projects",
   "settings.shortcutOpenExplorer": "Toggle current project explorer",
   "settings.shortcutOpenProjectMemory": "Open project memory",

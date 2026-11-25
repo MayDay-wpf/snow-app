@@ -74,6 +74,7 @@ pub struct KeyboardShortcutsSettingsNapi {
     pub cycle_detached_window: KeyboardShortcutConfigNapi,
     pub browser_toggle_share_with_agent: KeyboardShortcutConfigNapi,
     pub browser_pick_element: KeyboardShortcutConfigNapi,
+    pub open_user_message_rail: KeyboardShortcutConfigNapi,
 }
 
 impl From<crate::storage::services::keyboard_shortcuts::KeyboardShortcutsSettings>
@@ -116,6 +117,7 @@ impl From<crate::storage::services::keyboard_shortcuts::KeyboardShortcutsSetting
             cycle_detached_window: s.cycle_detached_window.into(),
             browser_toggle_share_with_agent: s.browser_toggle_share_with_agent.into(),
             browser_pick_element: s.browser_pick_element.into(),
+            open_user_message_rail: s.open_user_message_rail.into(),
         }
     }
 }
@@ -160,6 +162,7 @@ impl From<KeyboardShortcutsSettingsNapi>
             cycle_detached_window: s.cycle_detached_window.into(),
             browser_toggle_share_with_agent: s.browser_toggle_share_with_agent.into(),
             browser_pick_element: s.browser_pick_element.into(),
+            open_user_message_rail: s.open_user_message_rail.into(),
         }
     }
 }

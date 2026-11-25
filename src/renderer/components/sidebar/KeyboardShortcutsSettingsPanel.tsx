@@ -68,6 +68,7 @@ const DEFAULT_KEYS: Record<KeyboardShortcutAction, string> = {
   cycleDetachedWindow: "mod+shift+w",
   browserToggleShareWithAgent: "mod+shift+a",
   browserPickElement: "mod+shift+e",
+  openUserMessageRail: "mod+shift+j",
 };
 
 /**

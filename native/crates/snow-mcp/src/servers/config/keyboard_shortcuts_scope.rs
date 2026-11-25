@@ -58,6 +58,7 @@ const ACTIONS: &[&str] = &[
     "cycleDetachedWindow",
     "browserToggleShareWithAgent",
     "browserPickElement",
+    "openUserMessageRail",
 ];
 
 /// 单个动作允许写入的字段。

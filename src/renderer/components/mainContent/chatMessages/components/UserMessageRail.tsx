@@ -10,6 +10,8 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import {
+  ArrowDownWideNarrow,
+  ArrowUpNarrowWide,
   ChevronDown,
   ChevronUp,
   CornerDownLeft,
@@ -30,6 +32,7 @@ import {
   parseDbTimestamp,
 } from "../../../sidebar/mainSidebar/chatTimeGroup";
 import { ChatHistorySkeleton } from "./ChatHistorySkeleton";
+import { shortcutEvents } from "../../../shortcutEvents";
 import {
   buildHighlightSnippet,
   matchSearchTerms,
@@ -101,6 +104,17 @@ const VISIBILITY_FAST_SCROLL_PX_PER_MS = 1.2;
 
 /** 同会话内版本号成串变化时合并重拉（长会话单次拉取可达上百毫秒）。 */
 const USER_MESSAGES_REFETCH_DELAY_MS = 200;
+
+/** 排序方案的持久化键：各会话通用，重启后沿用上次选择。 */
+const RAIL_ORDER_STORAGE_KEY = "snow:chat:user-message-rail-order";
+
+/** newest = 最新在上（默认，从当前位置往上翻历史顺手）；oldest = 最早在上。 */
+type RailOrder = "newest" | "oldest";
+
+const readRailOrder = (): RailOrder =>
+  window.localStorage.getItem(RAIL_ORDER_STORAGE_KEY) === "oldest"
+    ? "oldest"
+    : "newest";
 
 /** 定位翻页页长：逐轮翻倍，目标越远轮次越少；上限防一次挂载过多消息。 */
 const LOCATE_PAGE_SIZE_MIN = 20;
@@ -328,7 +342,11 @@ export const UserMessageRail = memo(
   }: UserMessageRailProps): React.JSX.Element | null => {
     const { t } = useI18n();
     const [userMessages, setUserMessages] = useState<UserMessageSummary[]>([]);
+    const [railOrder, setRailOrder] = useState<RailOrder>(readRailOrder);
     const [hovered, setHovered] = useState(false);
+    /** 快捷键回调里读最新打开状态（回调注册一次，state 会过期）。 */
+    const hoveredRef = useRef(hovered);
+    hoveredRef.current = hovered;
     const [loading, setLoading] = useState(false);
     // 本地搜索：列表数据本身就是全量用户消息摘要（listUserMessages），
     // 过滤在渲染层完成，不额外请求后端；点击结果复用现有翻页定位。
@@ -721,6 +739,23 @@ export const UserMessageRail = memo(
       handleMouseEnter();
     }, [handleMouseEnter, hovered]);
 
+    // 快捷键打开/关闭面板：面板平时只由 hover 打开，键盘用户需要一条独立入口。
+    // 打开后焦点落到搜索框；再按一次关闭，焦点由 closePopover 还给 rail。
+    useEffect(() => {
+      return shortcutEvents.on("toggle-user-message-rail", () => {
+        // rail 未渲染（没有用户消息）时没有可打开的面板。
+        if (!railRef.current) {
+          return;
+        }
+        if (hoveredRef.current) {
+          closePopover();
+          return;
+        }
+        focusSearchOnOpenRef.current = true;
+        handleMouseEnter();
+      });
+    }, [closePopover, handleMouseEnter]);
+
     useEffect(() => {
       if (!hovered || !focusSearchOnOpenRef.current) {
         return;
@@ -1044,9 +1079,9 @@ export const UserMessageRail = memo(
     );
 
     /**
-     * 展示顺序：最新在上（从当前位置往上翻历史更顺手）。搜索态先按「全部
-     * 精确命中 → 含模糊命中」分层，层内仍是最新在上。保留原始索引：编号、
-     * 滚动可见高亮、定位都以它为准。
+     * 展示顺序由 railOrder 决定（默认最新在上）。搜索态先按「全部精确命中
+     * → 含模糊命中」分层，层内保持所选顺序。保留原始索引：编号、滚动可见
+     * 高亮、定位都以它为准。
      */
     const filteredRailItems = useMemo(() => {
       type Entry = {
@@ -1056,7 +1091,9 @@ export const UserMessageRail = memo(
         fuzzyTerms: number;
       };
       const entries: Entry[] = [];
-      for (let index = railItems.length - 1; index >= 0; index--) {
+      const total = railItems.length;
+      for (let offset = 0; offset < total; offset++) {
+        const index = railOrder === "newest" ? total - 1 - offset : offset;
         const item = railItems[index];
         if (searchTerms.length === 0) {
           entries.push({ item, index, highlight: null, fuzzyTerms: 0 });
@@ -1072,11 +1109,11 @@ export const UserMessageRail = memo(
           });
         }
       }
-      // 稳定排序：同层保持上面构造出的「最新在上」。
+      // 稳定排序：同层保持上面构造出的顺序。
       return searchTerms.length === 0
         ? entries
         : entries.sort((a, b) => a.fuzzyTerms - b.fuzzyTerms);
-    }, [railItems, searchTerms]);
+    }, [railItems, searchTerms, railOrder]);
 
     /** 是否显示键盘高亮：有搜索词，或用户已用方向键浏览。 */
     const showActive = searchTerms.length > 0 || keyboardNav;
@@ -1090,6 +1127,32 @@ export const UserMessageRail = memo(
       const item = railItems[ordinal - 1];
       return item ? { item, ordinal } : null;
     }, [query, railItems]);
+
+    /** 顺序切换后让键盘高亮跟随原来那一条，而不是停在相同的屏幕位置。 */
+    const pendingActiveIdRef = useRef<string | null>(null);
+
+    const handleToggleOrder = useCallback((): void => {
+      pendingActiveIdRef.current =
+        filteredRailItems[activeIndex]?.item.id ?? null;
+      setRailOrder((prev) => {
+        const next: RailOrder = prev === "newest" ? "oldest" : "newest";
+        // 立刻落盘：重启、切会话都沿用这次的选择。
+        window.localStorage.setItem(RAIL_ORDER_STORAGE_KEY, next);
+        return next;
+      });
+      // 焦点交还搜索框，切换后还能接着用方向键浏览。
+      searchInputRef.current?.focus();
+    }, [activeIndex, filteredRailItems]);
+
+    useEffect(() => {
+      const pendingId = pendingActiveIdRef.current;
+      if (!pendingId) return;
+      pendingActiveIdRef.current = null;
+      const position = filteredRailItems.findIndex(
+        (entry) => entry.item.id === pendingId,
+      );
+      if (position >= 0) setActiveIndex(position);
+    }, [filteredRailItems]);
 
     /** 键盘循环步进：到头再按一次回绕，长列表不必反向走一遍。 */
     const stepActive = useCallback(
@@ -1151,11 +1214,10 @@ export const UserMessageRail = memo(
         ?.scrollIntoView({ block: "nearest" });
     }, [activeIndex, filteredRailItems, hovered, showActive]);
 
-    // 打开面板（无搜索词）时把「当前视口所在的消息」滚到列表中部：在长会话
-    // 中段打开不必再从顶部找自己的位置。只在打开那一下执行，之后不跟随滚动。
-    const popoverMounted = hovered && popoverPos !== null;
-    useLayoutEffect(() => {
-      if (!popoverMounted || queryRef.current.trim()) return;
+    // 打开面板（无搜索词）时、以及切换排序重排之后，把「当前视口所在的消息」
+    // 滚到列表中部：长会话里不必再从顶部找自己的位置。只在打开那一下与排序
+    // 变更时执行，滚动过程中不跟随。
+    const scrollVisibleItemIntoCenter = useCallback((): void => {
       const list = popoverRef.current?.querySelector<HTMLElement>(
         ".user-message-rail-popover-list",
       );
@@ -1169,7 +1231,21 @@ export const UserMessageRail = memo(
         targetRect.top -
         listRect.top -
         (list.clientHeight - targetRect.height) / 2;
-    }, [popoverMounted]);
+    }, []);
+
+    const popoverMounted = hovered && popoverPos !== null;
+    useLayoutEffect(() => {
+      if (!popoverMounted) return;
+      // 搜索态没有「视口项」这层语义，重排后回到结果顶部即可。
+      if (queryRef.current.trim()) {
+        const list = popoverRef.current?.querySelector<HTMLElement>(
+          ".user-message-rail-popover-list",
+        );
+        if (list) list.scrollTop = 0;
+        return;
+      }
+      scrollVisibleItemIntoCenter();
+    }, [popoverMounted, railOrder, scrollVisibleItemIntoCenter]);
 
     const handleSearchKeyDown = (
       event: React.KeyboardEvent<HTMLInputElement>,
@@ -1183,7 +1259,8 @@ export const UserMessageRail = memo(
         const total = filteredRailItems.length;
         if (total === 0) return;
         if (!showActive) {
-          // 首次按方向键只亮出高亮，不跳过首项：↓ 从最新开始，↑ 回绕到最早。
+          // 首次按方向键只亮出高亮，不跳过首项：↓ 从列表首项开始，↑ 回绕到末项
+          // （首/末对应哪个时间方向由排序方案决定）。
           setKeyboardNav(true);
           setActiveIndex(event.key === "ArrowDown" ? 0 : total - 1);
           return;
@@ -1229,6 +1306,16 @@ export const UserMessageRail = memo(
     const compactionLabel = t("chat.compactionSummary", {
       defaultValue: "Context summary",
     });
+
+    // 顺序切换按钮：可见文本是当前排序方向，title / aria 说明点击后切到哪个方向。
+    const orderToggleLabel =
+      railOrder === "newest"
+        ? t("chat.userMessageRail.orderToggleToOldest", {
+            defaultValue: "Switch to oldest first",
+          })
+        : t("chat.userMessageRail.orderToggleToNewest", {
+            defaultValue: "Switch to newest first",
+          });
 
     // 列表项时间：当天「HH:mm」、昨天、一周内星期、更早「M/D」（与侧边栏一致）。
     const now = new Date();
@@ -1410,7 +1497,34 @@ export const UserMessageRail = memo(
                       defaultValue: "jump",
                     })}
                   </span>
-                  <span className="user-message-rail-key-hint">Esc</span>
+                  <button
+                    type="button"
+                    className="user-message-rail-order-toggle"
+                    onClick={handleToggleOrder}
+                    title={orderToggleLabel}
+                    aria-label={orderToggleLabel}
+                  >
+                    {railOrder === "newest" ? (
+                      <ArrowDownWideNarrow
+                        size={11}
+                        strokeWidth={2}
+                        aria-hidden="true"
+                      />
+                    ) : (
+                      <ArrowUpNarrowWide
+                        size={11}
+                        strokeWidth={2}
+                        aria-hidden="true"
+                      />
+                    )}
+                    {railOrder === "newest"
+                      ? t("chat.userMessageRail.orderNewest", {
+                          defaultValue: "Newest",
+                        })
+                      : t("chat.userMessageRail.orderOldest", {
+                          defaultValue: "Oldest",
+                        })}
+                  </button>
                 </div>
               ) : null}
             </div>,

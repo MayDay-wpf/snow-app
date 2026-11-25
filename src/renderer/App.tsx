@@ -136,6 +136,7 @@ const GLOBAL_ACTION_EVENTS: Record<
   openSearch: "toggle-search",
   openMemo: "toggle-memo",
   openTodo: "toggle-todo",
+  openUserMessageRail: "toggle-user-message-rail",
   cycleProject: "cycle-project",
   openProjectExplorer: "open-project-explorer",
   openProjectMemory: "toggle-project-memory",
@@ -340,6 +341,9 @@ const ShortcutHandlerBridge = (): React.JSX.Element => {
     const unsubTodo = registerHandler("openTodo", () => {
       shortcutEvents.emit("toggle-todo");
     });
+    const unsubUserMessageRail = registerHandler("openUserMessageRail", () => {
+      shortcutEvents.emit("toggle-user-message-rail");
+    });
     const unsubCycle = registerHandler("cycleProject", () => {
       shortcutEvents.emit("cycle-project");
     });
@@ -441,6 +445,7 @@ const ShortcutHandlerBridge = (): React.JSX.Element => {
       unsubSearch();
       unsubMemo();
       unsubTodo();
+      unsubUserMessageRail();
       unsubCycle();
       unsubExplorer();
       unsubProjectMemory();

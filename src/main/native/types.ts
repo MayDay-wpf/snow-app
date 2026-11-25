@@ -615,6 +615,7 @@ export type KeyboardShortcutsSettings = {
   cycleDetachedWindow: KeyboardShortcutConfig;
   browserToggleShareWithAgent: KeyboardShortcutConfig;
   browserPickElement: KeyboardShortcutConfig;
+  openUserMessageRail: KeyboardShortcutConfig;
 };
 
 export type CodebaseEmbedProgress = {

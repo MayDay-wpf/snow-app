@@ -37,25 +37,14 @@ const INTERACTIVE_TOOL_NAMES = new Set([
 const INTERACTIVE_BASH_PATTERN = /"isInteractive"\s*:\s*true/;
 
 /**
- * 工具是否仍在等待用户处理：交互型工具未结算、或处于待授权列表中。
- * 极简模式同类合并时这类工具单独成行，处理完才并入折叠列表。
+ * 卡片本身是否必须露出来才能交互（内联提问 / 共享确认 / 工作流 / 交互式终端）。
+ * 待授权不在此列：授权弹窗由列表层的授权行单独承载，卡片可以留在折叠集合里。
  */
-export const isAwaitingUserAction = (
-  toolCall: ToolCallInfo,
-  pendingAuthorizationIds: ReadonlySet<string>,
-): boolean => {
-  if (
-    toolCall.authorizationConversationId ||
-    pendingAuthorizationIds.has(toolCall.interactionId)
-  ) {
-    return true;
-  }
+export const needsVisibleToolCard = (toolCall: ToolCallInfo): boolean => {
   if (hasPendingUserInteraction([toolCall])) {
     return true;
   }
-  const unsettled =
-    toolCall.status === "pending" || toolCall.status === "running";
-  if (!unsettled) {
+  if (toolCall.status !== "pending" && toolCall.status !== "running") {
     return false;
   }
   if (INTERACTIVE_TOOL_NAMES.has(toolCall.name)) {
@@ -66,3 +55,14 @@ export const isAwaitingUserAction = (
     INTERACTIVE_BASH_PATTERN.test(toolCall.arguments ?? "")
   );
 };
+
+/**
+ * 工具是否仍在等待用户处理：交互型工具未结算、或处于待授权列表中。
+ */
+export const isAwaitingUserAction = (
+  toolCall: ToolCallInfo,
+  pendingAuthorizationIds: ReadonlySet<string>,
+): boolean =>
+  Boolean(toolCall.authorizationConversationId) ||
+  pendingAuthorizationIds.has(toolCall.interactionId) ||
+  needsVisibleToolCard(toolCall);

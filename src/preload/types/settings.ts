@@ -793,7 +793,8 @@ export type KeyboardShortcutAction =
   | "newChatInNewWindow"
   | "cycleDetachedWindow"
   | "browserToggleShareWithAgent"
-  | "browserPickElement";
+  | "browserPickElement"
+  | "openUserMessageRail";
 
 export type KeyboardShortcutConfig = {
   /**
@@ -845,6 +846,8 @@ export type KeyboardShortcutsSettings = {
   browserToggleShareWithAgent: KeyboardShortcutConfig;
   /** 选择浏览器页面元素（仅浏览器面板激活且有页面时生效） */
   browserPickElement: KeyboardShortcutConfig;
+  /** 打开/关闭用户消息面板（面板打开后聚焦搜索框） */
+  openUserMessageRail: KeyboardShortcutConfig;
 };
 
 // ===== App lock =====

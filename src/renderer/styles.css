@@ -10685,10 +10685,10 @@ body.is-panel-resizing * {
   font-weight: 600;
 }
 
-/* 键盘高亮与「视口可见」同时成立时，键盘高亮优先（写在 is-visible 之后）。 */
+/* 键盘高亮与「视口可见」同时成立时，键盘高亮优先（写在 is-visible 之后）。
+   只拉深底色，不加左侧色条一类装饰。 */
 .user-message-rail-popover-item.is-visible.is-active {
   background: var(--bg-active);
-  box-shadow: inset 2px 0 0 var(--accent-color);
 }
 
 /* 「#12」数字定位提示条：搜索词恰为消息序号时给出直达入口。 */
@@ -10744,6 +10744,35 @@ body.is-panel-resizing * {
 }
 
 .user-message-rail-key-hint svg {
+  opacity: 0.75;
+}
+
+/* 顺序切换：footer 右端的小按钮，图标 + 当前排序方向，沿用 footer 的字号与色阶。 */
+.user-message-rail-order-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  line-height: inherit;
+  cursor: pointer;
+}
+
+.user-message-rail-order-toggle:hover {
+  color: var(--text-primary);
+}
+
+.user-message-rail-order-toggle:focus-visible {
+  outline: 2px solid var(--accent-primary, var(--text-tertiary));
+  outline-offset: 2px;
+}
+
+.user-message-rail-order-toggle svg {
   opacity: 0.75;
 }
 

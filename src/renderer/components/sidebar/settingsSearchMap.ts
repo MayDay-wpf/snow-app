@@ -2773,6 +2773,14 @@ const RAW_GROUPS: RawGroup[] = [
         ["待办", "任务列表"],
       ],
       [
+        "shortcuts.openUserMessageRail",
+        "field",
+        "settings.shortcutOpenUserMessageRail",
+        "Open/close user message panel",
+        [],
+        ["用户消息", "消息面板", "消息列表"],
+      ],
+      [
         "shortcuts.cycleProject",
         "field",
         "settings.shortcutCycleProject",

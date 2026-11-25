@@ -171,6 +171,11 @@ const DEFAULT_SETTINGS: KeyboardShortcutsSettings = {
     enabled: true,
     foregroundOnly: true,
   },
+  openUserMessageRail: {
+    key: "mod+shift+j",
+    enabled: true,
+    foregroundOnly: true,
+  },
 };
 
 /**

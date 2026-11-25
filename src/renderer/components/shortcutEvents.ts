@@ -18,6 +18,7 @@ export type ShortcutAction =
   | "toggle-memo"
   | "toggle-todo"
   | "open-todo"
+  | "toggle-user-message-rail"
   | "cycle-project"
   | "open-project-explorer"
   | "toggle-project-memory"
@@ -51,6 +52,7 @@ type ListenerMap = {
   "toggle-memo": Set<() => void>;
   "toggle-todo": Set<() => void>;
   "open-todo": Set<() => void>;
+  "toggle-user-message-rail": Set<() => void>;
   "cycle-project": Set<() => void>;
   "open-project-explorer": Set<() => void>;
   "toggle-project-memory": Set<() => void>;
@@ -85,6 +87,7 @@ const listeners: ListenerMap = {
   "toggle-memo": new Set(),
   "toggle-todo": new Set(),
   "open-todo": new Set(),
+  "toggle-user-message-rail": new Set(),
   "cycle-project": new Set(),
   "open-project-explorer": new Set(),
   "toggle-project-memory": new Set(),

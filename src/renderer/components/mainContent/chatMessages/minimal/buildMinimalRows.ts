@@ -4,10 +4,7 @@ import type {
   ToolCallInfo,
 } from "../utils/conversationTypes";
 import type { ToolCallRun } from "../utils/types";
-import {
-  hasPendingUserInteraction,
-  isAwaitingUserAction,
-} from "../utils/toolCallInteraction";
+import { needsVisibleToolCard } from "../utils/toolCallInteraction";
 import type { MinimalRow, MinimalToolGroupKind } from "./types";
 
 const ASK_TOOL_NAME = "user-interaction-askUserQuestion";
@@ -24,7 +21,6 @@ type MinimalToolEntry =
 
 const groupMinimalTools = (
   toolCalls: readonly ToolCallInfo[],
-  pendingAuthorizationIds: ReadonlySet<string>,
 ): MinimalToolEntry[] => {
   const entries: MinimalToolEntry[] = [];
   for (let index = 0; index < toolCalls.length;) {
@@ -46,18 +42,11 @@ const groupMinimalTools = (
       index = end;
       continue;
     }
-    // 等待用户处理的交互型工具单独成行，处理完才并入同类折叠列表。
-    if (isAwaitingUserAction(toolCalls[index], pendingAuthorizationIds)) {
-      entries.push({ type: "single", toolCall: toolCalls[index] });
-      index += 1;
-      continue;
-    }
+    // 归属只按工具名判断，不掺「是否等待用户处理」这类易变状态：否则新工具
+    // 会先以单行出现在集合外，状态落定后再被收进集合，记录会当场抖一下。
+    // 需要用户处理的成员由所属集合强制展开来保证可见（见 buildToolRows）。
     let end = index + 1;
-    while (
-      end < toolCalls.length &&
-      toolCalls[end].name === name &&
-      !isAwaitingUserAction(toolCalls[end], pendingAuthorizationIds)
-    ) {
+    while (end < toolCalls.length && toolCalls[end].name === name) {
       end += 1;
     }
     const sameRun = toolCalls.slice(index, end);
@@ -120,9 +109,6 @@ export const buildMinimalRows = ({
   interactedRowKeys,
 }: BuildMinimalRowsInput): MinimalRow[] => {
   const rows: MinimalRow[] = [];
-  const pendingAuthorizationIds = new Set(
-    pendingToolAuthorizations.map((toolCall) => toolCall.interactionId),
-  );
   const pushDivider = (): void => {
     rows.push({
       kind: "divider",
@@ -200,10 +186,7 @@ export const buildMinimalRows = ({
       });
     };
 
-    for (const entry of groupMinimalTools(
-      run.toolCalls,
-      pendingAuthorizationIds,
-    )) {
+    for (const entry of groupMinimalTools(run.toolCalls)) {
       if (entry.type === "single") {
         pushToolRow(entry.toolCall);
         continue;
@@ -225,9 +208,11 @@ export const buildMinimalRows = ({
       const viewingInGroup = entry.toolCalls.some((toolCall) =>
         interactedRowKeys.has(toolRowKey(toolCall)),
       );
+      // 卡片本身要交互（内联提问 / 共享 / 工作流 / 交互式终端）时强制展开，
+      // 折叠不会把等待操作的卡片藏起来；待授权弹窗由授权行承载，不在此列。
+      const awaitingUser = entry.toolCalls.some(needsVisibleToolCard);
       const sameRunExpanded =
-        isRowExpanded(sameRunKey, viewingInGroup) ||
-        hasPendingUserInteraction(entry.toolCalls);
+        isRowExpanded(sameRunKey, viewingInGroup) || awaitingUser;
       rows.push({
         kind: "same-run-header",
         key: sameRunKey,
