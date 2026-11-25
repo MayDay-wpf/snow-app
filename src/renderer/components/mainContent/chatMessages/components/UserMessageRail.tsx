@@ -1,6 +1,7 @@
 import {
   memo,
   useCallback,
+  useDeferredValue,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -24,7 +25,19 @@ import {
   summarizeContentAsPlainText,
   type ContentSegment,
 } from "../../chatInput/fileTagUtils";
+import {
+  formatTimeLabel,
+  parseDbTimestamp,
+} from "../../../sidebar/mainSidebar/chatTimeGroup";
 import { ChatHistorySkeleton } from "./ChatHistorySkeleton";
+import {
+  buildHighlightSnippet,
+  matchSearchTerms,
+  normalizeForSearch,
+  parseSearchTerms,
+  type HighlightSnippet,
+  type MatchRange,
+} from "./userMessageSearch";
 
 type RefValue<T> = { current: T };
 
@@ -122,8 +135,9 @@ type RailItemData = {
   summary: string;
   /** 含 chip 标签时的解析结果，否则为 null（走纯文本摘要）。 */
   segments: ContentSegment[] | null;
-  /** 搜索归一化文本：摘要 + chip 标签的可读字段，已转小写。 */
+  /** 搜索归一化文本：摘要在前（命中区间可直接映射回摘要）+ chip 标签的可读字段。 */
   searchText: string;
+  createdAt: Date;
 };
 
 /** 把 chip 分段里的可读字符串拼进搜索文本（文件路径、网页标题、引用摘要等）。 */
@@ -149,16 +163,41 @@ const deriveRailItem = (msg: UserMessageSummary): RailItemData => {
     CHIP_TAG_MARKERS.some((marker) => msg.content.includes(marker));
   const summary = summarizeContentAsPlainText(msg.content);
   const segments = hasChips ? parseContentSegments(msg.content) : null;
-  const searchText = [summary, ...(segments?.map(segmentSearchText) ?? [])]
-    .join(" ")
-    .toLowerCase();
+  const searchText = normalizeForSearch(
+    [summary, ...(segments?.map(segmentSearchText) ?? [])].join(" "),
+  );
   return {
     id: msg.id,
     isContextCompaction,
     summary,
     segments,
     searchText,
+    createdAt: parseDbTimestamp(msg.createdAt),
   };
+};
+
+/** 列表项摘要的展示上限：两行截断由 CSS 完成，超长原文不必整段进 DOM。 */
+const ITEM_LABEL_MAX_LENGTH = 160;
+
+/** 把片段按命中区间切成普通文本与 <mark> 交替的节点。 */
+const renderHighlighted = (snippet: HighlightSnippet): React.ReactNode[] => {
+  const nodes: React.ReactNode[] = [];
+  let cursor = 0;
+  for (const [start, end] of snippet.ranges) {
+    if (start > cursor) {
+      nodes.push(snippet.text.slice(cursor, start));
+    }
+    nodes.push(
+      <mark key={start} className="user-message-rail-match">
+        {snippet.text.slice(start, end)}
+      </mark>,
+    );
+    cursor = end;
+  }
+  if (cursor < snippet.text.length) {
+    nodes.push(snippet.text.slice(cursor));
+  }
+  return nodes;
 };
 
 /** 视口内（目标附近）是否还有虚拟化占位符：从目标向两侧扫，越出视口即停，
@@ -205,6 +244,9 @@ type RailItemProps = {
   isVisible: boolean;
   /** 键盘搜索当前高亮项（与「滚动可见」高亮是两套语义）。 */
   isActive: boolean;
+  /** 搜索命中区间（基于 searchText，摘要部分可直接高亮）；非搜索态为 null。 */
+  highlight: MatchRange[] | null;
+  timeLabel: string;
   compactionLabel: string;
   onSelect: (messageId: string) => Promise<void>;
 };
@@ -215,6 +257,8 @@ const RailItem = memo(
     index,
     isVisible,
     isActive,
+    highlight,
+    timeLabel,
     compactionLabel,
     onSelect,
   }: RailItemProps): React.JSX.Element => {
@@ -222,10 +266,16 @@ const RailItem = memo(
     const itemLabel = item.isContextCompaction
       ? compactionLabel
       : summary.length > 0
-        ? summary.length > 64
-          ? `${summary.slice(0, 64)}...`
-          : summary
+        ? summary.slice(0, ITEM_LABEL_MAX_LENGTH)
         : `#${index + 1}`;
+    // 命中落在摘要里时改用「命中处片段 + 高亮」，否则命中位置可能被两行截断藏掉；
+    // 只命中 chip 隐藏字段（如完整路径）时保留 chip 展示。
+    const snippet =
+      highlight &&
+      !item.isContextCompaction &&
+      highlight.some(([start]) => start < summary.length)
+        ? buildHighlightSnippet(summary, highlight)
+        : null;
     return (
       <button
         type="button"
@@ -243,12 +293,19 @@ const RailItem = memo(
           {index + 1}
         </span>
         <span className="user-message-rail-popover-item-text">
-          {item.segments ? (
+          {snippet ? (
+            renderHighlighted(snippet)
+          ) : item.segments ? (
             <ContentChips segments={item.segments} />
           ) : (
             itemLabel
           )}
         </span>
+        {timeLabel ? (
+          <span className="user-message-rail-popover-item-time">
+            {timeLabel}
+          </span>
+        ) : null}
       </button>
     );
   },
@@ -277,6 +334,10 @@ export const UserMessageRail = memo(
     // 过滤在渲染层完成，不额外请求后端；点击结果复用现有翻页定位。
     const [query, setQuery] = useState("");
     const [activeIndex, setActiveIndex] = useState(0);
+    /** 方向键浏览过：无搜索词时也显示键盘高亮（关闭面板后复位）。 */
+    const [keyboardNav, setKeyboardNav] = useState(false);
+    const queryRef = useRef(query);
+    queryRef.current = query;
     const searchInputRef = useRef<HTMLInputElement | null>(null);
     /** 点击图标打开面板时置位：等面板提交后再聚焦，避免 hover 打开也抢焦点。 */
     const focusSearchOnOpenRef = useRef(false);
@@ -605,6 +666,7 @@ export const UserMessageRail = memo(
       searchLockedRef.current = false;
       composingRef.current = false;
       setHovered(false);
+      setKeyboardNav(false);
       setPopoverPos(null);
       setPopoverHeight(0);
       if (panelHadFocus) {
@@ -664,7 +726,9 @@ export const UserMessageRail = memo(
         return;
       }
       focusSearchOnOpenRef.current = false;
+      // 再次打开时全选上次的搜索词：直接输入即替换，想沿用也只需按方向键。
       searchInputRef.current?.focus();
+      searchInputRef.current?.select();
     }, [hovered]);
 
     useEffect(() => {
@@ -925,6 +989,7 @@ export const UserMessageRail = memo(
             finishLocating();
           }
           setHovered(false);
+          setKeyboardNav(false);
           setPopoverPos(null);
         }
       },
@@ -971,21 +1036,50 @@ export const UserMessageRail = memo(
     }, [hovered, userMessages]);
 
     // 搜索词按空白切分做 AND 匹配：多个词分别命中即可，适合「路径 + 关键词」这种组合。
+    // 过滤走延迟值：长会话逐字输入时输入框先响应，列表随后跟上。
+    const deferredQuery = useDeferredValue(query);
     const searchTerms = useMemo(
-      () => query.trim().toLowerCase().split(/\s+/).filter(Boolean),
-      [query],
+      () => parseSearchTerms(deferredQuery),
+      [deferredQuery],
     );
 
-    /** 过滤结果保留原始索引：编号、滚动可见高亮、定位都以它为准。 */
+    /**
+     * 展示顺序：最新在上（从当前位置往上翻历史更顺手）。搜索态先按「全部
+     * 精确命中 → 含模糊命中」分层，层内仍是最新在上。保留原始索引：编号、
+     * 滚动可见高亮、定位都以它为准。
+     */
     const filteredRailItems = useMemo(() => {
-      const indexed = railItems.map((item, index) => ({ item, index }));
-      if (searchTerms.length === 0) {
-        return indexed;
+      type Entry = {
+        item: RailItemData;
+        index: number;
+        highlight: MatchRange[] | null;
+        fuzzyTerms: number;
+      };
+      const entries: Entry[] = [];
+      for (let index = railItems.length - 1; index >= 0; index--) {
+        const item = railItems[index];
+        if (searchTerms.length === 0) {
+          entries.push({ item, index, highlight: null, fuzzyTerms: 0 });
+          continue;
+        }
+        const match = matchSearchTerms(item.searchText, searchTerms);
+        if (match) {
+          entries.push({
+            item,
+            index,
+            highlight: match.ranges,
+            fuzzyTerms: match.fuzzyTerms,
+          });
+        }
       }
-      return indexed.filter(({ item }) =>
-        searchTerms.every((term) => item.searchText.includes(term)),
-      );
+      // 稳定排序：同层保持上面构造出的「最新在上」。
+      return searchTerms.length === 0
+        ? entries
+        : entries.sort((a, b) => a.fuzzyTerms - b.fuzzyTerms);
     }, [railItems, searchTerms]);
+
+    /** 是否显示键盘高亮：有搜索词，或用户已用方向键浏览。 */
+    const showActive = searchTerms.length > 0 || keyboardNav;
 
     /** 「#12」或纯数字直接定位到第 N 条用户消息；长会话不用逐词猜。 */
     const numericTarget = useMemo(() => {
@@ -1049,13 +1143,33 @@ export const UserMessageRail = memo(
 
     // 键盘移动高亮时把该项滚进可视区（不做整列滚动，保持贴近当前结果）。
     useEffect(() => {
-      if (!hovered || searchTerms.length === 0) return;
+      if (!hovered || !showActive) return;
       const target = filteredRailItems[activeIndex];
       if (!target) return;
       popoverRef.current
         ?.querySelector<HTMLElement>(`[data-rail-index="${target.index}"]`)
         ?.scrollIntoView({ block: "nearest" });
-    }, [activeIndex, filteredRailItems, hovered, searchTerms.length]);
+    }, [activeIndex, filteredRailItems, hovered, showActive]);
+
+    // 打开面板（无搜索词）时把「当前视口所在的消息」滚到列表中部：在长会话
+    // 中段打开不必再从顶部找自己的位置。只在打开那一下执行，之后不跟随滚动。
+    const popoverMounted = hovered && popoverPos !== null;
+    useLayoutEffect(() => {
+      if (!popoverMounted || queryRef.current.trim()) return;
+      const list = popoverRef.current?.querySelector<HTMLElement>(
+        ".user-message-rail-popover-list",
+      );
+      const target = list?.querySelector<HTMLElement>(
+        ".user-message-rail-popover-item.is-visible",
+      );
+      if (!list || !target) return;
+      const listRect = list.getBoundingClientRect();
+      const targetRect = target.getBoundingClientRect();
+      list.scrollTop +=
+        targetRect.top -
+        listRect.top -
+        (list.clientHeight - targetRect.height) / 2;
+    }, [popoverMounted]);
 
     const handleSearchKeyDown = (
       event: React.KeyboardEvent<HTMLInputElement>,
@@ -1065,10 +1179,15 @@ export const UserMessageRail = memo(
         return;
       }
       if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-        // 无搜索词时不渲染键盘高亮，移动光标没有视觉反馈，直接忽略。
-        if (searchTerms.length === 0) return;
         event.preventDefault();
-        if (filteredRailItems.length === 0) return;
+        const total = filteredRailItems.length;
+        if (total === 0) return;
+        if (!showActive) {
+          // 首次按方向键只亮出高亮，不跳过首项：↓ 从最新开始，↑ 回绕到最早。
+          setKeyboardNav(true);
+          setActiveIndex(event.key === "ArrowDown" ? 0 : total - 1);
+          return;
+        }
         stepActive(event.key === "ArrowDown" ? 1 : -1);
         return;
       }
@@ -1110,6 +1229,17 @@ export const UserMessageRail = memo(
     const compactionLabel = t("chat.compactionSummary", {
       defaultValue: "Context summary",
     });
+
+    // 列表项时间：当天「HH:mm」、昨天、一周内星期、更早「M/D」（与侧边栏一致）。
+    const now = new Date();
+    const formatItemTime = (date: Date): string => {
+      const time = date.getTime();
+      if (!Number.isFinite(time) || time <= 0) return "";
+      const label = formatTimeLabel(date, now, t);
+      return label === "yesterday"
+        ? t("sidebar.chatTimeYesterday", { defaultValue: "Yesterday" })
+        : label;
+    };
 
     // 单一真值：aria-expanded / 面板渲染必须同时成立，否则读屏器会以为已展开。
     const popoverOpen = Boolean(
@@ -1165,7 +1295,7 @@ export const UserMessageRail = memo(
                   })}
                   aria-controls="user-message-rail-results"
                   aria-activedescendant={
-                    filteredRailItems[activeIndex]
+                    showActive && filteredRailItems[activeIndex]
                       ? `user-message-rail-option-${filteredRailItems[activeIndex].item.id}`
                       : undefined
                   }
@@ -1244,22 +1374,24 @@ export const UserMessageRail = memo(
                     ) : null}
                   </div>
                 ) : (
-                  filteredRailItems.map(({ item, index }, position) => (
-                    <RailItem
-                      key={item.id}
-                      item={item}
-                      index={index}
-                      isVisible={visibleUserIndices.has(index)}
-                      isActive={
-                        searchTerms.length > 0 && position === activeIndex
-                      }
-                      compactionLabel={compactionLabel}
-                      onSelect={handleItemClick}
-                    />
-                  ))
+                  filteredRailItems.map(
+                    ({ item, index, highlight }, position) => (
+                      <RailItem
+                        key={item.id}
+                        item={item}
+                        index={index}
+                        isVisible={visibleUserIndices.has(index)}
+                        isActive={showActive && position === activeIndex}
+                        highlight={highlight}
+                        timeLabel={formatItemTime(item.createdAt)}
+                        compactionLabel={compactionLabel}
+                        onSelect={handleItemClick}
+                      />
+                    ),
+                  )
                 )}
               </div>
-              {searchTerms.length > 0 && filteredRailItems.length > 0 ? (
+              {filteredRailItems.length > 0 ? (
                 <div className="user-message-rail-popover-footer">
                   <span className="user-message-rail-key-hint">
                     <ChevronUp size={11} strokeWidth={2} aria-hidden="true" />

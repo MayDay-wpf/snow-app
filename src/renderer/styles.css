@@ -10659,6 +10659,38 @@ body.is-panel-resizing * {
   max-width: 180px;
 }
 
+/* 列表项时间：贴右上角的次要信息，不参与两行截断。 */
+.user-message-rail-popover-item-time {
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: var(--text-tertiary);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.4;
+  white-space: nowrap;
+  opacity: 0.85;
+}
+
+.user-message-rail-popover-item:hover .user-message-rail-popover-item-time,
+.user-message-rail-popover-item.is-active .user-message-rail-popover-item-time {
+  opacity: 1;
+}
+
+/* 搜索命中高亮：主题色底 + 加粗，不依赖浏览器默认的黄色 mark。 */
+.user-message-rail-match {
+  padding: 0 1px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--accent-color) 22%, transparent);
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+/* 键盘高亮与「视口可见」同时成立时，键盘高亮优先（写在 is-visible 之后）。 */
+.user-message-rail-popover-item.is-visible.is-active {
+  background: var(--bg-active);
+  box-shadow: inset 2px 0 0 var(--accent-color);
+}
+
 /* 「#12」数字定位提示条：搜索词恰为消息序号时给出直达入口。 */
 .user-message-rail-numeric-hint {
   display: flex;
@@ -10692,7 +10724,7 @@ body.is-panel-resizing * {
   flex-shrink: 0;
 }
 
-/* 底部快捷键提示：仅在搜索态出现，避免与结果列表抢高度。 */
+/* 底部快捷键提示：有结果时常驻，提示方向键 / 回车 / Esc 的用法。 */
 .user-message-rail-popover-footer {
   display: flex;
   align-items: center;
