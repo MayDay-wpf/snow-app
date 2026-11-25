@@ -1,5 +1,22 @@
 # Release Notes
 
+## v0.5.27
+
+### New Features
+
+- **Message Rail Search**: the user message rail gains a newest-first/oldest-first toggle, fuzzy search with highlighted matches and timestamps, arrow-key selection, and scrolls to the current message on open.
+- **Rail Shortcut**: `Mod+Shift+J` opens or closes the message rail.
+
+### Improvements
+
+- The minimal transcript shares cached edit diff stats, matches real row heights and skips replayed entrance animations, so the transcript no longer jumps; tool cards group by name only and stay put while awaiting user action.
+- Newly added API profiles are placed in the first row.
+
+### Bug Fixes
+
+- Anthropic assistant turns are stored as the original ordered content block array and replayed verbatim, fixing interleaved thinking turns that failed once reconstructed.
+- After a programmatic send, the chat input re-syncs to the model actually used, so later manual sends no longer fall back to the profile model.
+
 ## v0.5.26
 
 ### New Features

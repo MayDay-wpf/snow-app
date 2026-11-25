@@ -1,6 +1,6 @@
 [package]
 name = "snow_native"
-version = "0.5.26"
+version = "0.5.27"
 edition = "2021"
 license = "MIT"
 
@@ -14,7 +14,7 @@ members = ["crates/*"]
 resolver = "2"
 
 [workspace.package]
-version = "0.5.26"
+version = "0.5.27"
 edition = "2021"
 license = "MIT"
 
