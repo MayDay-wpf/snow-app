@@ -255,6 +255,8 @@
   font-family: inherit;
   font-size: 13px;
   font-weight: 400;
+  /* 与组摘要行同理：overflow: hidden 下行高过小会裁掉字形底部 */
+  line-height: 1.4;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -333,7 +335,9 @@
 .tsr-head {
   display: flex;
   flex-shrink: 0;
-  align-items: center;
+  /* 文字项按基线对齐：名称、计数、文件名与等宽小字号的 diff 统计字体度量
+     不同，按盒子居中会让各自基线上下错开 1~2px。图标类单独居中。 */
+  align-items: baseline;
   gap: 5px;
   width: 100%;
   height: 24px;
@@ -346,7 +350,9 @@
   font-family: inherit;
   font-size: 13px;
   font-weight: 500;
-  line-height: 1.2;
+  /* 行高等于头部高度：各文字项的行盒都撑满 24px，基线对齐后整体仍在行内
+     垂直居中；最近目标文案带 overflow: hidden，满高行盒也不会裁掉字形底部。 */
+  line-height: 24px;
   text-align: left;
   cursor: pointer;
   transition: color 0.12s ease;
@@ -407,11 +413,13 @@
 
 .tsr-alert {
   flex-shrink: 0;
+  align-self: center;
   color: var(--accent-red);
 }
 
 .tsr-chevron {
   flex-shrink: 0;
+  align-self: center;
   opacity: 0.55;
   transition: transform var(--minimal-motion-duration, 0.22s)
     var(--minimal-motion-ease, ease);
@@ -533,9 +541,13 @@
   padding-top: 12px;
 }
 
-/* 尾部行常常没有任何内容：空容器不占间距，行高为 0。 */
-.minimal-response-tail:not(:empty) {
-  padding-top: 12px;
+/* 尾部行常常没有任何可见内容，间距只能由真实内容撑出。不能用 :empty 判断：
+   插件页脚加载期间会挂一个 hidden 占位标记、空的 display: contents 宿主也
+   算子节点，每轮工具消息结束都会让 12px 间距出现又消失，记录随之上下抖动。
+   这里借 .ai-message 的 12px gap：零高的 ::before 是首个 flex 项，隐藏节点与
+   空的 contents 宿主不生成 flex 项，只有真实内容出现时才与它隔开 12px。 */
+.minimal-response-tail::before {
+  content: "";
 }
 
 /* IM 风格：同一条 AI 回复的后续行与正文列对齐（头像 32 + gap 10） */

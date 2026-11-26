@@ -7938,6 +7938,34 @@ body.is-panel-resizing * {
   opacity: 0.68;
 }
 
+/* 跟随态下在数值右侧补一句说明：框里的数字是按所选模型自动填入的结果，
+   不写说明会和菜单里勾选的「跟随模型」看起来互相矛盾。
+   说明叠在输入框右侧留白内，故为其预留 108px 的 padding-right（含箭头区）。 */
+.api-token-preset-input.has-follow
+  .api-token-preset-input-wrap
+  > input[type="number"] {
+  padding-right: 108px;
+}
+
+.api-token-preset-input .api-token-preset-follow-hint {
+  position: absolute;
+  right: 30px;
+  top: 50%;
+  /* 限制最大宽度，避免文字压到左侧的数字上 */
+  max-width: 76px;
+  overflow: hidden;
+  transform: translateY(-50%);
+  padding-left: 8px;
+  border-left: 1px solid var(--border-color);
+  color: var(--text-tertiary);
+  font-size: 10px;
+  font-weight: 400;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
 .api-token-preset-option-main {
   display: flex;
   min-width: 0;

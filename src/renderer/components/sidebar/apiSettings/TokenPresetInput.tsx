@@ -68,6 +68,11 @@ export function TokenPresetInput({
   const showFollowOption = Boolean(onFollowModelChange && followModelLabel);
   const followLabel = followModelLabel ?? "";
 
+  // 跟随态下在数值右侧补一句说明：输入框里仍是自动填入的真实数字，
+  // 若不加标注，用户会以为菜单里的「跟随模型」勾选与数字互相矛盾。
+  const showFollowBadge =
+    followModel && Boolean(followLabel) && value.trim() !== "";
+
   // 当前值命中的预设项,用于展开全部时高亮与复选标记
   const selectedIndex = presets.findIndex((preset) => preset.value === value);
 
@@ -205,7 +210,10 @@ export function TokenPresetInput({
   );
 
   return (
-    <div className="api-token-preset-input" ref={rootRef}>
+    <div
+      className={`api-token-preset-input${showFollowBadge ? " has-follow" : ""}`}
+      ref={rootRef}
+    >
       <div className="api-token-preset-input-wrap">
         <input
           value={value}
@@ -219,6 +227,11 @@ export function TokenPresetInput({
           aria-expanded={isOpen}
           aria-autocomplete="list"
         />
+        {showFollowBadge && (
+          <span className="api-token-preset-follow-hint" aria-hidden="true">
+            {followLabel}
+          </span>
+        )}
         <button
           type="button"
           className="api-token-preset-arrow"
