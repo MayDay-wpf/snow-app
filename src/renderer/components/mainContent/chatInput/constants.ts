@@ -37,6 +37,7 @@ export const THINKING_OPTIONS_BY_METHOD: Record<
     { value: "low", label: "Low", icon: ThinkingLowIcon },
     { value: "medium", label: "Medium", icon: ThinkingMediumIcon },
     { value: "high", label: "High", icon: ThinkingHighIcon },
+    { value: "xhigh", label: "Extra High", icon: ThinkingXHighIcon },
   ],
   interactions: [
     { value: "none", label: "None", icon: ThinkingNoneIcon },
