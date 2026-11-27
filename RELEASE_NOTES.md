@@ -1,5 +1,20 @@
 # Release Notes
 
+## v0.5.28
+
+### New Features
+
+- **Snow AI Router Sign-in and Channel Access**: sign in to Snow AI Router via OAuth, then pick the channels available to the account; API keys are created or reused automatically and written to the local API config, while channels that already have a key stay untouched.
+- **Raw HTML and Relative Images in Markdown**: the file viewer now renders raw HTML in Markdown sources (sanitized with a tag/attribute whitelist; scripts, styles, forms and external resource tags are stripped), and relative image paths resolve against the file's directory.
+- **Extra High Thinking Level**: thinking strength gains an Extra High option.
+
+### Improvements
+
+- The Antigravity client is bumped to 2.35.2 with support for the Gemini 4 model family and 3.8 Flash; outdated client versions in existing schemes are overridden automatically and unavailable placeholder models are filtered out.
+- Chat item tooltips in the sidebar show the message count.
+- When token limits follow the model, the input shows a hint so the auto-filled number no longer looks like it contradicts the checkbox.
+- Tool card headers align on the baseline with adjusted line heights so glyphs are not clipped, and the tail spacer no longer flickers while footer content loads.
+
 ## v0.5.27
 
 ### New Features

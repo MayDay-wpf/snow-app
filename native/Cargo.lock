@@ -3710,7 +3710,7 @@ checksum = "8ed6a63f02c8539c91a8685a86f4099661ba3da017932f6ebbea6de3f0fa7c90"
 
 [[package]]
 name = "snow-ai"
-version = "0.5.27"
+version = "0.5.28"
 dependencies = [
  "axum",
  "base64 0.22.1",
@@ -3737,7 +3737,7 @@ dependencies = [
 
 [[package]]
 name = "snow-api"
-version = "0.5.27"
+version = "0.5.28"
 dependencies = [
  "aes",
  "aes-gcm",
@@ -3820,7 +3820,7 @@ dependencies = [
 
 [[package]]
 name = "snow-exports"
-version = "0.5.27"
+version = "0.5.28"
 dependencies = [
  "aes",
  "aes-gcm",
@@ -3904,7 +3904,7 @@ dependencies = [
 
 [[package]]
 name = "snow-hooks"
-version = "0.5.27"
+version = "0.5.28"
 dependencies = [
  "blake3",
  "napi",
@@ -3921,7 +3921,7 @@ dependencies = [
 
 [[package]]
 name = "snow-mcp"
-version = "0.5.27"
+version = "0.5.28"
 dependencies = [
  "aes",
  "aes-gcm",
@@ -4005,7 +4005,7 @@ dependencies = [
 
 [[package]]
 name = "snow-net"
-version = "0.5.27"
+version = "0.5.28"
 dependencies = [
  "futures",
  "napi",
@@ -4024,7 +4024,7 @@ dependencies = [
 
 [[package]]
 name = "snow-plugin"
-version = "0.5.27"
+version = "0.5.28"
 dependencies = [
  "base64 0.22.1",
  "blake3",
@@ -4054,7 +4054,7 @@ dependencies = [
 
 [[package]]
 name = "snow-process"
-version = "0.5.27"
+version = "0.5.28"
 dependencies = [
  "libc",
  "napi",
@@ -4070,7 +4070,7 @@ dependencies = [
 
 [[package]]
 name = "snow-prompt"
-version = "0.5.27"
+version = "0.5.28"
 dependencies = [
  "chrono",
  "dirs-next",
@@ -4087,7 +4087,7 @@ dependencies = [
 
 [[package]]
 name = "snow-providers"
-version = "0.5.27"
+version = "0.5.28"
 dependencies = [
  "base64 0.22.1",
  "blake3",
@@ -4118,7 +4118,7 @@ dependencies = [
 
 [[package]]
 name = "snow-remote"
-version = "0.5.27"
+version = "0.5.28"
 dependencies = [
  "axum",
  "base64 0.22.1",
@@ -4150,7 +4150,7 @@ dependencies = [
 
 [[package]]
 name = "snow-retrieval"
-version = "0.5.27"
+version = "0.5.28"
 dependencies = [
  "chrono",
  "napi",
@@ -4173,7 +4173,7 @@ dependencies = [
 
 [[package]]
 name = "snow-runtime"
-version = "0.5.27"
+version = "0.5.28"
 dependencies = [
  "napi",
  "snow-support",
@@ -4183,7 +4183,7 @@ dependencies = [
 
 [[package]]
 name = "snow-storage"
-version = "0.5.27"
+version = "0.5.28"
 dependencies = [
  "base64 0.22.1",
  "blake3",
@@ -4210,7 +4210,7 @@ dependencies = [
 
 [[package]]
 name = "snow-storage-core"
-version = "0.5.27"
+version = "0.5.28"
 dependencies = [
  "blake3",
  "napi",
@@ -4226,7 +4226,7 @@ dependencies = [
 
 [[package]]
 name = "snow-storage-services"
-version = "0.5.27"
+version = "0.5.28"
 dependencies = [
  "aes",
  "aes-gcm",
@@ -4283,7 +4283,7 @@ dependencies = [
 
 [[package]]
 name = "snow-support"
-version = "0.5.27"
+version = "0.5.28"
 dependencies = [
  "chrono",
  "ctor",
@@ -4294,7 +4294,7 @@ dependencies = [
 
 [[package]]
 name = "snow-team"
-version = "0.5.27"
+version = "0.5.28"
 dependencies = [
  "axum",
  "base64 0.22.1",
@@ -4317,7 +4317,7 @@ dependencies = [
 
 [[package]]
 name = "snow-text"
-version = "0.5.27"
+version = "0.5.28"
 dependencies = [
  "calamine",
  "chardetng",
@@ -4336,7 +4336,7 @@ dependencies = [
 
 [[package]]
 name = "snow-tools"
-version = "0.5.27"
+version = "0.5.28"
 dependencies = [
  "async-trait",
  "blake3",
@@ -4367,7 +4367,7 @@ dependencies = [
 
 [[package]]
 name = "snow_native"
-version = "0.5.27"
+version = "0.5.28"
 dependencies = [
  "aes",
  "aes-gcm",
