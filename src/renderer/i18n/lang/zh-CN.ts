@@ -2194,6 +2194,7 @@ export const zhCN = {
   "sidebar.userGuide": "使用指南",
   "sidebar.shortcutGuide": "快捷键指南",
   "sidebar.untitledChat": "未命名对话",
+  "sidebar.chatMessagesCount": "{{count}} 条消息",
   "sidebar.loadChatsError": "加载对话失败",
   "sidebar.noActiveDirectory": "暂无活动目录",
   "settings.title": "设置",

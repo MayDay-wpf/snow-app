@@ -5,6 +5,7 @@ import {
   GitBranch,
   GitFork,
   Loader2,
+  MessageSquare,
   Pause,
   Pin,
   Snowflake,
@@ -729,6 +730,13 @@ export function ChatItem({
                   })}
                   <span className="chat-item-tooltip-project-name">
                     {directoryInfo.name}
+                  </span>
+                  <span className="chat-item-tooltip-messages-count">
+                    <MessageSquare size={11} aria-hidden="true" />
+                    {t("sidebar.chatMessagesCount", {
+                      defaultValue: "{{count}} message(s)",
+                      values: { count: conversation.messageCount },
+                    })}
                   </span>
                 </div>
               ) : null}

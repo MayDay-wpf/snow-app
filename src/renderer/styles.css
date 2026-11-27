@@ -2628,6 +2628,16 @@ body.is-panel-resizing * {
   text-overflow: ellipsis;
 }
 
+/* 紧跟项目名内联显示：不被截断，数字等宽对齐 */
+.chat-item-tooltip-messages-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
 /* 会话形态标记（Workflow 模式 / 有子代理），配色与列表行类型图标一致 */
 .chat-item-tooltip-kinds {
   display: flex;

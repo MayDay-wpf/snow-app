@@ -2318,6 +2318,7 @@ export const en = {
   "sidebar.userGuide": "User guide",
   "sidebar.shortcutGuide": "Keyboard shortcuts",
   "sidebar.untitledChat": "Untitled",
+  "sidebar.chatMessagesCount": "{{count}} message(s)",
   "sidebar.loadChatsError": "Failed to load chats",
   "sidebar.noActiveDirectory": "No active directory",
   "settings.title": "Settings",

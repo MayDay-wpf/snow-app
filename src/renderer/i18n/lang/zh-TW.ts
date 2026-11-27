@@ -2195,6 +2195,7 @@ export const zhTW = {
   "sidebar.userGuide": "使用指南",
   "sidebar.shortcutGuide": "快捷鍵指南",
   "sidebar.untitledChat": "未命名對話",
+  "sidebar.chatMessagesCount": "{{count}} 則訊息",
   "sidebar.loadChatsError": "載入對話失敗",
   "sidebar.noActiveDirectory": "暫無活動目錄",
   "settings.title": "設定",

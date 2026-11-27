@@ -71,7 +71,8 @@ import {
 } from "./constants/closeBehavior";
 import type { WorkspaceDirectoryRecord } from "../preload";
 
-const SIDEBAR_MIN_WIDTH = 180;
+// 最小宽度按项目区标题行可容纳「项目」+ 图标条计：低于 230px 会换行重叠。
+const SIDEBAR_MIN_WIDTH = 230;
 const SIDEBAR_MAX_WIDTH = 420;
 const SIDEBAR_DEFAULT_WIDTH = 248;
 const RIGHT_PANEL_MIN_WIDTH = 280;
