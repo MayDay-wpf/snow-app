@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::{LazyLock, Mutex};
 use std::time::Duration;
 
@@ -8,9 +9,11 @@ use tokio::net::TcpListener;
 use tokio::sync::oneshot;
 
 use super::plugin::{self, login as plugin_login, login::PollOutcome, PluginTokens};
-use super::provider::{self, OAuthProfileMetadata, OAuthProviderId};
-use super::{anthropic, antigravity, chatgpt, codex, xai};
+use super::provider::{self, OAuthClaims, OAuthProfileMetadata, OAuthProviderId};
+use super::{anthropic, antigravity, chatgpt, codex, snow_router, xai};
+use snow_storage::api_configs as api_configs_service;
 use snow_storage_core::bootstrap::ensure_database_file;
+use snow_storage_core::models::{ApiConfigInput, ApiConfigRecord};
 
 const LOGIN_SESSION_TIMEOUT_SECS: u64 = 15 * 60;
 const DEVICE_POLL_DEFAULT_SECS: u64 = 5;
@@ -66,6 +69,8 @@ pub struct OAuthLoginSession {
     pub manual_mode: bool,
     pub user_code: String,
     pub instructions: String,
+    /// Snow AI Router 的站点地址；其余 provider 为空。
+    pub server_url: String,
     /// 插件 authorize() 返回的会话数据，原样回传给 exchange()/poll()。
     pub plugin_session: Value,
     pub advanced_model: String,
@@ -81,6 +86,13 @@ pub struct OAuthLoginOutcome {
     pub plan_type: String,
     pub account_id: String,
     pub available_models: Vec<String>,
+    /// Snow AI Router 登录后可选的分组渠道。
+    pub channels: Vec<snow_router::RouterChannel>,
+    pub server_url: String,
+    /// Snow AI Router 访问令牌，仅用于完成渠道对接，不对外暴露。
+    pub access_token: String,
+    pub connected_profiles: Vec<String>,
+    pub skipped_profiles: Vec<String>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -146,6 +158,7 @@ pub struct StartLoginResult {
     pub code_challenge: String,
     pub code_verifier: String,
     pub plugin_session: Value,
+    pub server_url: String,
 }
 
 async fn bind_first(ports: &[u16]) -> (Option<TcpListener>, u16) {
@@ -217,14 +230,17 @@ pub async fn start_login(
     provider: LoginProvider,
     advanced_model: Option<String>,
     basic_model: Option<String>,
+    server_url: Option<String>,
 ) -> Result<StartLoginResult> {
     let advanced_model = advanced_model.unwrap_or_default().trim().to_string();
     let basic_model = basic_model.unwrap_or_default().trim().to_string();
     match provider {
         LoginProvider::Builtin(provider) => {
-            start_builtin_login(provider, advanced_model, basic_model).await
+            start_builtin_login(provider, advanced_model, basic_model, server_url).await
         }
-        LoginProvider::Plugin(id) => start_plugin_login(id, advanced_model, basic_model).await,
+        LoginProvider::Plugin(id) => {
+            start_plugin_login(id, advanced_model, basic_model).await
+        }
     }
 }
 
@@ -232,11 +248,17 @@ async fn start_builtin_login(
     provider: OAuthProviderId,
     advanced_model: String,
     basic_model: String,
+    server_url: Option<String>,
 ) -> Result<StartLoginResult> {
     let pkce = provider::generate_pkce()?;
     let state = provider::generate_state()?;
     let nonce = provider::generate_state()?;
     let session_id = uuid::Uuid::new_v4().to_string();
+    let server_url = if provider == OAuthProviderId::SnowRouter {
+        snow_router::normalize_server_url(server_url.as_deref().unwrap_or_default())?
+    } else {
+        String::new()
+    };
 
     let (listener, port) = bind_first(provider.callback_ports()).await;
     let manual_mode = listener.is_none();
@@ -247,8 +269,15 @@ async fn start_builtin_login(
     } else {
         String::new()
     };
-    let auth_url =
-        provider::build_authorize_url(provider, &redirect_uri, &pkce, &state, &nonce, &host_id)?;
+    let auth_url = provider::build_authorize_url(
+        provider,
+        &redirect_uri,
+        &pkce,
+        &state,
+        &nonce,
+        &host_id,
+        &server_url,
+    )?;
 
     let session = OAuthLoginSession {
         session_id: session_id.clone(),
@@ -264,6 +293,7 @@ async fn start_builtin_login(
         manual_mode,
         user_code: String::new(),
         instructions: String::new(),
+        server_url: server_url.clone(),
         plugin_session: Value::Null,
         advanced_model,
         basic_model,
@@ -286,6 +316,7 @@ async fn start_builtin_login(
         code_challenge: pkce.challenge,
         code_verifier: pkce.verifier,
         plugin_session: Value::Null,
+        server_url,
     })
 }
 
@@ -359,6 +390,7 @@ async fn start_plugin_login(
         manual_mode,
         user_code: authorized.user_code.clone(),
         instructions: authorized.instructions.clone(),
+        server_url: String::new(),
         plugin_session: authorized.session.clone(),
         advanced_model,
         basic_model,
@@ -384,6 +416,7 @@ async fn start_plugin_login(
         code_challenge: pkce.challenge,
         code_verifier: pkce.verifier,
         plugin_session: authorized.session,
+        server_url: String::new(),
     })
 }
 
@@ -663,6 +696,9 @@ async fn perform_builtin_login(
     code: &str,
     params: &HashMap<String, String>,
 ) -> Result<OAuthLoginOutcome> {
+    if provider == OAuthProviderId::SnowRouter {
+        return perform_snow_router_login(session, code).await;
+    }
     let issued_client_id = params
         .get("client_id")
         .map(String::as_str)
@@ -676,6 +712,7 @@ async fn perform_builtin_login(
         &session.code_verifier,
         &session.state,
         &issued_client_id,
+        &session.server_url,
     )
     .await?;
     if provider == OAuthProviderId::ChatGpt {
@@ -686,6 +723,7 @@ async fn perform_builtin_login(
         OAuthProviderId::Anthropic => anthropic::parse_claims(&tokens),
         OAuthProviderId::Antigravity => antigravity::parse_claims(&tokens),
         OAuthProviderId::Xai => xai::parse_claims(&tokens.id_token),
+        OAuthProviderId::SnowRouter => OAuthClaims::default(),
     };
     let metadata = OAuthProfileMetadata {
         provider,
@@ -728,7 +766,196 @@ async fn perform_builtin_login(
         plan_type: claims.plan_type,
         account_id: claims.account_id,
         available_models,
+        channels: Vec::new(),
+        server_url: String::new(),
+        access_token: String::new(),
+        connected_profiles: Vec::new(),
+        skipped_profiles: Vec::new(),
     })
+}
+
+/// Snow AI Router：授权码只换取访问令牌，渠道由用户二次确认后再落库。
+async fn perform_snow_router_login(
+    session: &OAuthLoginSession,
+    code: &str,
+) -> Result<OAuthLoginOutcome> {
+    let account = snow_router::exchange_code(
+        &session.server_url,
+        code,
+        &session.redirect_uri,
+        &session.code_verifier,
+    )
+    .await?;
+    let channels =
+        snow_router::fetch_channels(&session.server_url, &account.access_token).await?;
+    let mut available_models: Vec<String> = Vec::new();
+    for channel in &channels {
+        for model in &channel.models {
+            if !available_models.iter().any(|existing| existing == model) {
+                available_models.push(model.clone());
+            }
+        }
+    }
+    let account_label = if account.display_name.trim().is_empty() {
+        account.username.clone()
+    } else {
+        account.display_name.clone()
+    };
+    Ok(OAuthLoginOutcome {
+        provider: OAuthProviderId::SnowRouter.as_str().to_string(),
+        profile_name: String::new(),
+        display_name: format!("Snow AI Router ({account_label})"),
+        email: account.email,
+        plan_type: String::new(),
+        account_id: account.account_id,
+        available_models,
+        channels,
+        server_url: session.server_url.clone(),
+        access_token: account.access_token,
+        connected_profiles: Vec::new(),
+        skipped_profiles: Vec::new(),
+    })
+}
+
+/// 将用户选中的渠道接入为本地 API 档案：已存在且带 Key 的渠道保持原样。
+pub async fn finalize_snow_router_login(
+    session_id: &str,
+    groups: Vec<String>,
+) -> Result<OAuthLoginOutcome> {
+    let (provider, outcome) = {
+        let sessions = lock_sessions();
+        let entry = sessions
+            .get(session_id)
+            .ok_or_else(|| Error::from_reason("Login session not found or expired"))?;
+        if entry.status != OAuthLoginStatus::Success {
+            return Err(Error::from_reason(
+                "The Snow AI Router sign-in is not complete yet",
+            ));
+        }
+        (
+            entry.session.provider.clone(),
+            entry
+                .outcome
+                .clone()
+                .ok_or_else(|| Error::from_reason("Login session carries no result"))?,
+        )
+    };
+    if provider != LoginProvider::Builtin(OAuthProviderId::SnowRouter) {
+        return Err(Error::from_reason(
+            "Only Snow AI Router sessions support channel selection",
+        ));
+    }
+
+    let mut requested: Vec<String> = Vec::new();
+    for group in groups {
+        let trimmed = group.trim();
+        if !trimmed.is_empty() && !requested.iter().any(|existing| existing == trimmed) {
+            requested.push(trimmed.to_string());
+        }
+    }
+    if requested.is_empty() {
+        return Err(Error::from_reason("Select at least one channel"));
+    }
+    let selected: Vec<snow_router::RouterChannel> = requested
+        .iter()
+        .filter_map(|group| {
+            outcome
+                .channels
+                .iter()
+                .find(|channel| &channel.id == group)
+                .cloned()
+        })
+        .collect();
+    if selected.is_empty() {
+        return Err(Error::from_reason(
+            "The selected channels are no longer available",
+        ));
+    }
+
+    let mut inputs: Vec<ApiConfigInput> = Vec::with_capacity(selected.len());
+    for (index, channel) in selected.iter().enumerate() {
+        let model = channel.models.first().cloned().unwrap_or_default();
+        if model.trim().is_empty() {
+            return Err(Error::from_reason(format!(
+                "The channel \"{}\" has no available models",
+                channel.name
+            )));
+        }
+        let (key, _created) =
+            snow_router::ensure_key(&outcome.server_url, &outcome.access_token, &channel.id)
+                .await?;
+        let limits = crate::llm_specs::lookup(&model).await;
+        let max_context_tokens = limits
+            .as_ref()
+            .and_then(|value| value.context_length)
+            .and_then(|value| i32::try_from(value).ok())
+            .filter(|value| *value > 0)
+            .unwrap_or_else(snow_router::default_max_context_tokens);
+        let max_tokens = limits
+            .as_ref()
+            .and_then(|value| value.max_output_tokens)
+            .and_then(|value| i32::try_from(value).ok())
+            .filter(|value| *value > 0);
+        inputs.push(snow_router::build_profile_input(
+            &outcome.server_url,
+            channel,
+            key,
+            model.clone(),
+            model,
+            max_context_tokens,
+            max_tokens,
+            index == 0,
+        ));
+    }
+
+    let database_path = ensure_database_file()?;
+    let (connected, skipped) =
+        tokio::task::spawn_blocking(move || persist_router_profiles(database_path, inputs))
+            .await
+            .map_err(|error| {
+                Error::from_reason(format!(
+                    "Failed to persist Snow AI Router profiles: {error}"
+                ))
+            })??;
+
+    let mut updated = outcome;
+    for channel in &mut updated.channels {
+        if requested.iter().any(|group| group == &channel.id) {
+            channel.has_key = true;
+        }
+    }
+    updated.connected_profiles = connected;
+    updated.skipped_profiles = skipped;
+    if let Some(entry) = lock_sessions().get_mut(session_id) {
+        entry.outcome = Some(updated.clone());
+    }
+    Ok(updated)
+}
+
+fn persist_router_profiles(
+    database_path: PathBuf,
+    inputs: Vec<ApiConfigInput>,
+) -> Result<(Vec<String>, Vec<String>)> {
+    let existing: HashMap<String, ApiConfigRecord> = api_configs_service::list_api_configs(&database_path)?
+        .into_iter()
+        .map(|record| (record.profile_name.clone(), record))
+        .collect();
+    let mut connected = Vec::new();
+    let mut skipped = Vec::new();
+    for input in inputs {
+        if let Some(record) = existing.get(&input.profile_name) {
+            if !record.api_key.trim().is_empty() {
+                skipped.push(input.profile_name);
+                continue;
+            }
+        }
+        api_configs_service::upsert_api_config(&database_path, &input)?;
+        connected.push(input.profile_name);
+    }
+    if !connected.is_empty() {
+        api_configs_service::reorder_api_configs(&database_path, &connected)?;
+    }
+    Ok((connected, skipped))
 }
 
 fn pick_model(provider: OAuthProviderId, configured: &str, available: &[String]) -> String {

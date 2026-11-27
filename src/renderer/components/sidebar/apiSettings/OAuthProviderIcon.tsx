@@ -9,6 +9,7 @@ import {
 import { KeyRound } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
+import appIcon from "../../../assets/app-icon.png";
 import {
   resolveLucideIcon,
   type LucideIconComponent,
@@ -68,6 +69,17 @@ const renderBrandIcon = (
     case "xai":
     case "grok":
       return <Grok size={size} />;
+    case "snowrouter":
+      return (
+        <img
+          src={appIcon}
+          width={size}
+          height={size}
+          alt=""
+          draggable={false}
+          style={{ objectFit: "contain", borderRadius: 4 }}
+        />
+      );
     default:
       return <KeyRound size={size} strokeWidth={1.8} />;
   }

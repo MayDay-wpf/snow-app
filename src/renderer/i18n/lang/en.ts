@@ -2649,6 +2649,7 @@ export const en = {
   "settings.oauthProvider.anthropic": "Anthropic (Claude subscription)",
   "settings.oauthProvider.antigravity": "Antigravity (Google subscription)",
   "settings.oauthProvider.xai": "xAI (Grok subscription)",
+  "settings.oauthProvider.snowrouter": "Snow AI Router",
   "settings.oauthProviderDesc.codex":
     "Sign in to Codex through the OAuth flow. The credential file is fetched and saved automatically.",
   "settings.oauthProviderDesc.chatgpt":
@@ -2659,6 +2660,31 @@ export const en = {
     "Sign in to Google Antigravity through the OAuth flow. The project, available models, and credential are fetched and saved automatically.",
   "settings.oauthProviderDesc.xai":
     "Sign in to xAI (Grok) through the OAuth flow. The available models and credential are fetched and saved automatically.",
+  "settings.oauthProviderDesc.snowrouter":
+    "Sign in to Snow AI Router, pick the channels available to your account, and let Snow App create or reuse their API keys as local profiles.",
+  "settings.snowRouterTitle": "Snow AI Router sign-in",
+  "settings.snowRouterDescription":
+    "Import the router account channels as Snow App API profiles.",
+  "settings.snowRouterIntro":
+    "Sign in to the router, then pick the channels to connect. Channels that already have a key keep it.",
+  "settings.snowRouterServerUrl": "Router address",
+  "settings.snowRouterServerUrlHint":
+    "Defaults to https://kfccrazythursday.com. Use http://localhost:3000 for local testing.",
+  "settings.snowRouterWaiting": "Waiting for the router sign-in to complete...",
+  "settings.snowRouterWaitingHint":
+    "Finish signing in and authorizing in the opened page; this dialog updates automatically.",
+  "settings.snowRouterChannelsHint":
+    "Pick the channels to connect. Each channel becomes its own profile with a dedicated API key.",
+  "settings.snowRouterExistingKey": "Key ready",
+  "settings.snowRouterModelCount": "{count} models",
+  "settings.snowRouterSelectAll": "Select all",
+  "settings.snowRouterClearAll": "Clear selection",
+  "settings.snowRouterConnect": "Connect selected",
+  "settings.snowRouterConnected": "Channels connected",
+  "settings.snowRouterConnectedDetail":
+    "Created {created} profile(s); {kept} existing channel(s) kept their keys.",
+  "settings.snowRouterNoChannels":
+    "This account has no available channels on the router.",
   "settings.oauthProviderDescFallback":
     "Sign in to {{name}} through the OAuth flow. The credential file is fetched and saved automatically.",
   "settings.oauthProviderMissing": "No OAuth provider is available.",

@@ -8912,6 +8912,11 @@ body.is-panel-resizing * {
   line-height: 1.4;
 }
 
+/* 模型下拉菜单允许溢出弹窗边界；弹窗自身因此不裁剪也不出滚动条 */
+.api-model-test-modal {
+  overflow: visible;
+}
+
 .api-model-test-modal .app-modal-body {
   position: relative;
   z-index: 1;
@@ -65394,6 +65399,73 @@ img.plugin-icon {
   font-size: 11px;
   color: var(--text-muted);
   word-break: break-word;
+}
+
+/* Snow AI Router 渠道选择 */
+.snow-router-channel-list {
+  display: grid;
+  gap: 8px;
+  max-height: 320px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.snow-router-channel {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-light);
+  border-radius: 4px;
+  background: var(--bg-primary);
+  cursor: pointer;
+}
+
+.snow-router-channel.selected {
+  border-color: var(--text-muted);
+}
+
+.snow-router-channel input[type="checkbox"] {
+  flex: none;
+  margin-top: 3px;
+  accent-color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.snow-router-channel-body {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.snow-router-channel-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.snow-router-channel-head strong {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.snow-router-channel-meta {
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--text-muted);
+  word-break: break-all;
+}
+
+.snow-router-channel-badge {
+  padding: 0 6px;
+  border: 1px solid var(--border-color);
+  border-radius: 3px;
+  font-size: 10px;
+  line-height: 16px;
+  color: var(--text-secondary);
+  white-space: nowrap;
 }
 
 /* ============================================================

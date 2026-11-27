@@ -72,6 +72,11 @@ pub async fn fetch_snapshot(config: &ApiConfigRecord) -> Result<QuotaSnapshot> {
             let headers = resolve_profile_headers(config).await?;
             xai::fetch(token, &metadata.account_id, headers).await?
         }
+        OAuthProviderId::SnowRouter => {
+            return Err(Error::from_reason(
+                "Snow AI Router channels do not expose subscription quota",
+            ))
+        }
     };
 
     Ok(QuotaSnapshot {

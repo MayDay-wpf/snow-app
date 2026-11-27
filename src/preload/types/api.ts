@@ -78,6 +78,20 @@ export type OAuthLoginStart = {
   codeChallenge: string;
   codeVerifier: string;
   pluginSession?: string;
+  /** Snow AI Router 站点地址（其余服务商为空）。 */
+  serverUrl?: string;
+};
+
+/** Snow AI Router 登录后可选的渠道（路由分组）。 */
+export type OAuthRouterChannel = {
+  id: string;
+  name: string;
+  description: string;
+  /** 分组倍率；auto 分组为字符串 auto。 */
+  ratio: string;
+  models: string[];
+  /** 该渠道在路由侧是否已有 Snow App 创建的密钥。 */
+  hasKey: boolean;
 };
 
 export type OAuthLoginStatus = {
@@ -95,6 +109,10 @@ export type OAuthLoginStatus = {
   flow: string;
   userCode?: string;
   instructions?: string;
+  channels?: OAuthRouterChannel[];
+  serverUrl?: string;
+  connectedProfiles?: string[];
+  skippedProfiles?: string[];
 };
 
 /** 订阅配额单项；remainingPercent 为 0-100 的剩余百分比。 */

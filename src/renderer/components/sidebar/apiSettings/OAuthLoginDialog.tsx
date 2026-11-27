@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { OAuthLoginStatus, OAuthProviderInfo } from "../../../../preload";
 import { OAuthProviderLoginDialog } from "./OAuthProviderLoginDialog";
 import { OAuthProviderPicker } from "./OAuthProviderPicker";
+import { SnowRouterLoginDialog } from "./SnowRouterLoginDialog";
 
 type OAuthLoginDialogProps = {
   open: boolean;
@@ -64,13 +65,23 @@ export function OAuthLoginDialog({
         onClose={onClose}
       />
       {selectedProvider ? (
-        <OAuthProviderLoginDialog
-          open={open}
-          provider={selectedProvider}
-          onBack={handleBack}
-          onClose={onClose}
-          onCompleted={onCompleted}
-        />
+        selectedProvider.id === "snowrouter" ? (
+          <SnowRouterLoginDialog
+            open={open}
+            provider={selectedProvider}
+            onBack={handleBack}
+            onClose={onClose}
+            onCompleted={onCompleted}
+          />
+        ) : (
+          <OAuthProviderLoginDialog
+            open={open}
+            provider={selectedProvider}
+            onBack={handleBack}
+            onClose={onClose}
+            onCompleted={onCompleted}
+          />
+        )
       ) : null}
     </>
   );

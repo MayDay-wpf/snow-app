@@ -343,15 +343,27 @@ export const apiConfigApi = {
     provider: string,
     advancedModel?: string,
     basicModel?: string,
+    serverUrl?: string,
   ): Promise<OAuthLoginStart> =>
     ipcRenderer.invoke(
       "api-configs:oauth-start",
       provider,
       advancedModel,
       basicModel,
+      serverUrl,
     ),
   getOAuthLoginStatus: (sessionId: string): Promise<OAuthLoginStatus | null> =>
     ipcRenderer.invoke("api-configs:oauth-status", sessionId),
+  /** Snow AI Router：把选中的渠道接入为本地 API 档案。 */
+  finalizeSnowRouterLogin: (
+    sessionId: string,
+    groups: string[],
+  ): Promise<OAuthLoginStatus> =>
+    ipcRenderer.invoke(
+      "api-configs:oauth-snowrouter-finalize",
+      sessionId,
+      groups,
+    ),
   submitOAuthCallback: (
     sessionId: string,
     callbackUrl: string,

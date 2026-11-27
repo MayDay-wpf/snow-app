@@ -117,6 +117,18 @@ export type OAuthLoginStart = {
   codeChallenge: string;
   codeVerifier: string;
   pluginSession?: string;
+  /** Snow AI Router 站点地址（其余服务商为空）。 */
+  serverUrl?: string;
+};
+
+/** Snow AI Router 登录后可选的渠道（路由分组）。 */
+export type OAuthRouterChannel = {
+  id: string;
+  name: string;
+  description: string;
+  ratio: string;
+  models: string[];
+  hasKey: boolean;
 };
 
 export type OAuthLoginStatus = {
@@ -134,6 +146,10 @@ export type OAuthLoginStatus = {
   flow: string;
   userCode?: string;
   instructions?: string;
+  channels?: OAuthRouterChannel[];
+  serverUrl?: string;
+  connectedProfiles?: string[];
+  skippedProfiles?: string[];
 };
 
 /** 订阅配额单项；remainingPercent 为 0-100 的剩余百分比。 */
@@ -2899,8 +2915,14 @@ export type NativeBridge = ImageGenerationNativeApi & {
     provider: string,
     advancedModel?: string,
     basicModel?: string,
+    serverUrl?: string,
   ) => Promise<OAuthLoginStart>;
   getOAuthLoginStatus: (sessionId: string) => Promise<OAuthLoginStatus | null>;
+  /** Snow AI Router：按选中的分组渠道创建/复用密钥并写入本地档案。 */
+  finalizeSnowRouterLogin: (
+    sessionId: string,
+    groups: string[],
+  ) => Promise<OAuthLoginStatus>;
   submitOAuthCallback: (
     sessionId: string,
     callbackUrl: string,

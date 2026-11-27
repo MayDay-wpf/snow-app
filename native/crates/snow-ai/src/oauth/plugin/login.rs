@@ -280,5 +280,10 @@ pub async fn finish(
         plan_type: metadata.plan_type,
         account_id: metadata.account_id,
         available_models,
+        channels: Vec::new(),
+        server_url: String::new(),
+        access_token: String::new(),
+        connected_profiles: Vec::new(),
+        skipped_profiles: Vec::new(),
     })
 }

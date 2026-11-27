@@ -30,6 +30,16 @@ pub struct OAuthProviderInfo {
 }
 
 #[napi(object)]
+pub struct OAuthRouterChannel {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    pub ratio: String,
+    pub models: Vec<String>,
+    pub has_key: bool,
+}
+
+#[napi(object)]
 pub struct OAuthLoginStart {
     pub session_id: String,
     pub provider: String,
@@ -48,6 +58,8 @@ pub struct OAuthLoginStart {
     pub code_verifier: String,
     /// 插件 authorize() 返回的会话数据（JSON 字符串，无则为空）。
     pub plugin_session: Option<String>,
+    /// Snow AI Router 站点地址（其余 provider 为空）。
+    pub server_url: Option<String>,
 }
 
 #[napi(object)]
@@ -65,6 +77,11 @@ pub struct OAuthLoginStatus {
     pub flow: String,
     pub user_code: Option<String>,
     pub instructions: Option<String>,
+    /// Snow AI Router 登录后可选的分组渠道。
+    pub channels: Vec<OAuthRouterChannel>,
+    pub server_url: Option<String>,
+    pub connected_profiles: Vec<String>,
+    pub skipped_profiles: Vec<String>,
 }
 
 fn non_empty(value: String) -> Option<String> {
@@ -94,6 +111,35 @@ fn to_status(view: sessions::OAuthStatusView) -> OAuthLoginStatus {
         flow: view.flow,
         user_code: non_empty(view.user_code),
         instructions: non_empty(view.instructions),
+        channels: outcome
+            .as_ref()
+            .map(|outcome| {
+                outcome
+                    .channels
+                    .iter()
+                    .map(|channel| OAuthRouterChannel {
+                        id: channel.id.clone(),
+                        name: channel.name.clone(),
+                        description: channel.description.clone(),
+                        ratio: channel.ratio.clone(),
+                        models: channel.models.clone(),
+                        has_key: channel.has_key,
+                    })
+                    .collect()
+            })
+            .unwrap_or_default(),
+        server_url: outcome
+            .as_ref()
+            .map(|outcome| outcome.server_url.clone())
+            .filter(|value| !value.trim().is_empty()),
+        connected_profiles: outcome
+            .as_ref()
+            .map(|outcome| outcome.connected_profiles.clone())
+            .unwrap_or_default(),
+        skipped_profiles: outcome
+            .as_ref()
+            .map(|outcome| outcome.skipped_profiles.clone())
+            .unwrap_or_default(),
     }
 }
 
@@ -177,9 +223,10 @@ pub async fn start_oauth_login(
     provider: String,
     advanced_model: Option<String>,
     basic_model: Option<String>,
+    server_url: Option<String>,
 ) -> Result<OAuthLoginStart> {
     let provider = LoginProvider::resolve(&provider).await?;
-    let result = sessions::start_login(provider, advanced_model, basic_model).await?;
+    let result = sessions::start_login(provider, advanced_model, basic_model, server_url).await?;
     Ok(OAuthLoginStart {
         session_id: result.session_id,
         provider: result.provider,
@@ -200,7 +247,21 @@ pub async fn start_oauth_login(
         } else {
             Some(result.plugin_session.to_string())
         },
+        server_url: non_empty(result.server_url),
     })
+}
+
+/// Snow AI Router：按选中的分组渠道创建/复用 API 密钥并接入本地档案。
+#[napi(js_name = "finalizeSnowRouterLogin")]
+pub async fn finalize_snow_router_login(
+    session_id: String,
+    groups: Vec<String>,
+) -> Result<OAuthLoginStatus> {
+    let session_id = session_id.trim().to_string();
+    sessions::finalize_snow_router_login(&session_id, groups).await?;
+    sessions::get_status(&session_id)
+        .map(to_status)
+        .ok_or_else(|| Error::from_reason("Login session not found or expired"))
 }
 
 /// 自定义面板拿到令牌后提交，落库为对应插件档案并收敛登录会话。

@@ -2509,6 +2509,7 @@ export const zhTW = {
   "settings.oauthProvider.anthropic": "Anthropic（Claude 訂閱）",
   "settings.oauthProvider.antigravity": "Antigravity（Google 訂閱）",
   "settings.oauthProvider.xai": "xAI（Grok 訂閱）",
+  "settings.oauthProvider.snowrouter": "Snow AI Router",
   "settings.oauthProviderDesc.codex":
     "透過 OAuth 流程登入 Codex 服務，自動取得並儲存認證檔案。",
   "settings.oauthProviderDesc.chatgpt":
@@ -2519,6 +2520,30 @@ export const zhTW = {
     "透過 OAuth 流程登入 Google Antigravity 帳號，自動取得專案與可用模型並儲存認證資訊。",
   "settings.oauthProviderDesc.xai":
     "透過 OAuth 流程登入 xAI（Grok）訂閱帳號，自動取得可用模型並儲存認證資訊。",
+  "settings.oauthProviderDesc.snowrouter":
+    "登入 Snow AI Router，選擇帳號可用的渠道，自動產生或沿用 API Key 並接入為本機渠道。",
+  "settings.snowRouterTitle": "Snow AI Router 登入",
+  "settings.snowRouterDescription":
+    "把路由帳號的可用渠道自動接入為 Snow App 的 API 設定。",
+  "settings.snowRouterIntro":
+    "登入路由帳號後選擇要接入的渠道；已存在的渠道會沿用原有 Key，不會重複建立。",
+  "settings.snowRouterServerUrl": "路由位址",
+  "settings.snowRouterServerUrlHint":
+    "預設使用 https://kfccrazythursday.com；本機除錯可改為 http://localhost:3000。",
+  "settings.snowRouterWaiting": "等待瀏覽器完成路由登入…",
+  "settings.snowRouterWaitingHint":
+    "在開啟的頁面完成登入與授權後會自動返回，無需手動操作。",
+  "settings.snowRouterChannelsHint":
+    "選擇要接入的渠道，每個渠道會使用獨立的 API Key 產生一筆本機設定。",
+  "settings.snowRouterExistingKey": "Key 已就緒",
+  "settings.snowRouterModelCount": "{count} 個模型",
+  "settings.snowRouterSelectAll": "全選",
+  "settings.snowRouterClearAll": "取消全選",
+  "settings.snowRouterConnect": "接入所選渠道",
+  "settings.snowRouterConnected": "渠道接入完成",
+  "settings.snowRouterConnectedDetail":
+    "新建 {created} 筆設定，{kept} 個既有渠道保留原 Key 未重建。",
+  "settings.snowRouterNoChannels": "該帳號在路由上沒有可用渠道。",
   "settings.oauthProviderDescFallback":
     "透過 OAuth 流程登入 {{name}} 服務，自動取得並儲存認證檔案。",
   "settings.oauthProviderMissing": "目前沒有可用的 OAuth 服務商。",

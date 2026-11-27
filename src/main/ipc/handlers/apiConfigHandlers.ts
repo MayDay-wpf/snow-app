@@ -157,6 +157,7 @@ export const registerApiConfigHandlers = (native: NativeBridge): void => {
       provider: unknown,
       advancedModel: unknown,
       basicModel: unknown,
+      serverUrl: unknown,
     ) => {
       if (typeof provider !== "string" || !provider.trim()) {
         throw new Error("OAuth provider is required");
@@ -165,6 +166,30 @@ export const registerApiConfigHandlers = (native: NativeBridge): void => {
         provider.trim(),
         typeof advancedModel === "string" ? advancedModel : undefined,
         typeof basicModel === "string" ? basicModel : undefined,
+        typeof serverUrl === "string" ? serverUrl : undefined,
+      );
+    },
+  );
+  // Snow AI Router 登录完成后，按选中的渠道落地本地档案。
+  ipcMain.handle(
+    "api-configs:oauth-snowrouter-finalize",
+    async (_event, sessionId: unknown, groups: unknown) => {
+      if (typeof sessionId !== "string" || !sessionId.trim()) {
+        throw new Error("OAuth session id is required");
+      }
+      if (!Array.isArray(groups)) {
+        throw new Error("Select at least one channel");
+      }
+      const channelIds = groups
+        .filter((item): item is string => typeof item === "string")
+        .map((item) => item.trim())
+        .filter((item) => item.length > 0);
+      if (channelIds.length === 0) {
+        throw new Error("Select at least one channel");
+      }
+      return native.finalizeSnowRouterLogin(
+        sessionId.trim(),
+        Array.from(new Set(channelIds)),
       );
     },
   );

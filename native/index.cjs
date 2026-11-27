@@ -158,6 +158,7 @@ const requiredExports = [
   "startOAuthLogin",
   "getOAuthLoginStatus",
   "submitOAuthCallback",
+  "finalizeSnowRouterLogin",
   "cancelOAuthLogin",
   // OAuth 登录插件（主进程宿主回调与 provider 声明推送）
   "setOAuthPluginHandler",

@@ -7,7 +7,7 @@ use napi::bindgen_prelude::*;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
-use super::{anthropic, antigravity, chatgpt, codex, header_schemes, xai};
+use super::{anthropic, antigravity, chatgpt, codex, header_schemes, snow_router, xai};
 use crate::models::ModelLimits;
 use snow_storage::api_configs as api_configs_service;
 use snow_storage_core::app_logs::log_api_warning;
@@ -26,6 +26,7 @@ pub enum OAuthProviderId {
     Anthropic,
     Antigravity,
     Xai,
+    SnowRouter,
 }
 
 impl OAuthProviderId {
@@ -36,6 +37,7 @@ impl OAuthProviderId {
             OAuthProviderId::Anthropic,
             OAuthProviderId::Antigravity,
             OAuthProviderId::Xai,
+            OAuthProviderId::SnowRouter,
         ]
     }
 
@@ -46,6 +48,7 @@ impl OAuthProviderId {
             OAuthProviderId::Anthropic => "anthropic",
             OAuthProviderId::Antigravity => "antigravity",
             OAuthProviderId::Xai => "xai",
+            OAuthProviderId::SnowRouter => "snowrouter",
         }
     }
 
@@ -64,6 +67,7 @@ impl OAuthProviderId {
             OAuthProviderId::Anthropic => "Anthropic (Claude)",
             OAuthProviderId::Antigravity => "Antigravity (Google)",
             OAuthProviderId::Xai => "xAI (Grok)",
+            OAuthProviderId::SnowRouter => "Snow AI Router",
         }
     }
 
@@ -74,6 +78,7 @@ impl OAuthProviderId {
             OAuthProviderId::Anthropic => anthropic::DEFAULT_MODEL,
             OAuthProviderId::Antigravity => antigravity::DEFAULT_MODEL,
             OAuthProviderId::Xai => xai::DEFAULT_MODEL,
+            OAuthProviderId::SnowRouter => "",
         }
     }
 
@@ -84,6 +89,7 @@ impl OAuthProviderId {
             OAuthProviderId::Anthropic => 500_000,
             OAuthProviderId::Antigravity => 1_000_000,
             OAuthProviderId::Xai => 500_000,
+            OAuthProviderId::SnowRouter => snow_router::default_max_context_tokens(),
         }
     }
 
@@ -105,6 +111,7 @@ impl OAuthProviderId {
             OAuthProviderId::Anthropic => anthropic::BACKEND_BASE_URL,
             OAuthProviderId::Antigravity => antigravity::BACKEND_BASE_URL,
             OAuthProviderId::Xai => xai::BACKEND_BASE_URL,
+            OAuthProviderId::SnowRouter => "",
         }
     }
 
@@ -115,6 +122,7 @@ impl OAuthProviderId {
             OAuthProviderId::Anthropic => "anthropic",
             OAuthProviderId::Antigravity => "gemini",
             OAuthProviderId::Xai => "responses",
+            OAuthProviderId::SnowRouter => "chat",
         }
     }
 
@@ -125,6 +133,7 @@ impl OAuthProviderId {
             OAuthProviderId::Anthropic => true,
             OAuthProviderId::Antigravity => true,
             OAuthProviderId::Xai => true,
+            OAuthProviderId::SnowRouter => true,
         }
     }
 
@@ -139,6 +148,7 @@ impl OAuthProviderId {
             OAuthProviderId::Anthropic => anthropic::CALLBACK_PATH,
             OAuthProviderId::Antigravity => antigravity::CALLBACK_PATH,
             OAuthProviderId::Xai => xai::CALLBACK_PATH,
+            OAuthProviderId::SnowRouter => snow_router::CALLBACK_PATH,
         }
     }
 
@@ -149,6 +159,7 @@ impl OAuthProviderId {
             OAuthProviderId::Anthropic => anthropic::CALLBACK_PORTS,
             OAuthProviderId::Antigravity => antigravity::CALLBACK_PORTS,
             OAuthProviderId::Xai => xai::CALLBACK_PORTS,
+            OAuthProviderId::SnowRouter => snow_router::CALLBACK_PORTS,
         }
     }
 
@@ -159,6 +170,7 @@ impl OAuthProviderId {
             OAuthProviderId::Anthropic => "localhost",
             OAuthProviderId::Antigravity => "localhost",
             OAuthProviderId::Xai => "127.0.0.1",
+            OAuthProviderId::SnowRouter => "127.0.0.1",
         }
     }
 
@@ -168,7 +180,7 @@ impl OAuthProviderId {
             OAuthProviderId::Codex => Some("Codex"),
             OAuthProviderId::Anthropic => Some("Claude"),
             OAuthProviderId::Antigravity => Some("Antigravity"),
-            OAuthProviderId::ChatGpt | OAuthProviderId::Xai => None,
+            OAuthProviderId::ChatGpt | OAuthProviderId::Xai | OAuthProviderId::SnowRouter => None,
         }
     }
 
@@ -178,7 +190,9 @@ impl OAuthProviderId {
             OAuthProviderId::Codex => codex::required_headers(),
             OAuthProviderId::Anthropic => anthropic::required_headers(),
             OAuthProviderId::Antigravity => antigravity::required_headers(),
-            OAuthProviderId::ChatGpt | OAuthProviderId::Xai => Vec::new(),
+            OAuthProviderId::ChatGpt | OAuthProviderId::Xai | OAuthProviderId::SnowRouter => {
+                Vec::new()
+            }
         }
     }
 }
@@ -339,6 +353,7 @@ pub fn build_authorize_url(
     state: &str,
     nonce: &str,
     host_id: &str,
+    server_url: &str,
 ) -> Result<String> {
     match provider {
         OAuthProviderId::Codex => {
@@ -354,6 +369,9 @@ pub fn build_authorize_url(
             antigravity::build_authorize_url(redirect_uri, &pkce.challenge, state)
         }
         OAuthProviderId::Xai => xai::build_authorize_url(redirect_uri, &pkce.challenge, state),
+        OAuthProviderId::SnowRouter => {
+            snow_router::build_authorize_url(server_url, redirect_uri, &pkce.challenge, state)
+        }
     }
 }
 
@@ -364,6 +382,7 @@ pub async fn exchange_code(
     code_verifier: &str,
     state: &str,
     issued_client_id: &str,
+    _server_url: &str,
 ) -> Result<OAuthTokenSet> {
     match provider {
         OAuthProviderId::Codex => codex::exchange_code(code, redirect_uri, code_verifier).await,
@@ -377,6 +396,9 @@ pub async fn exchange_code(
             antigravity::exchange_code(code, redirect_uri, code_verifier).await
         }
         OAuthProviderId::Xai => xai::exchange_code(code, redirect_uri, code_verifier).await,
+        OAuthProviderId::SnowRouter => Err(Error::from_reason(
+            "Snow AI Router exchanges its authorization code through the router session",
+        )),
     }
 }
 
@@ -391,6 +413,9 @@ pub async fn refresh_tokens(
         OAuthProviderId::Anthropic => anthropic::refresh_tokens(refresh_token).await,
         OAuthProviderId::Antigravity => antigravity::refresh_tokens(refresh_token).await,
         OAuthProviderId::Xai => xai::refresh_tokens(refresh_token).await,
+        OAuthProviderId::SnowRouter => Err(Error::from_reason(
+            "Snow AI Router profiles use a static API key and do not refresh",
+        )),
     }
 }
 
@@ -411,6 +436,9 @@ pub async fn fetch_models(
             antigravity::fetch_models(access_token, account_id, &HashMap::new()).await
         }
         OAuthProviderId::Xai => xai::fetch_models(access_token, &HashMap::new()).await,
+        OAuthProviderId::SnowRouter => Err(Error::from_reason(
+            "Snow AI Router models are listed per channel",
+        )),
     }
 }
 
@@ -432,7 +460,7 @@ pub fn apply_request_headers(
         OAuthProviderId::Antigravity => {
             antigravity::apply_request_headers(&config.api_key, headers)
         }
-        OAuthProviderId::ChatGpt | OAuthProviderId::Xai => {}
+        OAuthProviderId::ChatGpt | OAuthProviderId::Xai | OAuthProviderId::SnowRouter => {}
     }
 }
 
@@ -626,6 +654,7 @@ pub async fn refresh_if_needed(api_config: ApiConfigRecord) -> Result<ApiConfigR
         OAuthProviderId::Anthropic => anthropic::parse_claims(&tokens),
         OAuthProviderId::Antigravity => antigravity::parse_claims(&tokens),
         OAuthProviderId::Xai => xai::parse_claims(&tokens.id_token),
+        OAuthProviderId::SnowRouter => OAuthClaims::default(),
     };
 
     let updated_metadata = OAuthProfileMetadata {

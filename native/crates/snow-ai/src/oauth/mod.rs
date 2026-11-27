@@ -8,4 +8,5 @@ pub mod provider;
 pub mod quota;
 pub mod server;
 pub mod sessions;
+pub mod snow_router;
 pub mod xai;

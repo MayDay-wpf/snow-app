@@ -555,6 +555,7 @@ fn fetch_oauth_models(
             OAuthProviderId::Xai => {
                 xai_oauth::fetch_models_blocking(base_url, api_key, custom_headers)
             }
+            OAuthProviderId::SnowRouter => Ok(Vec::new()),
         },
         &RetryOptions::default(),
         &RetryLogContext {
