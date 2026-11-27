@@ -30,6 +30,7 @@ import {
   type ArtifactLabels,
 } from "./htmlArtifactRenderer";
 import { openTableExportMenu } from "./tableExport";
+import { expandRawHtmlPlaceholders } from "./rawHtmlSanitizer";
 import {
   getAcceptanceReportText,
   localizeAcceptanceBlocks,
@@ -83,6 +84,23 @@ type RenderedChunks = {
 };
 
 /**
+ * 渲染选项：同一份内容在不同模式 / 基准目录下的结果不能互用，必须并入
+ * 缓存键与块指纹（worker 侧同理）。
+ */
+type RenderOptions = {
+  /** 允许文档中的原始 HTML（仅文件阅读器使用，插入前经白名单净化）。 */
+  rawHtml?: boolean;
+  /** 相对图片路径的基准目录（本地文件所在目录）。 */
+  imageBaseDir?: string;
+};
+
+const renderScope = ({ rawHtml, imageBaseDir }: RenderOptions): string =>
+  `${rawHtml ? "h" : "t"}|${imageBaseDir ?? ""}|`;
+
+/** 默认作用域：聊天正文（不解析原始 HTML，无图片基准目录）。 */
+const DEFAULT_RENDER_OPTIONS: RenderOptions = {};
+
+/**
  * Pending request registry. Keyed by request id so the global worker
  * `onmessage` handler can route the response back to the originating hook.
  * Entries are self-removing on resolve to avoid leaks.
@@ -112,6 +130,7 @@ const dispatchRender = (
   content: string,
   knownKeys: string[],
   streaming: boolean,
+  options: RenderOptions = DEFAULT_RENDER_OPTIONS,
 ): Promise<RenderedChunks> => {
   const worker = getMarkdownWorker();
   const id = nextRequestId();
@@ -122,6 +141,8 @@ const dispatchRender = (
       content,
       knownKeys,
       streaming,
+      rawHtml: options.rawHtml === true,
+      imageBaseDir: options.imageBaseDir,
     };
     worker.postMessage(request);
   });
@@ -148,22 +169,34 @@ type ContentCacheEntry = { chunks: MarkdownChunk[]; size: number };
 const contentCache = new Map<string, ContentCacheEntry>();
 let contentCacheBytes = 0;
 
-const contentCacheGet = (content: string): MarkdownChunk[] | undefined => {
-  const entry = contentCache.get(content);
+const contentCacheGet = (
+  scope: string,
+  content: string,
+): MarkdownChunk[] | undefined => {
+  const key = scope + content;
+  const entry = contentCache.get(key);
   if (!entry) {
     return undefined;
   }
   // LRU：命中后移到队尾。
-  contentCache.delete(content);
-  contentCache.set(content, entry);
+  contentCache.delete(key);
+  contentCache.set(key, entry);
   return entry.chunks;
 };
 
-const contentCacheSet = (content: string, chunks: MarkdownChunk[]): void => {
+const contentCacheHas = (scope: string, content: string): boolean =>
+  contentCache.has(scope + content);
+
+const contentCacheSet = (
+  scope: string,
+  content: string,
+  chunks: MarkdownChunk[],
+): void => {
   if (!content || content.length > CONTENT_CACHE_MAX_CONTENT_CHARS) {
     return;
   }
-  if (contentCache.has(content)) {
+  const key = scope + content;
+  if (contentCache.has(key)) {
     return;
   }
   let size = content.length;
@@ -184,7 +217,7 @@ const contentCacheSet = (content: string, chunks: MarkdownChunk[]): void => {
       contentCacheBytes -= evicted.size;
     }
   }
-  contentCache.set(content, { chunks, size });
+  contentCache.set(key, { chunks, size });
   contentCacheBytes += size;
 };
 
@@ -205,8 +238,9 @@ export const prefetchMarkdown = async (
   contents: string[],
   timeoutMs = 1500,
 ): Promise<void> => {
+  const scope = renderScope(DEFAULT_RENDER_OPTIONS);
   const pending = contents.filter(
-    (content) => content && !contentCache.has(content),
+    (content) => content && !contentCacheHas(scope, content),
   );
   if (pending.length === 0) {
     return;
@@ -214,8 +248,13 @@ export const prefetchMarkdown = async (
   await Promise.race([
     Promise.allSettled(
       pending.map(async (content) => {
-        const { chunks } = await dispatchRender(content, [], false);
-        contentCacheSet(content, chunks);
+        const { chunks } = await dispatchRender(
+          content,
+          [],
+          false,
+          DEFAULT_RENDER_OPTIONS,
+        );
+        contentCacheSet(scope, content, chunks);
       }),
     ),
     new Promise<void>((resolve) => {
@@ -289,9 +328,14 @@ const getPathIconHtml = (name: string, isDirectory: boolean): string => {
 };
 
 /** 解析单块 HTML：只解析该块片段，不再对整篇内容做 DOM 级解析。 */
-const parseChunkNodes = (html: string): Node[] => {
+const parseChunkNodes = (html: string, options?: RenderOptions): Node[] => {
   const template = document.createElement("template");
-  template.innerHTML = html;
+  // 文件预览：文档作者的原始 HTML 以占位节点形式进入，先在字符串阶段净化
+  // 再整块解析（行内标签的成对关系必须由整块解析完成）。
+  // 聊天正文不产生占位（worker 关闭 html 选项），该分支不会执行。
+  template.innerHTML = options?.rawHtml
+    ? expandRawHtmlPlaceholders(html, options.imageBaseDir)
+    : html;
   if (tableDownloadTitle) {
     template.content
       .querySelectorAll<HTMLElement>("[data-table-action='download']")
@@ -405,6 +449,8 @@ type PendingRender = {
   chunks: MarkdownChunk[];
   /** 该结果是否为流式渲染（流式提交走增量淡入路径） */
   streaming: boolean;
+  /** 产生这批块的渲染选项：提交时据此恢复原始 HTML 占位节点。 */
+  options: RenderOptions;
 };
 
 /** 渲染结果能否提交到当前内容：流式结果只需是当前内容的前缀。 */
@@ -438,16 +484,34 @@ const useMarkdownRender = (
     streaming: boolean;
     paused: boolean;
     minIntervalMs?: number;
+    /** 允许文档中的原始 HTML（文件阅读器）。 */
+    rawHtml?: boolean;
+    /** 相对图片路径的基准目录。 */
+    imageBaseDir?: string;
   },
 ): { pending: PendingRender | null; version: number } => {
-  const { committedRef, streaming, paused, minIntervalMs } = options;
+  const {
+    committedRef,
+    streaming,
+    paused,
+    minIntervalMs,
+    rawHtml,
+    imageBaseDir,
+  } = options;
+
+  // 渲染作用域随选项变化：作用域变了，缓存命中与已提交块都不再有效。
+  const scope = renderScope({ rawHtml, imageBaseDir });
+  const scopeRef = useRef(scope);
+  scopeRef.current = scope;
+  const renderOptionsRef = useRef<RenderOptions>({ rawHtml, imageBaseDir });
+  renderOptionsRef.current = { rawHtml, imageBaseDir };
 
   const [state, setState] = useState<{
     pending: PendingRender | null;
     version: number;
   }>(() => {
     // Cache entries contain markup only, never execution or view state.
-    const cached = contentCacheGet(content);
+    const cached = contentCacheGet(scope, content);
     return cached
       ? {
           pending: {
@@ -455,6 +519,7 @@ const useMarkdownRender = (
             changedFrom: 0,
             chunks: cached,
             streaming: false,
+            options: { rawHtml, imageBaseDir },
           },
           version: 1,
         }
@@ -550,47 +615,56 @@ const useMarkdownRender = (
       const requestId = nextRequestId();
       latestRequestIdRef.current = requestId;
       inFlightRef.current = true;
+      // 批次结果绑定派发时的渲染作用域：期间选项变化（切换文件 / 模式）
+      // 时旧结果既不能写缓存，也不能提交到页面。
+      const requestScope = scopeRef.current;
+      const requestOptions = renderOptionsRef.current;
       const knownKeys = committedRef.current.map((chunk) => chunk.key);
-      void dispatchRender(dispatchContent, knownKeys, isLive).then(
-        ({ changedFrom, chunks }) => {
-          inFlightRef.current = false;
-          const latestContent = contentRef.current;
-          // 派发期间内容又有推进、或揭示尚未完成、或流刚结束需要终态
-          // 渲染：继续排下一轮（在途期间到达的变更都靠这里接力）。
-          const needsNextRender =
-            latestContent !== dispatchContent ||
-            (isLive &&
-              (revealedRef.current < latestContent.length ||
-                !streamingRef.current));
-          // A newer prop may arrive before its throttled request is dispatched.
-          // Neither superseded requests nor stale content may become executable.
-          if (
-            latestRequestIdRef.current === requestId &&
-            (isLive
-              ? latestContent.startsWith(dispatchContent)
-              : latestContent === dispatchContent)
-          ) {
-            lastRenderAtRef.current = performance.now();
-            if (!isLive && changedFrom === 0) {
-              // 终态且拿到完整块列表：缓存下来，供重挂载/翻页首帧同步还原。
-              contentCacheSet(dispatchContent, chunks);
-            }
-            // Even an unchanged chunk list confirms the current content snapshot.
-            setState((prev) => ({
-              pending: {
-                content: dispatchContent,
-                changedFrom,
-                chunks,
-                streaming: isLive,
-              },
-              version: prev.version + 1,
-            }));
+      void dispatchRender(
+        dispatchContent,
+        knownKeys,
+        isLive,
+        requestOptions,
+      ).then(({ changedFrom, chunks }) => {
+        inFlightRef.current = false;
+        const latestContent = contentRef.current;
+        // 派发期间内容又有推进、或揭示尚未完成、或流刚结束需要终态
+        // 渲染：继续排下一轮（在途期间到达的变更都靠这里接力）。
+        const needsNextRender =
+          latestContent !== dispatchContent ||
+          (isLive &&
+            (revealedRef.current < latestContent.length ||
+              !streamingRef.current));
+        // A newer prop may arrive before its throttled request is dispatched.
+        // Neither superseded requests nor stale content may become executable.
+        if (
+          latestRequestIdRef.current === requestId &&
+          scopeRef.current === requestScope &&
+          (isLive
+            ? latestContent.startsWith(dispatchContent)
+            : latestContent === dispatchContent)
+        ) {
+          lastRenderAtRef.current = performance.now();
+          if (!isLive && changedFrom === 0) {
+            // 终态且拿到完整块列表：缓存下来，供重挂载/翻页首帧同步还原。
+            contentCacheSet(requestScope, dispatchContent, chunks);
           }
-          if (needsNextRender) {
-            scheduleRender();
-          }
-        },
-      );
+          // Even an unchanged chunk list confirms the current content snapshot.
+          setState((prev) => ({
+            pending: {
+              content: dispatchContent,
+              changedFrom,
+              chunks,
+              streaming: isLive,
+              options: requestOptions,
+            },
+            version: prev.version + 1,
+          }));
+        }
+        if (needsNextRender) {
+          scheduleRender();
+        }
+      });
     };
 
     scheduledFrameRef.current = requestAnimationFrame(runRender);
@@ -601,20 +675,34 @@ const useMarkdownRender = (
       return;
     }
     // Fast path: synchronous cache hit — no frame scheduling needed.
-    const cached = contentCacheGet(content);
+    const cached = contentCacheGet(scope, content);
     if (cached) {
       latestRequestIdRef.current = 0;
       pacingRef.current = false;
       revealedRef.current = content.length;
       revealedTextRef.current = content;
       setState((prev) => ({
-        pending: { content, changedFrom: 0, chunks: cached, streaming: false },
+        pending: {
+          content,
+          changedFrom: 0,
+          chunks: cached,
+          streaming: false,
+          options: { rawHtml, imageBaseDir },
+        },
         version: prev.version + 1,
       }));
       return;
     }
     scheduleRender();
-  }, [content, paused, streaming, scheduleRender]);
+  }, [
+    content,
+    paused,
+    rawHtml,
+    imageBaseDir,
+    scope,
+    streaming,
+    scheduleRender,
+  ]);
 
   // Cancel any pending rAF on unmount. The shared worker itself is left
   // alive (singleton) so other MarkdownBlock instances keep their warm cache;
@@ -749,7 +837,10 @@ const commitMarkdownChunks = (
           return existing;
         }
       }
-      return { key: chunk.key, nodes: parseChunkNodes(chunk.html) };
+      return {
+        key: chunk.key,
+        nodes: parseChunkNodes(chunk.html, pending.options),
+      };
     });
     for (const chunk of previous) {
       if (retained.has(chunk)) continue;
@@ -806,7 +897,7 @@ const commitMarkdownChunks = (
     tailNodes.length > 0 &&
     lastTailTextRef.current !== ""
   ) {
-    parsedTailNodes = parseChunkNodes(chunks[0].html);
+    parsedTailNodes = parseChunkNodes(chunks[0].html, pending.options);
     const tailText =
       findLastNonEmptyTextNodeIn(parsedTailNodes)?.nodeValue ?? "";
     if (
@@ -862,7 +953,7 @@ const commitMarkdownChunks = (
       const nodes =
         parsedTailNodes && i === cursor
           ? parsedTailNodes
-          : parseChunkNodes(chunks[i].html);
+          : parseChunkNodes(chunks[i].html, pending.options);
       const fragment = document.createDocumentFragment();
       for (const node of nodes) {
         fragment.appendChild(node);
@@ -916,6 +1007,8 @@ export const MarkdownBlock = memo(
     onFileLinkClick,
     minRenderIntervalMs,
     paused = false,
+    rawHtml = false,
+    imageBaseDir,
   }: {
     className: string;
     content: string;
@@ -928,6 +1021,10 @@ export const MarkdownBlock = memo(
     minRenderIntervalMs?: number;
     /** 内容不可见（离屏/折叠）时暂停派发渲染：内容照常记录，重新可见后立即渲染最新版。 */
     paused?: boolean;
+    /** 渲染文档作者写的原始 HTML（仅文件阅读器；插入前经白名单净化）。 */
+    rawHtml?: boolean;
+    /** 相对图片路径的基准目录（本地 markdown 文件所在目录）。 */
+    imageBaseDir?: string;
   }): React.JSX.Element => {
     const { t } = useI18n();
 
@@ -957,6 +1054,8 @@ export const MarkdownBlock = memo(
       streaming,
       paused,
       minIntervalMs: minRenderIntervalMs,
+      rawHtml,
+      imageBaseDir,
     });
     // 「仍在输出」：流式中，或流已结束但平滑揭示还在放积压（已提交的仍是
     // 流式前缀结果）。终态渲染提交后才执行 mermaid / HTML 预览等终态处理。

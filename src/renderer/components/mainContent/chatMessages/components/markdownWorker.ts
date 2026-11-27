@@ -25,9 +25,8 @@ import type Token from "markdown-it/lib/token.mjs";
 import texmath from "markdown-it-texmath";
 import { renderAcceptanceBlock } from "./acceptanceRenderer";
 import {
+  resolvePreviewImageSrc,
   imageProxyUrl,
-  isAbsoluteImagePath,
-  localImageProxyUrl,
 } from "../../../../utils/imageProxyUrl";
 
 const markdown = new MarkdownIt({
@@ -308,10 +307,18 @@ type HandoffBlockState = {
 // handoff tag 块：默认收起的主题色胶囊标签，点击展开（React 层事件委托
 // 处理）。内部文本作为 markdown 嵌套渲染（交接文档含列表/路径等富文本
 // 结构），展开为主题色引用面板。
-markdown.renderer.rules.handoff_block = (tokens, idx): string => {
+markdown.renderer.rules.handoff_block = (
+  tokens,
+  idx,
+  _options,
+  env,
+): string => {
   const inner = tokens[idx].content.trim();
   const rendered = inner
-    ? markdown.render(inner, { artifactSource: inner })
+    ? markdown.render(inner, {
+        ...(env as MarkdownEnv | null),
+        artifactSource: inner,
+      })
     : "";
   return (
     `<div class="md-handoff-block">` +
@@ -762,40 +769,17 @@ markdown.renderer.rules.code_inline = (tokens, idx, _options, _env, self) => {
   return `<code${self.renderAttrs(token)}>${escapeHtml(content)}</code>`;
 };
 
-/**
- * 判断是否为本地图片路径：图库落盘引用（image/...，安装目录旁图库目录）、
- * 会话上传引用（upload/...，数据库目录旁的 upload 目录），或磁盘绝对路径
- * （D:/... 或 /...，模型引用项目内图片时常见）。这些路径在渲染进程中没有
- * 对应静态资源，直接作为 <img src> 加载必然失败（破损图片），需要改写为
- * img-proxy:// 协议 URL，由主进程读取磁盘后返回。
- */
-const normalizeLocalImagePath = (src: string): string | null => {
-  if (!src || src.length > 512 || /\s/.test(src)) {
-    return null;
-  }
-  // markdown-it 会把反斜杠路径（image\2026-...）URL 编码为 %5C，先解码
-  // 再统一分隔符判断；非法 % 转义按字面值处理。
-  let decoded = src;
-  try {
-    decoded = decodeURIComponent(src);
-  } catch {
-    // 保留原值
-  }
-  const normalized = decoded.replace(/\\/g, "/").replace(/^\.\//, "");
-  // 绝对路径：交给主进程直接读盘（主进程侧限制图片扩展名）。
-  if (isAbsoluteImagePath(normalized)) {
-    return normalized.includes("..") ? null : normalized;
-  }
-  if (!/^(image|upload)\//.test(normalized) || normalized.includes("..")) {
-    return null;
-  }
-  return normalized;
+/** 渲染上下文：块渲染时携带的宿主参数（图片基准目录等）。 */
+type MarkdownEnv = {
+  artifactSource?: string;
+  /** 相对图片路径的基准目录（本地 markdown 文件所在目录）。 */
+  imageBaseDir?: string;
 };
 
-// 把图片 src 统一改写为 img-proxy:// 协议：外部 http(s) 图与本地路径
-// （image/、upload/ 相对路径或磁盘绝对路径）都经主进程协议处理器加载
-// （外部 net.fetch 代理，本地直接读盘），符合渲染进程 CSP（img-src 允许
-// img-proxy: 但不允许任意 https: 与本地相对路径）。
+// 把图片 src 统一改写为 img-proxy:// 协议：外部 http(s) 图、本地路径
+// （image/、upload/ 相对路径或磁盘绝对路径）与相对当前文件的路径都经主进程
+// 协议处理器加载（外部 net.fetch 代理，本地直接读盘），符合渲染进程 CSP
+// （img-src 允许 img-proxy: 但不允许任意 https: 与本地相对路径）。
 const defaultImageRule = markdown.renderer.rules.image;
 markdown.renderer.rules.image = (tokens, idx, options, env, self) => {
   const token = tokens[idx];
@@ -803,14 +787,12 @@ markdown.renderer.rules.image = (tokens, idx, options, env, self) => {
   if (srcIndex >= 0 && token.attrs) {
     const pair = token.attrs[srcIndex];
     if (pair) {
-      const src = pair[1];
-      if (/^https?:\/\//i.test(src)) {
-        pair[1] = imageProxyUrl(src);
-      } else {
-        const local = normalizeLocalImagePath(src);
-        if (local) {
-          pair[1] = localImageProxyUrl(local);
-        }
+      const resolved = resolvePreviewImageSrc(
+        pair[1],
+        (env as MarkdownEnv | null)?.imageBaseDir,
+      );
+      if (resolved !== null) {
+        pair[1] = resolved;
       }
     }
   }
@@ -818,6 +800,17 @@ markdown.renderer.rules.image = (tokens, idx, options, env, self) => {
     ? defaultImageRule(tokens, idx, options, env, self)
     : self.renderToken(tokens, idx, options);
 };
+
+/**
+ * 原始 HTML（仅文件阅读器开启 html 选项）：worker 不直接输出文档作者的
+ * 标记，而是编码进占位节点，由主线程解析、净化后再插入宿主 DOM。
+ * 这样聊天正文的全部渲染路径都不会被文档内容注入标签。
+ */
+markdown.renderer.rules.html_block = (tokens, idx): string =>
+  `<div data-md-raw-html="${encodeURIComponent(tokens[idx].content)}"></div>\n`;
+
+markdown.renderer.rules.html_inline = (tokens, idx): string =>
+  `<span data-md-raw-html="${encodeURIComponent(tokens[idx].content)}"></span>`;
 
 /**
  * KaTeX math rendering. texmath parses `$...$` inline and `$$...$$` display
@@ -1047,6 +1040,10 @@ export type MarkdownRenderRequest = {
   knownKeys: string[];
   /** 流式渲染的结果不写缓存 */
   streaming: boolean;
+  /** 允许文档中的原始 HTML：文档作者的标记先落成占位节点，由主线程净化。 */
+  rawHtml?: boolean;
+  /** 相对图片路径的基准目录（本地 markdown 文件所在目录）。 */
+  imageBaseDir?: string;
 };
 
 export type MarkdownRenderResponse = {
@@ -1057,24 +1054,50 @@ export type MarkdownRenderResponse = {
   chunks: MarkdownChunk[];
 };
 
-const renderChunk = (text: string, streaming: boolean): string => {
-  const cached = cacheGet(text);
+const renderChunk = (
+  text: string,
+  streaming: boolean,
+  scope: string,
+  imageBaseDir: string | undefined,
+): string => {
+  const cacheKey = `${scope}${text}`;
+  const cached = cacheGet(cacheKey);
   if (cached !== undefined) {
     return cached;
   }
-  const html = markdown.render(text, { artifactSource: text });
+  const html = markdown.render(text, { artifactSource: text, imageBaseDir });
   if (!streaming && text.length <= CACHE_MAX_CHUNK_CHARS) {
-    cacheSet(text, html);
+    cacheSet(cacheKey, html);
   }
   return html;
 };
 
-// Self-listener keeps the worker framework-agnostic and type-safe even when
-// `self` is the global worker scope (no DOM `window` available).
-self.onmessage = (event: MessageEvent<MarkdownRenderRequest>): void => {
-  const { id, content, knownKeys, streaming } = event.data;
-  const { texts, tailInsideBlock } = splitMarkdownChunks(content);
-  const keys = texts.map(chunkKey);
+type RenderTask = {
+  id: number;
+  content: string;
+  knownKeys: string[];
+  streaming: boolean;
+  rawHtml: boolean;
+  imageBaseDir?: string;
+};
+
+const renderResponse = ({
+  id,
+  content,
+  knownKeys,
+  streaming,
+  rawHtml,
+  imageBaseDir,
+}: RenderTask): MarkdownRenderResponse => {
+  // 作用域并入块 key：同一段文本在「转义 / 原始 HTML」两种模式下渲染结果
+  // 不同，跨模式复用已提交块会把旧 DOM 留在页面上。
+  const scope = `${rawHtml ? "h" : "t"}|${imageBaseDir ?? ""}|`;
+  // 原始 HTML 可能出现跨空行的块级标签（<div>…</div>），按空行切块会把
+  // 标签拆散；该模式整篇作为一块渲染，换来的只是文件预览少一次增量复用。
+  const split = rawHtml ? null : splitMarkdownChunks(content);
+  const texts = split ? split.texts : content.length > 0 ? [content] : [];
+  const tailInsideBlock = split?.tailInsideBlock === true;
+  const keys = texts.map((text) => `${scope}${chunkKey(text)}`);
   // 流式尾块按预判形态渲染；形态与原文不同时使用独立 key，保证终态
   // 渲染（原文）必然替换掉它，不会因 key 相同被误当作已就位的块复用。
   // 只有内容的最后一行仍在书写（非空）时才预判：已换行的行语法已定型。
@@ -1101,8 +1124,34 @@ self.onmessage = (event: MessageEvent<MarkdownRenderRequest>): void => {
   }
   const chunks: MarkdownChunk[] = [];
   for (let i = changedFrom; i < texts.length; i += 1) {
-    chunks.push({ key: keys[i], html: renderChunk(texts[i], streaming) });
+    chunks.push({
+      key: keys[i],
+      html: renderChunk(texts[i], streaming, scope, imageBaseDir),
+    });
   }
-  const response: MarkdownRenderResponse = { id, changedFrom, chunks };
-  (self as unknown as Worker).postMessage(response);
+  return { id, changedFrom, chunks };
+};
+
+// Self-listener keeps the worker framework-agnostic and type-safe even when
+// `self` is the global worker scope (no DOM `window` available).
+self.onmessage = (event: MessageEvent<MarkdownRenderRequest>): void => {
+  const request = event.data;
+  const rawHtml = request.rawHtml === true;
+  // html 选项是实例级的；worker 内一次只处理一个请求，渲染期间临时开启、
+  // 结束后无条件还原，聊天正文的「不解析原始 HTML」行为保持不变。
+  const previousHtml = markdown.options.html === true;
+  markdown.options.html = rawHtml;
+  try {
+    const response = renderResponse({
+      id: request.id,
+      content: request.content,
+      knownKeys: request.knownKeys,
+      streaming: request.streaming,
+      rawHtml,
+      imageBaseDir: request.imageBaseDir,
+    });
+    (self as unknown as Worker).postMessage(response);
+  } finally {
+    markdown.options.html = previousHtml;
+  }
 };

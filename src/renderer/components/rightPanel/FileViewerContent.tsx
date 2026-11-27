@@ -264,6 +264,17 @@ export function FileViewerContent({
 
   const isMarkdown = /\.(md|markdown)$/i.test(fileName);
 
+  // markdown 预览的相对图片基准目录：只有本地文件能经 img-proxy 读盘
+  // （SSH 远端与虚拟文件没有本地路径）。
+  const markdownImageBaseDir = useMemo(() => {
+    if (isSsh || virtualSource) return undefined;
+    const index = Math.max(
+      filePath.lastIndexOf("/"),
+      filePath.lastIndexOf("\\"),
+    );
+    return index > 0 ? filePath.slice(0, index) : undefined;
+  }, [filePath, isSsh, virtualSource]);
+
   /** 获取当前选中的文本（编辑/代码视图读编辑器选区，否则读浏览器选区）。 */
   const getSelectedText = (): string => {
     const fromEditor = editMode
@@ -2313,6 +2324,8 @@ export function FileViewerContent({
               <MarkdownBlock
                 className="file-viewer-markdown ai-message"
                 content={content.content}
+                rawHtml
+                imageBaseDir={markdownImageBaseDir}
                 onFileLinkClick={handleFileLinkClick}
               />
             )}
