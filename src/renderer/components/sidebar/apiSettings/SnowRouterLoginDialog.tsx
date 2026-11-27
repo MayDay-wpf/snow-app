@@ -333,8 +333,7 @@ export function SnowRouterLoginDialog({
       <div className="oauth-login-status">
         <span>
           {t("settings.snowRouterChannelsHint", {
-            defaultValue:
-              "Select the channels to connect. Each channel becomes an API profile using its own key.",
+            defaultValue: "Choose the channels to connect.",
           })}
         </span>
       </div>
@@ -382,12 +381,6 @@ export function SnowRouterLoginDialog({
     if (phase === "idle" || phase === "starting") {
       return (
         <div className="oauth-login-body">
-          <p className="oauth-login-hint">
-            {t("settings.snowRouterIntro", {
-              defaultValue:
-                "Sign in to Snow AI Router, then pick the channels to connect. Existing keys are reused.",
-            })}
-          </p>
           <div className="oauth-login-field">
             <label htmlFor="snow-router-server-url">
               {t("settings.snowRouterServerUrl", {
@@ -404,12 +397,6 @@ export function SnowRouterLoginDialog({
               disabled={phase === "starting"}
             />
           </div>
-          <p className="oauth-login-hint">
-            {t("settings.snowRouterServerUrlHint", {
-              defaultValue:
-                "Defaults to https://kfccrazythursday.com. Use http://localhost:3000 for local testing.",
-            })}
-          </p>
           {phase === "starting" ? (
             <div className="oauth-login-status">
               <Loader2 size={14} className="spin" />
@@ -546,8 +533,7 @@ export function SnowRouterLoginDialog({
           </div>
           <p className="oauth-login-hint">
             {t("settings.snowRouterConnectedDetail", {
-              defaultValue:
-                "Created {created} profile(s); {kept} existing channel(s) kept their keys.",
+              defaultValue: "Connected {created}; reused {kept}.",
             })
               .replace("{created}", String(connected.length))
               .replace("{kept}", String(skipped.length))}
