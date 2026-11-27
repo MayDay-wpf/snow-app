@@ -22,7 +22,10 @@ const AUTHORIZE_URL: &str = "https://accounts.google.com/o/oauth2/v2/auth";
 const TOKEN_URL: &str = "https://oauth2.googleapis.com/token";
 const USERINFO_URL: &str = "https://www.googleapis.com/oauth2/v1/userinfo?alt=json";
 const OAUTH_SCOPE: &str = "https://www.googleapis.com/auth/cloud-platform https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/cclog https://www.googleapis.com/auth/experimentsandconfigs";
-const CLI_VERSION: &str = "1.0.13";
+/// 与当前 Antigravity 桌面端保持一致；旧版本服务端会隐藏 Gemini 4 模型族。
+pub const CLI_VERSION: &str = "2.35.2";
+/// 实测 1.2.0 及以下不下发 gemini-4，1.3.0 起才返回；低于该版本的回退到当前版本。
+const MIN_GEMINI4_CLIENT_VERSION: &str = "1.3.0";
 const CLI_CLIENT_NAME: &str = "aidev_client";
 const API_CLIENT: &str = "google-cloud-sdk vscode_cloudshelleditor/0.1";
 const HTTP_TIMEOUT_SECS: u64 = 30;
@@ -35,6 +38,21 @@ const CODE_ASSIST_HOSTS: &[&str] = &[
 ];
 
 const PREFERRED_MODELS: &[&str] = &[
+    "gemini-4-neon-high",
+    "gemini-4-neon",
+    "gemini-4-neon-tiered",
+    "gemini-4-carbon-high",
+    "gemini-4-carbon",
+    "gemini-4-carbon-tiered",
+    "gemini-4-hydrogen-high",
+    "gemini-4-hydrogen",
+    "gemini-4-hydrogen-tiered",
+    "gemini-4-argon-high",
+    "gemini-4-argon",
+    "gemini-4-argon-tiered",
+    "gemini-3.8-flash-high",
+    "gemini-3.8-flash",
+    "gemini-3.8-flash-tiered",
     "gemini-3.1-pro-high",
     "gemini-3-pro-high",
     "gemini-3-pro-low",
@@ -63,10 +81,28 @@ fn user_agent_for(version: &str) -> String {
     format!("antigravity/cli/{version} ({CLI_CLIENT_NAME}; os_type={os}; arch={arch})")
 }
 
-/// 客户端版本取自方案 UA 的 `antigravity/cli/x.y.z`，缺失时回退兜底常量。
+fn parse_version(value: &str) -> Option<(u64, u64, u64)> {
+    let mut parts = value.trim().split('.');
+    Some((
+        parts.next()?.parse().ok()?,
+        parts.next()?.parse().ok()?,
+        parts.next()?.parse().ok()?,
+    ))
+}
+
+fn version_at_least(value: &str, minimum: &str) -> bool {
+    match (parse_version(value), parse_version(minimum)) {
+        (Some(current), Some(minimum)) => current >= minimum,
+        _ => false,
+    }
+}
+
+/// 客户端版本取自方案 UA 的 `antigravity/cli/x.y.z`；低于 Gemini 4 下限的旧方案回退到当前版本。
 pub fn client_version_from_headers(headers: &HashMap<String, String>) -> String {
-    version_from_user_agent(headers, "antigravity/cli/")
-        .unwrap_or_else(|| CLI_VERSION.to_string())
+    match version_from_user_agent(headers, "antigravity/cli/") {
+        Some(version) if version_at_least(&version, MIN_GEMINI4_CLIENT_VERSION) => version,
+        _ => CLI_VERSION.to_string(),
+    }
 }
 
 /// Code Assist 请求头：方案优先，缺失的身份头补默认值，令牌始终以本次凭证为准。
@@ -75,6 +111,11 @@ fn code_assist_headers(
     custom_headers: &HashMap<String, String>,
 ) -> HashMap<String, String> {
     let version = client_version_from_headers(custom_headers);
+    // 旧档案方案里的 UA 版本过低，服务端会隐藏 Gemini 4 模型族，需按当前版本覆盖。
+    let scheme_version = version_from_user_agent(custom_headers, "antigravity/cli/");
+    let upgrade_user_agent = scheme_version
+        .as_deref()
+        .is_some_and(|value| !version_at_least(value, MIN_GEMINI4_CLIENT_VERSION));
     let mut headers = with_default_headers(
         custom_headers,
         vec![
@@ -83,6 +124,10 @@ fn code_assist_headers(
             ("x-goog-api-client", API_CLIENT.to_string()),
         ],
     );
+    if upgrade_user_agent {
+        remove_header(&mut headers, "user-agent");
+        headers.insert("User-Agent".to_string(), user_agent_for(&version));
+    }
     remove_header(&mut headers, "authorization");
     headers.insert(
         "Authorization".to_string(),
@@ -357,7 +402,11 @@ fn model_rank(id: &str) -> usize {
 
 fn push_model(models: &mut Vec<String>, id: &str) {
     let id = id.trim();
-    if !id.is_empty() && !models.iter().any(|existing| existing == id) {
+    // 当前套餐不可用的占位模型（如 gemini-4-argon-disabled），请求必然失败
+    if id.is_empty() || id.ends_with("-disabled") {
+        return;
+    }
+    if !models.iter().any(|existing| existing == id) {
         models.push(id.to_string());
     }
 }
@@ -384,6 +433,23 @@ fn parse_models_value(parsed: &Value) -> Vec<String> {
             }
         }
         _ => {}
+    }
+
+    // 分档模型可能只出现在 tieredModelIds 中，漏掉会导致订阅档位模型缺失
+    if let Some(tiers) = parsed.get("tieredModelIds").and_then(Value::as_object) {
+        for value in tiers.values() {
+            match value {
+                Value::Array(items) => {
+                    for item in items {
+                        if let Some(id) = item.as_str() {
+                            push_model(&mut models, id);
+                        }
+                    }
+                }
+                Value::String(id) => push_model(&mut models, id),
+                _ => {}
+            }
+        }
     }
 
     models.sort_by_key(|id| model_rank(id));
