@@ -27,9 +27,10 @@ type UseConversationActionsOptions = {
   ) => void;
 };
 
-/** 批量删除的展示进度：percent 由后端真实计数换算，不是定时动画。 */
+/** 批量删除的展示进度：percent 由后端真实计数换算，不是定时动画。
+ *  compact 为归档库永久删除后的空间回收阶段。 */
 export type BatchDeleteProgress = {
-  phase: "prepare" | "images" | "delete" | "cleanup";
+  phase: "prepare" | "images" | "delete" | "cleanup" | "compact";
   done: number;
   total: number;
   percent: number;
@@ -53,7 +54,7 @@ const scalePercent = (
 };
 
 /** 把后端阶段进度换算成 0-100 的总进度。 */
-const resolveBatchDeleteProgress = (
+export const resolveBatchDeleteProgress = (
   progress: ConversationDeleteProgress,
   hasImageStage: boolean,
 ): BatchDeleteProgress => {
@@ -71,7 +72,11 @@ const resolveBatchDeleteProgress = (
       ),
     };
   }
-  if (progress.phase === "delete" || progress.phase === "cleanup") {
+  if (
+    progress.phase === "delete" ||
+    progress.phase === "cleanup" ||
+    progress.phase === "compact"
+  ) {
     return {
       phase: progress.phase,
       done: progress.done,
@@ -86,6 +91,50 @@ const resolveBatchDeleteProgress = (
     percent: scalePercent(progress.done, progress.total, 0, PREPARE_STAGE_END),
   };
 };
+
+/** 批量删除进度状态：只在整数百分比或阶段变化时重渲染，进度不回退，
+ *  删除结束后丢弃仍在途的进度事件。会话列表删除与归档永久删除共用。 */
+export function useBatchDeleteProgress() {
+  const [progress, setProgress] = useState<BatchDeleteProgress | null>(null);
+  const lastProgressRef = useRef<{ phase: string; percent: number } | null>(
+    null,
+  );
+  const activeRef = useRef(false);
+
+  const applyProgress = useCallback((next: BatchDeleteProgress): void => {
+    if (!activeRef.current) {
+      return;
+    }
+    const last = lastProgressRef.current;
+    if (
+      last &&
+      last.phase === next.phase &&
+      Math.floor(last.percent) === Math.floor(next.percent)
+    ) {
+      return;
+    }
+    lastProgressRef.current = { phase: next.phase, percent: next.percent };
+    setProgress((prev) => ({
+      ...next,
+      // total 在阶段内可能扩大（例如附件清理），进度条不应回退。
+      percent: prev ? Math.max(prev.percent, next.percent) : next.percent,
+    }));
+  }, []);
+
+  const startProgress = useCallback((): void => {
+    lastProgressRef.current = null;
+    activeRef.current = true;
+    setProgress({ phase: "prepare", done: 0, total: 0, percent: 0 });
+  }, []);
+
+  const stopProgress = useCallback((): void => {
+    activeRef.current = false;
+    lastProgressRef.current = null;
+    setProgress(null);
+  }, []);
+
+  return { progress, applyProgress, startProgress, stopProgress };
+}
 
 export function useConversationActions({
   activeConversationId,
@@ -111,36 +160,12 @@ export function useConversationActions({
     () => new Set(),
   );
   const [isBatchDeleting, setIsBatchDeleting] = useState(false);
-  const [batchDeleteProgress, setBatchDeleteProgress] =
-    useState<BatchDeleteProgress | null>(null);
-  // 节流：进度条只在整数百分比或阶段变化时重渲染。
-  const lastProgressRef = useRef<{ phase: string; percent: number } | null>(
-    null,
-  );
-  // 删除结束后可能有残留的进度事件在途：用活动标记丢弃它们。
-  const batchDeleteActiveRef = useRef(false);
-  const applyBatchDeleteProgress = useCallback(
-    (next: BatchDeleteProgress): void => {
-      if (!batchDeleteActiveRef.current) {
-        return;
-      }
-      const last = lastProgressRef.current;
-      if (
-        last &&
-        last.phase === next.phase &&
-        Math.floor(last.percent) === Math.floor(next.percent)
-      ) {
-        return;
-      }
-      lastProgressRef.current = { phase: next.phase, percent: next.percent };
-      setBatchDeleteProgress((prev) => ({
-        ...next,
-        // total 在阶段内可能扩大（例如附件清理），进度条不应回退。
-        percent: prev ? Math.max(prev.percent, next.percent) : next.percent,
-      }));
-    },
-    [],
-  );
+  const {
+    progress: batchDeleteProgress,
+    applyProgress: applyBatchDeleteProgress,
+    startProgress: startBatchDeleteProgress,
+    stopProgress: stopBatchDeleteProgress,
+  } = useBatchDeleteProgress();
   const [showBatchConfirm, setShowBatchConfirm] = useState(false);
   const [batchImagesCount, setBatchImagesCount] = useState<number | null>(null);
   const [batchDeleteImages, setBatchDeleteImages] = useState(false);
@@ -328,9 +353,7 @@ export function useConversationActions({
 
     setIsBatchDeleting(true);
     setDeletingIds(new Set(targetIds));
-    lastProgressRef.current = null;
-    batchDeleteActiveRef.current = true;
-    setBatchDeleteProgress({ phase: "prepare", done: 0, total: 0, percent: 0 });
+    startBatchDeleteProgress();
 
     try {
       await removeConversationTrees(
@@ -370,12 +393,10 @@ export function useConversationActions({
       refreshConversations();
     } finally {
       // 删除完成后才关闭确认弹窗，期间显示真实进度
-      batchDeleteActiveRef.current = false;
+      stopBatchDeleteProgress();
       setIsBatchDeleting(false);
       setShowBatchConfirm(false);
-      setBatchDeleteProgress(null);
       setDeletingIds(new Set());
-      lastProgressRef.current = null;
     }
   };
 

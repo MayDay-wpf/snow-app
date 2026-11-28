@@ -783,6 +783,7 @@ export const zhCN = {
   "sidebar.chatDeleteProgressImages": "正在删除图片 {{percent}}%",
   "sidebar.chatDeleteProgressData": "正在删除会话数据 {{percent}}%",
   "sidebar.chatDeleteProgressCleanup": "正在清理附件 {{percent}}%",
+  "sidebar.chatDeleteProgressCompact": "正在回收归档库空间...",
   "sidebar.chatMultiSelectExit": "退出",
   "sidebar.chatMultiSelectGroupSelect": "全选该分组",
   "sidebar.chatMultiSelectGroupDeselect": "取消全选该分组",
@@ -799,11 +800,9 @@ export const zhCN = {
   "sidebar.archivedChatsToggle": "查看归档会话",
   "sidebar.archivedChatsToggleBack": "返回会话列表",
   "sidebar.archivedChatsEmpty": "暂无归档会话",
-  "sidebar.archivedChatsHint": "归档会话需还原后才能继续使用",
   "sidebar.archivedChatsSearchPlaceholder": "搜索归档会话",
   "sidebar.archivedChatsSearchClear": "清除搜索",
   "sidebar.archivedChatsSearchEmpty": "没有匹配的归档会话",
-  "sidebar.archivedChatRestoreHint": "还原此会话后才能使用",
   "sidebar.chatActionRestore": "还原",
   "sidebar.chatMultiSelectArchive": "归档所选",
   "sidebar.chatMultiSelectArchiving": "正在归档...",
@@ -815,6 +814,11 @@ export const zhCN = {
     "确定从归档中永久删除此会话吗？此操作不可恢复。",
   "sidebar.archivedChatMultiSelectDeleteConfirm":
     "确定从归档中永久删除选中的 {{count}} 个会话吗？此操作不可恢复。",
+  "sidebar.archivedChatDeleteAll": "全部删除",
+  "sidebar.archivedChatDeleteAllConfirm":
+    "确定永久删除本项目全部 {{count}} 个归档会话吗？此操作不可恢复。",
+  "sidebar.archivedChatDeleteMatchedConfirm":
+    "确定永久删除与「{{keyword}}」匹配的全部 {{count}} 个归档会话吗？此操作不可恢复。",
   "sidebar.subAgent": "子代理",
   "sidebar.workflowNode": "Workflow 节点",
   "sidebar.workflowMode": "Workflow 模式",

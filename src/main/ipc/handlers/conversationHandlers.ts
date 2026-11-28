@@ -783,7 +783,7 @@ export const registerConversationHandlers = (native: NativeBridge): void => {
   );
   ipcMain.handle(
     "chat-conversations:delete-archived",
-    async (_event, conversationIds: unknown) => {
+    async (event, conversationIds: unknown, progressStreamId: unknown) => {
       if (!Array.isArray(conversationIds)) {
         throw new Error(
           "Conversation IDs are required to delete archived conversations",
@@ -796,6 +796,8 @@ export const registerConversationHandlers = (native: NativeBridge): void => {
       if (safeIds.length === 0) {
         return;
       }
+      const streamId =
+        typeof progressStreamId === "string" ? progressStreamId.trim() : "";
 
       snowLog.warn({
         module: "ipc/conversation",
@@ -803,7 +805,54 @@ export const registerConversationHandlers = (native: NativeBridge): void => {
         message: "Archived conversations permanently deleted",
         context: `count=${safeIds.length}`,
       });
-      await native.deleteArchivedConversations(safeIds);
+      await native.deleteArchivedConversations(
+        safeIds,
+        streamId
+          ? (progress) => {
+              safeSend(event.sender, CONVERSATION_DELETE_PROGRESS_CHANNEL, {
+                streamId,
+                progress,
+              });
+            }
+          : undefined,
+      );
+    },
+  );
+  ipcMain.handle(
+    "chat-conversations:delete-all-archived",
+    async (
+      event,
+      directoryId: unknown,
+      keyword: unknown,
+      progressStreamId: unknown,
+    ) => {
+      if (typeof directoryId !== "string" || !directoryId.trim()) {
+        throw new Error(
+          "Directory ID is required to delete archived conversations",
+        );
+      }
+      const safeKeyword = typeof keyword === "string" ? keyword.trim() : "";
+      const streamId =
+        typeof progressStreamId === "string" ? progressStreamId.trim() : "";
+
+      snowLog.warn({
+        module: "ipc/conversation",
+        func: "delete-all-archived",
+        message: "All archived conversations permanently deleted",
+        context: `directoryId=${directoryId.trim()}; keyword=${safeKeyword ? "set" : "none"}`,
+      });
+      await native.deleteAllArchivedConversations(
+        directoryId.trim(),
+        safeKeyword,
+        streamId
+          ? (progress) => {
+              safeSend(event.sender, CONVERSATION_DELETE_PROGRESS_CHANNEL, {
+                streamId,
+                progress,
+              });
+            }
+          : undefined,
+      );
     },
   );
   ipcMain.handle(

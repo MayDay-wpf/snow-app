@@ -3355,8 +3355,17 @@ export type NativeBridge = ImageGenerationNativeApi & {
   ) => Promise<ChatConversationPage>;
   /** 还原归档会话：从归档冷数据库搬移回运行库（含子代理级联）。 */
   restoreArchivedConversations: (conversationIds: string[]) => Promise<void>;
-  /** 永久删除归档会话（含子代理级联）。 */
-  deleteArchivedConversations: (conversationIds: string[]) => Promise<void>;
+  /** 永久删除归档会话（含子代理级联）；onProgress 按真实工作单元推送进度。 */
+  deleteArchivedConversations: (
+    conversationIds: string[],
+    onProgress?: (progress: ConversationDeleteProgress) => void,
+  ) => Promise<void>;
+  /** 一键永久删除项目下的归档会话（keyword 非空时只删除匹配项）。 */
+  deleteAllArchivedConversations: (
+    directoryId: string,
+    keyword: string,
+    onProgress?: (progress: ConversationDeleteProgress) => void,
+  ) => Promise<void>;
   saveTaskHistory: (
     conversationId: string,
     responseId: string,

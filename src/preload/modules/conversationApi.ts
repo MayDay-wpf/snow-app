@@ -244,8 +244,34 @@ export const conversationApi = {
     ),
   restoreArchivedConversations: (conversationIds: string[]): Promise<void> =>
     ipcRenderer.invoke("chat-conversations:restore-archived", conversationIds),
-  deleteArchivedConversations: (conversationIds: string[]): Promise<void> =>
-    ipcRenderer.invoke("chat-conversations:delete-archived", conversationIds),
+  /** 永久删除归档会话；onProgress 接收后端按真实工作单元推送的进度。 */
+  deleteArchivedConversations: (
+    conversationIds: string[],
+    onProgress: (progress: ConversationDeleteProgress) => void,
+  ): Promise<void> => {
+    const streamId = createDeleteProgressStreamId();
+    const unsubscribe = subscribeDeleteProgress(streamId, onProgress);
+    return ipcRenderer
+      .invoke("chat-conversations:delete-archived", conversationIds, streamId)
+      .finally(unsubscribe);
+  },
+  /** 一键永久删除项目下的归档会话；keyword 非空时只删除匹配项。 */
+  deleteAllArchivedConversations: (
+    directoryId: string,
+    keyword: string,
+    onProgress: (progress: ConversationDeleteProgress) => void,
+  ): Promise<void> => {
+    const streamId = createDeleteProgressStreamId();
+    const unsubscribe = subscribeDeleteProgress(streamId, onProgress);
+    return ipcRenderer
+      .invoke(
+        "chat-conversations:delete-all-archived",
+        directoryId,
+        keyword,
+        streamId,
+      )
+      .finally(unsubscribe);
+  },
   listSubAgentConversationsByParents: (
     parentConversationIds: string[],
   ): Promise<Record<string, ChatConversationRecord[]>> =>

@@ -331,7 +331,7 @@
   min-width: 0;
 }
 
-/* 组摘要行是分组标签、不是一次调用：无工具图标，颜色比调用行更淡 */
+/* 组摘要行是分组标签、不是一次调用：带同一分类图标与调用行对齐，颜色比调用行更淡 */
 .tsr-head {
   display: flex;
   flex-shrink: 0;
@@ -360,6 +360,22 @@
 
 .tsr-head:hover {
   color: var(--text-secondary);
+}
+
+/* 分类图标：尺寸与配色同调用行的 .tool-call-tool-name-icon */
+.tsr-icon {
+  flex-shrink: 0;
+  align-self: center;
+  margin-right: 1px;
+  color: var(--text-tertiary);
+}
+
+.tsr-head.is-running .tsr-icon {
+  color: var(--accent-blue);
+}
+
+.tsr-head.has-error .tsr-icon {
+  color: var(--accent-red);
 }
 
 .tsr-name {
@@ -501,6 +517,8 @@
 /* ---------- 极简 transcript 行级虚拟化 ---------- */
 
 .minimal-rows {
+  /* 树形缩进步长：图标 13 + 间距 6，子行图标落在父行文字起点下方 */
+  --minimal-tree-indent: 19px;
   display: flex;
   flex-direction: column;
   min-width: 0;
@@ -508,6 +526,15 @@
 
 .minimal-row {
   min-width: 0;
+}
+
+/* 展开的集合 / 同名组：子行逐级缩进，形成树形层级 */
+.minimal-row--depth-1 > .minimal-row-body {
+  padding-left: var(--minimal-tree-indent);
+}
+
+.minimal-row--depth-2 > .minimal-row-body {
+  padding-left: calc(var(--minimal-tree-indent) * 2);
 }
 
 .minimal-row.is-placeholder {

@@ -2063,23 +2063,14 @@ body.is-panel-resizing * {
   margin-bottom: 0;
 }
 
-/* 归档列表工具栏：提示文案 + 多选入口 */
+/* 归档列表工具栏：一键删除 + 多选入口 */
 .archived-chat-toolbar {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 8px;
   padding: 2px 8px 4px;
   border-bottom: 1px solid var(--border-color);
-}
-
-.archived-chat-toolbar-hint {
-  flex: 1;
-  min-width: 0;
-  font-size: 10.5px;
-  color: var(--text-tertiary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .archived-multi-select-btn {
@@ -2101,6 +2092,20 @@ body.is-panel-resizing * {
 .archived-multi-select-btn:hover {
   background: var(--bg-hover);
   color: var(--text-primary);
+}
+
+.archived-multi-select-btn.danger {
+  color: var(--danger, #e5484d);
+}
+
+.archived-multi-select-btn.danger:hover {
+  background: rgba(229, 72, 77, 0.1);
+  color: var(--danger, #e5484d);
+}
+
+.archived-multi-select-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 /* 归档会话搜索框（融合型输入框，!important 抵抗主题通用 input 规则） */
@@ -54318,16 +54323,19 @@ body.ctrl-held [data-path] {
   font-size: 11px;
 }
 
-/* 图表总览区：每日趋势 + 模型占比环形图并排 */
+/* 图表总览区：每日趋势 + 模型占比环形图并排；
+   两卡按 3:2 的 flex-basis 分配，宽度放不下两者基准宽时自动换行为上下结构，
+   避免模型占比卡在窄栏里被迫把环形图与图例挤成两行、拉高整行留下大片空白。 */
 .usage-charts-grid {
-  display: grid;
-  grid-template-columns: 1.5fr 1fr;
+  display: flex;
+  flex-wrap: wrap;
   gap: 10px;
   margin-bottom: 18px;
 }
 
 .usage-chart-card {
   display: flex;
+  flex: 3 1 600px;
   flex-direction: column;
   gap: 8px;
   min-width: 0;
@@ -54335,6 +54343,11 @@ body.ctrl-held [data-path] {
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
   background: var(--bg-secondary);
+}
+
+/* 模型占比卡基准宽需容纳环形图 + 图例并排（约 116 + 12 + 240 + 内边距） */
+.usage-chart-card-donut {
+  flex: 2 1 400px;
 }
 
 .usage-chart-header {

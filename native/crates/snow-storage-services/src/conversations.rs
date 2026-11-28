@@ -431,9 +431,28 @@ pub fn restore_archived_conversations(conversation_ids: Vec<String>) -> Result<(
     )
 }
 
-pub fn delete_archived_conversations(conversation_ids: Vec<String>) -> Result<()> {
+/// 永久删除归档会话并按真实工作单元上报进度（阶段 + done/total）。
+pub fn delete_archived_conversations(
+    conversation_ids: Vec<String>,
+    on_progress: Option<&dyn Fn(&str, usize, usize)>,
+) -> Result<()> {
     let archive_path = ensure_archive_database_file()?;
-    services::archive::delete_archived_conversations(&archive_path, &conversation_ids)
+    services::archive::delete_archived_conversations(&archive_path, &conversation_ids, on_progress)
+}
+
+/// 一键永久删除项目下的归档会话（keyword 非空时只删除匹配项），进度语义同上。
+pub fn delete_all_archived_conversations(
+    directory_id: String,
+    keyword: String,
+    on_progress: Option<&dyn Fn(&str, usize, usize)>,
+) -> Result<()> {
+    let archive_path = ensure_archive_database_file()?;
+    services::archive::delete_all_archived_conversations(
+        &archive_path,
+        &directory_id,
+        &keyword,
+        on_progress,
+    )
 }
 
 pub fn save_task_history(

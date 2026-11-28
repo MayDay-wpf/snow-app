@@ -173,12 +173,13 @@ export const buildMinimalRows = ({
     const toolRowKey = (toolCall: ToolCallInfo): string =>
       `minimal-tool:${toolCall.interactionId}`;
 
-    const pushToolRow = (toolCall: ToolCallInfo): void => {
+    const pushToolRow = (toolCall: ToolCallInfo, depth: 1 | 2): void => {
       rows.push({
         kind: "tool",
         key: toolRowKey(toolCall),
         messageId: anchorMessageId,
         renderKey: anchorRenderKey,
+        depth,
         toolCall,
         ownerMessageId:
           run.messageIds.get(toolCall.interactionId) ?? anchorMessageId,
@@ -188,7 +189,7 @@ export const buildMinimalRows = ({
 
     for (const entry of groupMinimalTools(run.toolCalls)) {
       if (entry.type === "single") {
-        pushToolRow(entry.toolCall);
+        pushToolRow(entry.toolCall, 1);
         continue;
       }
       if (entry.type === "group") {
@@ -197,6 +198,7 @@ export const buildMinimalRows = ({
           key: `minimal-tool-group:${anchorRenderKey}:${entry.toolCalls[0].interactionId}`,
           messageId: anchorMessageId,
           renderKey: anchorRenderKey,
+          depth: 1,
           groupKind: entry.groupKind,
           toolCalls: entry.toolCalls,
         });
@@ -218,12 +220,13 @@ export const buildMinimalRows = ({
         key: sameRunKey,
         messageId: anchorMessageId,
         renderKey: anchorRenderKey,
+        depth: 1,
         toolCalls: entry.toolCalls,
         expanded: sameRunExpanded,
       });
       if (sameRunExpanded) {
         for (const toolCall of entry.toolCalls) {
-          pushToolRow(toolCall);
+          pushToolRow(toolCall, 2);
         }
       }
     }

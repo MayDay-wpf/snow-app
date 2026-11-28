@@ -197,11 +197,44 @@ pub async fn restore_archived_conversations(conversation_ids: Vec<String>) -> na
     .map_err(map_spawn_error)?
 }
 
-/// 永久删除归档会话（含子代理级联）。
-#[napi]
-pub async fn delete_archived_conversations(conversation_ids: Vec<String>) -> napi::Result<()> {
+/// 永久删除归档会话（含子代理级联）；`onProgress` 按真实完成的工作单元推送进度。
+#[napi(
+    ts_args_type = "conversationIds: string[], onProgress: ((progress: ConversationDeleteProgress) => void) | undefined",
+    ts_return_type = "Promise<void>"
+)]
+pub async fn delete_archived_conversations(
+    conversation_ids: Vec<String>,
+    on_progress: Option<ConversationDeleteProgressCallback>,
+) -> napi::Result<()> {
     tokio::task::spawn_blocking(move || {
-        crate::storage::delete_archived_conversations(conversation_ids)
+        let sink = on_progress.map(delete_progress_sink);
+        crate::storage::delete_archived_conversations(
+            conversation_ids,
+            sink.as_ref().map(|callback| callback as &dyn Fn(&str, usize, usize)),
+        )
+    })
+    .await
+    .map_err(map_spawn_error)?
+}
+
+/// 一键永久删除项目下的归档会话（keyword 非空时只删除匹配项）；
+/// `onProgress` 按真实完成的工作单元推送进度。
+#[napi(
+    ts_args_type = "directoryId: string, keyword: string, onProgress: ((progress: ConversationDeleteProgress) => void) | undefined",
+    ts_return_type = "Promise<void>"
+)]
+pub async fn delete_all_archived_conversations(
+    directory_id: String,
+    keyword: String,
+    on_progress: Option<ConversationDeleteProgressCallback>,
+) -> napi::Result<()> {
+    tokio::task::spawn_blocking(move || {
+        let sink = on_progress.map(delete_progress_sink);
+        crate::storage::delete_all_archived_conversations(
+            directory_id,
+            keyword,
+            sink.as_ref().map(|callback| callback as &dyn Fn(&str, usize, usize)),
+        )
     })
     .await
     .map_err(map_spawn_error)?
@@ -534,6 +567,22 @@ type ConversationDeleteProgressCallback = ThreadsafeFunction<
     false,
 >;
 
+/// 把 JS 进度回调包装成存储层的进度 sink（非阻塞推送，不拖慢删除线程）。
+fn delete_progress_sink(
+    callback: ConversationDeleteProgressCallback,
+) -> impl Fn(&str, usize, usize) {
+    move |phase: &str, done: usize, total: usize| {
+        let _ = callback.call(
+            ConversationDeleteProgress {
+                phase: phase.to_string(),
+                done: done.min(u32::MAX as usize) as u32,
+                total: total.min(u32::MAX as usize) as u32,
+            },
+            ThreadsafeFunctionCallMode::NonBlocking,
+        );
+    }
+}
+
 /// 批量删除会话；`onProgress` 按真实完成的工作单元推送进度。
 #[napi(
     ts_args_type = "conversationIds: string[], deleteMemories: boolean | undefined, onProgress: ((progress: ConversationDeleteProgress) => void) | undefined",
@@ -545,18 +594,7 @@ pub async fn delete_conversations(
     on_progress: Option<ConversationDeleteProgressCallback>,
 ) -> napi::Result<()> {
     tokio::task::spawn_blocking(move || {
-        let sink = on_progress.map(|callback| {
-            move |phase: &str, done: usize, total: usize| {
-                let _ = callback.call(
-                    ConversationDeleteProgress {
-                        phase: phase.to_string(),
-                        done: done.min(u32::MAX as usize) as u32,
-                        total: total.min(u32::MAX as usize) as u32,
-                    },
-                    ThreadsafeFunctionCallMode::NonBlocking,
-                );
-            }
-        });
+        let sink = on_progress.map(delete_progress_sink);
         crate::storage::delete_conversations_with_progress(
             conversation_ids,
             delete_memories.unwrap_or(false),

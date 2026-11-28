@@ -24,6 +24,8 @@ type MinimalRowBase = {
   renderKey: string;
   /** 一条 AI 回复（锚点）的第一行：承担消息间距与 IM 头像。 */
   groupStart?: boolean;
+  /** 树形缩进层级：工具集合内的行为 1，同名工具组内的工具为 2。 */
+  depth?: 1 | 2;
 };
 
 export type MinimalUserRow = MinimalRowBase & {

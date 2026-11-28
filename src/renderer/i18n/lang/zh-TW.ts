@@ -784,6 +784,7 @@ export const zhTW = {
   "sidebar.chatDeleteProgressImages": "正在刪除圖片 {{percent}}%",
   "sidebar.chatDeleteProgressData": "正在刪除對話資料 {{percent}}%",
   "sidebar.chatDeleteProgressCleanup": "正在清理附件 {{percent}}%",
+  "sidebar.chatDeleteProgressCompact": "正在回收歸檔庫空間...",
   "sidebar.chatMultiSelectExit": "退出",
   "sidebar.chatMultiSelectGroupSelect": "全選該分組",
   "sidebar.chatMultiSelectGroupDeselect": "取消全選該分組",
@@ -800,11 +801,9 @@ export const zhTW = {
   "sidebar.archivedChatsToggle": "查看歸檔對話",
   "sidebar.archivedChatsToggleBack": "返回對話列表",
   "sidebar.archivedChatsEmpty": "暫無歸檔對話",
-  "sidebar.archivedChatsHint": "歸檔對話需還原後才能繼續使用",
   "sidebar.archivedChatsSearchPlaceholder": "搜尋歸檔對話",
   "sidebar.archivedChatsSearchClear": "清除搜尋",
   "sidebar.archivedChatsSearchEmpty": "沒有符合的歸檔對話",
-  "sidebar.archivedChatRestoreHint": "還原此對話後才能使用",
   "sidebar.chatActionRestore": "還原",
   "sidebar.chatMultiSelectArchive": "歸檔所選",
   "sidebar.chatMultiSelectArchiving": "正在歸檔...",
@@ -816,6 +815,11 @@ export const zhTW = {
     "確定從歸檔中永久刪除此對話嗎？此操作不可復原。",
   "sidebar.archivedChatMultiSelectDeleteConfirm":
     "確定從歸檔中永久刪除選中的 {{count}} 個對話嗎？此操作不可復原。",
+  "sidebar.archivedChatDeleteAll": "全部刪除",
+  "sidebar.archivedChatDeleteAllConfirm":
+    "確定永久刪除本專案全部 {{count}} 個歸檔對話嗎？此操作不可復原。",
+  "sidebar.archivedChatDeleteMatchedConfirm":
+    "確定永久刪除與「{{keyword}}」相符的全部 {{count}} 個歸檔對話嗎？此操作不可復原。",
   "sidebar.subAgent": "子代理",
   "sidebar.workflowNode": "Workflow 節點",
   "sidebar.workflowMode": "Workflow 模式",

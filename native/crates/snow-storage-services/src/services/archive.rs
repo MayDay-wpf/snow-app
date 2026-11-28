@@ -8,8 +8,9 @@ use rusqlite::{params, params_from_iter, Connection, TransactionBehavior};
 use super::super::database;
 use super::super::{ChatConversationPage, ChatConversationRecord};
 use super::chat_conversations::{
-    cleanup_orphan_checkpoint_files, clear_conversation_tombstones,
+    cleanup_orphan_checkpoint_files_with, clear_conversation_tombstones,
     collect_conversation_checkpoint_ids, record_conversation_tombstones,
+    ConversationDeleteProgressSink, DeleteProgress,
 };
 
 /// 归档冷数据库（archive.db）专用服务。
@@ -1144,6 +1145,27 @@ pub fn archive_conversations(
     Ok(())
 }
 
+/// 归档列表的可见范围：项目下的顶层会话（子代理 / WorkFlow 节点随父会话归档，
+/// 不单独展示），keyword 非空时按标题/摘要/最后消息预览模糊过滤。
+/// 参数：?1 = directory_id，?2 = 关键词，?3 = LIKE 模式。
+/// 列表、计数与一键删除共用，保证「看到的」与「删掉的」是同一批会话。
+const ARCHIVED_LIST_FILTER: &str = "directory_id = ?1
+                    AND status = 'active'
+                    AND (?2 = ''
+                         OR conversation.title LIKE ?3 ESCAPE '\\'
+                         OR conversation.summary LIKE ?3 ESCAPE '\\'
+                         OR conversation.last_message_preview LIKE ?3 ESCAPE '\\')
+                    AND NOT EXISTS (
+                      SELECT 1
+                        FROM sub_agent_sessions AS sub_agent
+                       WHERE sub_agent.conversation_id = conversation.conversation_id
+                    )
+                    AND NOT EXISTS (
+                      SELECT 1
+                        FROM workflow_node_sessions AS workflow_node
+                       WHERE workflow_node.conversation_id = conversation.conversation_id
+                    )";
+
 /// 分页列出归档会话（仅顶层会话，子代理随父会话归档不单独展示），
 /// 按归档时间倒序；keyword 非空时按标题/摘要/最后消息预览模糊过滤。
 pub fn list_archived_conversations_paginated(
@@ -1160,24 +1182,11 @@ pub fn list_archived_conversations_paginated(
     open_archive_connection(archive_path)
         .and_then(|connection| {
             let total: i32 = connection.query_row(
-                "SELECT COUNT(*)
+                &format!(
+                    "SELECT COUNT(*)
                    FROM chat_conversations AS conversation
-                  WHERE directory_id = ?1
-                    AND status = 'active'
-                    AND (?2 = ''
-                         OR conversation.title LIKE ?3 ESCAPE '\\'
-                         OR conversation.summary LIKE ?3 ESCAPE '\\'
-                         OR conversation.last_message_preview LIKE ?3 ESCAPE '\\')
-                    AND NOT EXISTS (
-                      SELECT 1
-                        FROM sub_agent_sessions AS sub_agent
-                       WHERE sub_agent.conversation_id = conversation.conversation_id
-                    )
-                    AND NOT EXISTS (
-                      SELECT 1
-                        FROM workflow_node_sessions AS workflow_node
-                       WHERE workflow_node.conversation_id = conversation.conversation_id
-                    )",
+                  WHERE {ARCHIVED_LIST_FILTER}"
+                ),
                 params![directory_id, keyword, like_pattern],
                 |row| row.get(0),
             )?;
@@ -1185,7 +1194,7 @@ pub fn list_archived_conversations_paginated(
             let safe_limit = if limit > 0 { limit } else { 20 };
             let safe_offset = if offset > 0 { offset } else { 0 };
 
-            let mut statement = connection.prepare(
+            let mut statement = connection.prepare(&format!(
                 "SELECT conversation_id,
                         title,
                         summary,
@@ -1218,25 +1227,10 @@ pub fn list_archived_conversations_paginated(
                        conversation.run_ttft_sum_ms,
                        conversation.run_request_count
                   FROM chat_conversations AS conversation
-                  WHERE directory_id = ?1
-                    AND status = 'active'
-                    AND (?2 = ''
-                         OR conversation.title LIKE ?3 ESCAPE '\\'
-                         OR conversation.summary LIKE ?3 ESCAPE '\\'
-                         OR conversation.last_message_preview LIKE ?3 ESCAPE '\\')
-                    AND NOT EXISTS (
-                      SELECT 1
-                        FROM sub_agent_sessions AS sub_agent
-                       WHERE sub_agent.conversation_id = conversation.conversation_id
-                    )
-                    AND NOT EXISTS (
-                      SELECT 1
-                        FROM workflow_node_sessions AS workflow_node
-                       WHERE workflow_node.conversation_id = conversation.conversation_id
-                    )
+                  WHERE {ARCHIVED_LIST_FILTER}
                   ORDER BY archived_at DESC, id DESC
-                  LIMIT ?4 OFFSET ?5",
-            )?;
+                  LIMIT ?4 OFFSET ?5"
+            ))?;
 
             let rows = statement.query_map(
                 params![directory_id, keyword, like_pattern, safe_limit, safe_offset],
@@ -1249,6 +1243,37 @@ pub fn list_archived_conversations_paginated(
         .map_err(|error| {
             database::database_error(archive_path, "list archived conversations paginated", error)
         })
+}
+
+/// 一键永久删除项目下的归档会话：目标集合与归档列表的过滤条件完全一致
+/// （keyword 非空时只删除匹配项），进度语义同 [delete_archived_conversations]。
+pub fn delete_all_archived_conversations(
+    archive_path: &Path,
+    directory_id: &str,
+    keyword: &str,
+    on_progress: Option<ConversationDeleteProgressSink<'_>>,
+) -> Result<()> {
+    ensure_archive_database(archive_path)?;
+    let keyword = keyword.trim();
+    let like_pattern = archive_search_pattern(keyword);
+    let conversation_ids = open_archive_connection(archive_path)
+        .and_then(|connection| {
+            let mut statement = connection.prepare(&format!(
+                "SELECT conversation_id
+                   FROM chat_conversations AS conversation
+                  WHERE {ARCHIVED_LIST_FILTER}"
+            ))?;
+            let rows = statement.query_map(params![directory_id, keyword, like_pattern], |row| {
+                row.get::<_, String>(0)
+            })?;
+            let ids: Vec<String> = rows.collect::<rusqlite::Result<Vec<_>>>()?;
+            Ok(ids)
+        })
+        .map_err(|error| {
+            database::database_error(archive_path, "list archived conversations to delete", error)
+        })?;
+
+    delete_archived_conversations(archive_path, &conversation_ids, on_progress)
 }
 
 /// 归档搜索 LIKE 模式：转义通配符后包成 %keyword%
@@ -1663,13 +1688,17 @@ pub fn restore_archived_conversations(
     Ok(())
 }
 
-/// 永久删除归档会话（含子代理级联）。
+/// 永久删除归档会话（含子代理级联），并按真实完成的工作单元上报进度：
+/// prepare（准备）→ delete（会话数据）→ cleanup（快照目录）→ compact（回收归档库空间）。
 pub fn delete_archived_conversations(
     archive_database_path: &Path,
     conversation_ids: &[String],
+    on_progress: Option<ConversationDeleteProgressSink<'_>>,
 ) -> Result<()> {
+    let mut progress = DeleteProgress::new(on_progress);
     let unique_ids = unique_conversation_ids(conversation_ids);
     if unique_ids.is_empty() {
+        progress.finish();
         return Ok(());
     }
 
@@ -1725,6 +1754,10 @@ pub fn delete_archived_conversations(
     let checkpoint_ids =
         collect_conversation_checkpoint_ids(&transaction, &all_target_ids).unwrap_or_default();
 
+    // 真实工作量：每个级联目标会话 5 轮表清理，加上待删除的快照目录数。
+    // 总量一次给出，进度不会回退。
+    progress.begin("delete", all_target_ids.len() * 5 + checkpoint_ids.len());
+
     let mut deleted_rows: usize = 0;
     for chunk in all_target_ids.chunks(MAX_VARIABLES) {
         let placeholders = in_clause_placeholders(chunk.len());
@@ -1752,6 +1785,7 @@ pub fn delete_archived_conversations(
                     error,
                 )
             })?;
+        progress.advance(chunk.len());
     }
 
     for chunk in all_target_ids.chunks(MAX_VARIABLES) {
@@ -1779,6 +1813,7 @@ pub fn delete_archived_conversations(
                     error,
                 )
             })?;
+        progress.advance(chunk.len());
     }
 
     for chunk in all_target_ids.chunks(MAX_VARIABLES) {
@@ -1797,6 +1832,7 @@ pub fn delete_archived_conversations(
                     error,
                 )
             })?;
+        progress.advance(chunk.len());
     }
 
     // 已删除父会话的 run 级状态与画布从归档库清理（按 parent_conversation_id 归属）。
@@ -1830,6 +1866,7 @@ pub fn delete_archived_conversations(
                     error,
                 )
             })?;
+        progress.advance(chunk.len());
     }
 
     for chunk in all_target_ids.chunks(MAX_VARIABLES) {
@@ -1848,6 +1885,7 @@ pub fn delete_archived_conversations(
                     error,
                 )
             })?;
+        progress.advance(chunk.len());
     }
 
     transaction.commit().map_err(|error| {
@@ -1859,13 +1897,15 @@ pub fn delete_archived_conversations(
     })?;
 
     // 清理不再被任何会话引用的 checkpoint 快照目录（失败仅产生孤儿目录，不阻断删除）
-    cleanup_orphan_checkpoint_files(&checkpoint_ids);
+    progress.switch("cleanup");
+    cleanup_orphan_checkpoint_files_with(&checkpoint_ids, || progress.advance(1));
 
     // ---- 收缩归档库文件（与归档运行库对称）----
     // 永久删除从归档库删除了数据，归档库同样不会自动回收空闲页（auto_vacuum=NONE），
     // 需 VACUUM 重建文件才能立即回收。删除事务已提交，VACUUM 仅是空间优化，
     // 失败记录日志后忽略；仅当确实删除了行时才执行。
     if deleted_rows > 0 {
+        progress.switch("compact");
         if let Err(error) = connection.execute_batch("VACUUM") {
             eprintln!(
                 "Snow App delete archived VACUUM failed (conversations already deleted): {}",
@@ -1874,5 +1914,6 @@ pub fn delete_archived_conversations(
         }
     }
 
+    progress.finish();
     Ok(())
 }

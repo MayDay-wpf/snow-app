@@ -1,4 +1,4 @@
-import { ListChecks, Search, X } from "lucide-react";
+import { ListChecks, Search, Trash2, X } from "lucide-react";
 
 import { useI18n } from "../../../../i18n";
 import {
@@ -22,6 +22,8 @@ type ArchivedChatHeaderProps = {
   onDeselectAll: () => void;
   onBatchRestore: () => void;
   onBatchDelete: () => void;
+  /** 一键永久删除当前列表范围内的全部归档会话 */
+  onDeleteAll: () => void;
 };
 
 /** 归档列表头部：渲染在滚动列表之外，滚动会话时不跟随移动 */
@@ -41,6 +43,7 @@ export function ArchivedChatHeader({
   onDeselectAll,
   onBatchRestore,
   onBatchDelete,
+  onDeleteAll,
 }: ArchivedChatHeaderProps): React.JSX.Element | null {
   const { t } = useI18n();
   const isBusy = isRestoring || isDeleting;
@@ -137,11 +140,19 @@ export function ArchivedChatHeader({
       ) : null}
       {showToolbar ? (
         <div className="archived-chat-toolbar">
-          <span className="archived-chat-toolbar-hint">
-            {t("sidebar.archivedChatsHint", {
-              defaultValue: "Restore archived chats to continue using them",
-            })}
-          </span>
+          <button
+            type="button"
+            className="archived-multi-select-btn danger"
+            disabled={isBusy}
+            onClick={onDeleteAll}
+          >
+            <Trash2 size={13} />
+            <span>
+              {t("sidebar.archivedChatDeleteAll", {
+                defaultValue: "Delete all",
+              })}
+            </span>
+          </button>
           <button
             type="button"
             className="archived-multi-select-btn"

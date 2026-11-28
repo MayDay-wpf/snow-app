@@ -7,6 +7,10 @@ import type { ToolCallInfo } from "../utils/conversationTypes";
 import { describeToolTarget } from "../utils/toolActivitySummary";
 import { summarizeSameRunEditDiff } from "../utils/toolDiffStats";
 import { resolveToolDisplayName } from "../toolCalls/shared/toolDisplayName";
+import {
+  getToolCategory,
+  getToolIcon,
+} from "../toolCalls/shared/ToolNameBadge";
 
 type MinimalSameRunHeaderProps = {
   toolCalls: readonly ToolCallInfo[];
@@ -30,6 +34,7 @@ export const MinimalSameRunHeader = ({
 }: MinimalSameRunHeaderProps): React.JSX.Element => {
   const { t } = useI18n();
   const groupName = resolveToolDisplayName(t, toolCalls[0].name);
+  const GroupIcon = getToolIcon(getToolCategory(toolCalls[0].name));
   const latest = toolCalls[toolCalls.length - 1];
   const latestTarget = useMemo(() => describeToolTarget(latest), [latest]);
   const diffTotals = useMemo(
@@ -57,6 +62,7 @@ export const MinimalSameRunHeader = ({
         aria-expanded={expanded}
         aria-label={toggleLabel}
       >
+        <GroupIcon className="tsr-icon" size={13} aria-hidden="true" />
         <span className="tsr-name">{groupName}</span>
         <span className="tsr-count">×{toolCalls.length}</span>
         {diffTotals ? (

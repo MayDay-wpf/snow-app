@@ -22,9 +22,11 @@ type ChatDeleteConfirmDialogProps = {
   isConfirming?: boolean;
   /** 删除的真实进度（null = 未在删除中） */
   progress?: BatchDeleteProgress | null;
+  /** 自定义确认文案（归档永久删除等场景）；缺省按单条/批量会话删除展示 */
+  message?: string;
 };
 
-/** 单条与批量会话删除共用的确认弹窗。 */
+/** 单条与批量会话删除、归档会话永久删除共用的确认弹窗。 */
 export function ChatDeleteConfirmDialog({
   open,
   conversationCount,
@@ -39,6 +41,7 @@ export function ChatDeleteConfirmDialog({
   onCancel,
   isConfirming = false,
   progress = null,
+  message,
 }: ChatDeleteConfirmDialogProps): React.JSX.Element {
   const { t } = useI18n();
 
@@ -59,9 +62,13 @@ export function ChatDeleteConfirmDialog({
               defaultValue: "Cleaning attachments {{percent}}%",
               values: { percent: progressPercent },
             })
-          : t("sidebar.chatDeleteProgressPrepare", {
-              defaultValue: "Preparing deletion...",
-            })
+          : progress.phase === "compact"
+            ? t("sidebar.chatDeleteProgressCompact", {
+                defaultValue: "Reclaiming archive storage...",
+              })
+            : t("sidebar.chatDeleteProgressPrepare", {
+                defaultValue: "Preparing deletion...",
+              })
     : "";
 
   return (
@@ -72,7 +79,8 @@ export function ChatDeleteConfirmDialog({
       })}
       isConfirming={isConfirming}
       message={
-        isBatch
+        message ??
+        (isBatch
           ? t("sidebar.chatMultiSelectDeleteConfirm", {
               defaultValue: "Delete {{count}} selected conversations?",
               values: { count: conversationCount },
@@ -80,7 +88,7 @@ export function ChatDeleteConfirmDialog({
           : t("sidebar.chatDeleteConfirm", {
               defaultValue:
                 "Are you sure you want to delete this conversation?",
-            })
+            }))
       }
       onCancel={onCancel}
       onConfirm={onConfirm}

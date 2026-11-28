@@ -67,13 +67,6 @@ export function ArchivedChatItem({
       onClick={handleClick}
       role="button"
       tabIndex={0}
-      title={
-        isMultiSelectMode
-          ? undefined
-          : t("sidebar.archivedChatRestoreHint", {
-              defaultValue: "Restore this conversation to use it",
-            })
-      }
       onKeyDown={(event) => {
         if (event.key === "Enter" || event.key === " ") {
           event.preventDefault();

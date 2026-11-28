@@ -1,6 +1,6 @@
 import { useI18n } from "../../../../i18n";
-import { ConfirmDialog } from "../../../common/ConfirmDialog";
 import { ChatDeleteConfirmDialog } from "../ChatDeleteConfirmDialog";
+import type { ArchivedDeleteTarget } from "./useArchivedConversations";
 import type { BatchDeleteProgress } from "./useConversationActions";
 
 type ChatsSectionDialogsProps = {
@@ -17,11 +17,15 @@ type ChatsSectionDialogsProps = {
   onBatchMemoriesChange: (value: boolean) => void;
   onBatchCancel: () => void;
   onBatchConfirm: () => void;
-  archivedDeleteTargetIds: string[] | null;
+  archivedDeleteTarget: ArchivedDeleteTarget | null;
+  /** 归档永久删除的真实进度（null = 未在删除中） */
+  archivedDeleteProgress: BatchDeleteProgress | null;
   isDeletingArchived: boolean;
   onArchivedDeleteCancel: () => void;
   onArchivedDeleteConfirm: () => void;
 };
+
+const noopBoolean = (): void => {};
 
 export function ChatsSectionDialogs({
   showBatchConfirm,
@@ -36,12 +40,45 @@ export function ChatsSectionDialogs({
   onBatchMemoriesChange,
   onBatchCancel,
   onBatchConfirm,
-  archivedDeleteTargetIds,
+  archivedDeleteTarget,
+  archivedDeleteProgress,
   isDeletingArchived,
   onArchivedDeleteCancel,
   onArchivedDeleteConfirm,
 }: ChatsSectionDialogsProps): React.JSX.Element {
   const { t } = useI18n();
+
+  const archivedDeleteCount = !archivedDeleteTarget
+    ? 0
+    : archivedDeleteTarget.mode === "all"
+      ? archivedDeleteTarget.count
+      : archivedDeleteTarget.ids.length;
+  const archivedDeleteMessage = !archivedDeleteTarget
+    ? ""
+    : archivedDeleteTarget.mode === "all"
+      ? archivedDeleteTarget.keyword
+        ? t("sidebar.archivedChatDeleteMatchedConfirm", {
+            defaultValue:
+              'Permanently delete all {{count}} archived conversations matching "{{keyword}}"? This cannot be undone.',
+            values: {
+              count: archivedDeleteCount,
+              keyword: archivedDeleteTarget.keyword,
+            },
+          })
+        : t("sidebar.archivedChatDeleteAllConfirm", {
+            defaultValue:
+              "Permanently delete all {{count}} archived conversations in this project? This cannot be undone.",
+            values: { count: archivedDeleteCount },
+          })
+      : archivedDeleteCount > 1
+        ? t("sidebar.archivedChatMultiSelectDeleteConfirm", {
+            defaultValue:
+              "Permanently delete {{count}} selected archived conversations?",
+            values: { count: archivedDeleteCount },
+          })
+        : t("sidebar.archivedChatDeleteConfirm", {
+            defaultValue: "Permanently delete this archived conversation?",
+          });
 
   return (
     <>
@@ -61,31 +98,22 @@ export function ChatsSectionDialogs({
         onDeleteMemoriesChange={onBatchMemoriesChange}
         open={showBatchConfirm}
       />
-      {/* 归档会话永久删除确认（归档数据不可恢复） */}
-      <ConfirmDialog
-        cancelLabel={t("common.cancel", { defaultValue: "Cancel" })}
-        confirmLabel={t("sidebar.chatActionDelete", {
-          defaultValue: "Delete",
-        })}
+      {/* 归档会话永久删除确认（归档数据不可恢复），删除期间展示真实进度 */}
+      <ChatDeleteConfirmDialog
+        conversationCount={archivedDeleteCount}
+        deleteImages={false}
+        deleteMemories={false}
+        imagesCount={null}
+        memoriesCount={null}
+        isBatch={archivedDeleteCount > 1}
         isConfirming={isDeletingArchived}
-        message={
-          (archivedDeleteTargetIds?.length ?? 0) > 1
-            ? t("sidebar.archivedChatMultiSelectDeleteConfirm", {
-                defaultValue:
-                  "Permanently delete {{count}} selected archived conversations?",
-                values: { count: archivedDeleteTargetIds?.length ?? 0 },
-              })
-            : t("sidebar.archivedChatDeleteConfirm", {
-                defaultValue: "Permanently delete this archived conversation?",
-              })
-        }
+        message={archivedDeleteMessage}
+        progress={archivedDeleteProgress}
         onCancel={onArchivedDeleteCancel}
         onConfirm={onArchivedDeleteConfirm}
-        open={archivedDeleteTargetIds !== null}
-        title={t("sidebar.chatDeleteConfirmTitle", {
-          defaultValue: "Confirm deletion",
-        })}
-        variant="danger"
+        onDeleteImagesChange={noopBoolean}
+        onDeleteMemoriesChange={noopBoolean}
+        open={archivedDeleteTarget !== null}
       />
     </>
   );

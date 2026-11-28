@@ -832,6 +832,7 @@ export const en = {
   "sidebar.chatDeleteProgressImages": "Deleting images {{percent}}%",
   "sidebar.chatDeleteProgressData": "Deleting conversation data {{percent}}%",
   "sidebar.chatDeleteProgressCleanup": "Cleaning attachments {{percent}}%",
+  "sidebar.chatDeleteProgressCompact": "Reclaiming archive storage...",
   "sidebar.chatMultiSelectExit": "Exit",
   "sidebar.chatMultiSelectGroupSelect": "Select this group",
   "sidebar.chatMultiSelectGroupDeselect": "Deselect this group",
@@ -848,11 +849,9 @@ export const en = {
   "sidebar.archivedChatsToggle": "View archived chats",
   "sidebar.archivedChatsToggleBack": "Back to chats",
   "sidebar.archivedChatsEmpty": "No archived chats",
-  "sidebar.archivedChatsHint": "Restore archived chats to continue using them",
   "sidebar.archivedChatsSearchPlaceholder": "Search archived chats",
   "sidebar.archivedChatsSearchClear": "Clear search",
   "sidebar.archivedChatsSearchEmpty": "No matching archived chats",
-  "sidebar.archivedChatRestoreHint": "Restore this conversation to use it",
   "sidebar.chatActionRestore": "Restore",
   "sidebar.chatMultiSelectArchive": "Archive selected",
   "sidebar.chatMultiSelectArchiving": "Archiving...",
@@ -864,6 +863,11 @@ export const en = {
     "Permanently delete this archived conversation? This cannot be undone.",
   "sidebar.archivedChatMultiSelectDeleteConfirm":
     "Permanently delete {{count}} selected archived conversations? This cannot be undone.",
+  "sidebar.archivedChatDeleteAll": "Delete all",
+  "sidebar.archivedChatDeleteAllConfirm":
+    "Permanently delete all {{count}} archived conversations in this project? This cannot be undone.",
+  "sidebar.archivedChatDeleteMatchedConfirm":
+    'Permanently delete all {{count}} archived conversations matching "{{keyword}}"? This cannot be undone.',
   "sidebar.subAgent": "Sub-agent",
   "sidebar.workflowNode": "Workflow node",
   "sidebar.workflowMode": "Workflow mode",

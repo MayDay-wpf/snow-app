@@ -1,10 +1,23 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { RefObject } from "react";
 
-import type { ChatConversationRecord } from "../../../../../preload";
+import type {
+  ChatConversationRecord,
+  ConversationDeleteProgress,
+} from "../../../../../preload";
 import { useI18n } from "../../../../i18n";
+import {
+  resolveBatchDeleteProgress,
+  useBatchDeleteProgress,
+} from "./useConversationActions";
 
 const ARCHIVE_PAGE_SIZE = 20;
+
+/** 待确认的永久删除：单条/所选会话，或一键删除当前列表范围
+ *  （有搜索关键词时只包含匹配项，与列表展示的范围一致）。 */
+export type ArchivedDeleteTarget =
+  | { mode: "selected"; ids: string[] }
+  | { mode: "all"; count: number; keyword: string };
 
 type UseArchivedConversationsOptions = {
   directoryId: string;
@@ -35,10 +48,15 @@ export function useArchivedConversations({
     () => new Set(),
   );
   const [isArchivedMultiSelect, setIsArchivedMultiSelect] = useState(false);
-  // 归档会话永久删除确认：待删除的归档会话 ID（null = 未打开）
-  const [archivedDeleteTargetIds, setArchivedDeleteTargetIds] = useState<
-    string[] | null
-  >(null);
+  // 归档会话永久删除确认：待删除目标（null = 未打开）
+  const [archivedDeleteTarget, setArchivedDeleteTarget] =
+    useState<ArchivedDeleteTarget | null>(null);
+  const {
+    progress: archivedDeleteProgress,
+    applyProgress: applyArchivedDeleteProgress,
+    startProgress: startArchivedDeleteProgress,
+    stopProgress: stopArchivedDeleteProgress,
+  } = useBatchDeleteProgress();
   const [restoringIds, setRestoringIds] = useState<Set<string>>(
     () => new Set(),
   );
@@ -279,7 +297,10 @@ export function useArchivedConversations({
   };
 
   const handleDeleteArchived = (conversation: ChatConversationRecord): void => {
-    setArchivedDeleteTargetIds([conversation.conversationId]);
+    setArchivedDeleteTarget({
+      mode: "selected",
+      ids: [conversation.conversationId],
+    });
   };
 
   /** 批量永久删除所选归档会话（弹出确认框） */
@@ -287,29 +308,59 @@ export function useArchivedConversations({
     if (archivedSelectedIds.size === 0) {
       return;
     }
-    setArchivedDeleteTargetIds([...archivedSelectedIds]);
+    setArchivedDeleteTarget({ mode: "selected", ids: [...archivedSelectedIds] });
   };
 
-  /** 确认永久删除归档会话 */
+  /** 一键永久删除当前列表范围内的全部归档会话（弹出确认框） */
+  const handleDeleteAllArchived = (): void => {
+    if (archivedTotal === 0) {
+      return;
+    }
+    setArchivedDeleteTarget({
+      mode: "all",
+      count: archivedTotal,
+      keyword: archivedKeyword,
+    });
+  };
+
+  /** 确认永久删除归档会话：确认弹窗内展示后端推送的真实进度 */
   const handleArchivedDeleteConfirm = async (): Promise<void> => {
-    if (deletingArchivedIds.size > 0 || !archivedDeleteTargetIds) {
+    if (deletingArchivedIds.size > 0 || !archivedDeleteTarget) {
       return;
     }
 
-    setDeletingArchivedIds(new Set(archivedDeleteTargetIds));
-    const targetIds = archivedDeleteTargetIds;
+    const target = archivedDeleteTarget;
+    setDeletingArchivedIds(
+      new Set(
+        target.mode === "all"
+          ? archivedConversations.map((conv) => conv.conversationId)
+          : target.ids,
+      ),
+    );
+    startArchivedDeleteProgress();
+    const onProgress = (progress: ConversationDeleteProgress): void =>
+      applyArchivedDeleteProgress(resolveBatchDeleteProgress(progress, false));
 
     try {
-      await window.snow.deleteArchivedConversations(targetIds);
+      if (target.mode === "all") {
+        await window.snow.deleteAllArchivedConversations(
+          directoryId,
+          target.keyword,
+          onProgress,
+        );
+      } else {
+        await window.snow.deleteArchivedConversations(target.ids, onProgress);
+      }
       await loadArchivedFirstPage();
       setArchivedSelectedIds(new Set());
       setIsArchivedMultiSelect(false);
     } catch {
       // Silent fail
     } finally {
-      // 删除完成（含 VACUUM 收缩文件）后才关闭确认弹窗，期间显示 loading
+      // 删除完成（含 VACUUM 收缩文件）后才关闭确认弹窗，期间显示进度
+      stopArchivedDeleteProgress();
       setDeletingArchivedIds(new Set());
-      setArchivedDeleteTargetIds(null);
+      setArchivedDeleteTarget(null);
     }
   };
 
@@ -352,8 +403,9 @@ export function useArchivedConversations({
     archivedError,
     archivedSelectedIds,
     isArchivedMultiSelect,
-    archivedDeleteTargetIds,
-    setArchivedDeleteTargetIds,
+    archivedDeleteTarget,
+    setArchivedDeleteTarget,
+    archivedDeleteProgress,
     restoringIds,
     deletingArchivedIds,
     archivedLoadMoreRef,
@@ -364,6 +416,7 @@ export function useArchivedConversations({
     handleBatchRestore,
     handleDeleteArchived,
     handleBatchDeleteArchived,
+    handleDeleteAllArchived,
     handleArchivedDeleteConfirm,
     handleExitArchivedMultiSelect,
     enterArchivedMultiSelect,

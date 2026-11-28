@@ -512,7 +512,7 @@ fn delete_archived_conversations(
     // 先释放读连接，避免与删除事务争用 rollback journal 锁
     drop(connection);
     for chunk in ids.chunks(DELETE_CHUNK) {
-        if let Err(error) = archive::delete_archived_conversations(archive_path, chunk) {
+        if let Err(error) = archive::delete_archived_conversations(archive_path, chunk, None) {
             push_error(result, format!("{directory_id}: {error}"));
         }
     }

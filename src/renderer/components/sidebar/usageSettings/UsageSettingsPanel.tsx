@@ -1138,7 +1138,7 @@ export function UsageSettingsPanel(): React.JSX.Element {
               formatTokens={formatTokensLocale}
             />
           </div>
-          <div className="usage-chart-card">
+          <div className="usage-chart-card usage-chart-card-donut">
             <div className="usage-chart-header">
               <strong>
                 {t("settings.usageDonutTitle", {

@@ -450,6 +450,7 @@ export function ChatsSection({
           onBatchDelete={archived.handleBatchDeleteArchived}
           onBatchRestore={() => void archived.handleBatchRestore()}
           onChangeSearch={archived.setArchivedSearchInput}
+          onDeleteAll={archived.handleDeleteAllArchived}
           onDeselectAll={archived.handleArchivedDeselectAll}
           onEnterMultiSelect={archived.enterArchivedMultiSelect}
           onExitMultiSelect={archived.handleExitArchivedMultiSelect}
@@ -587,7 +588,8 @@ export function ChatsSection({
         )}
       </div>
       <ChatsSectionDialogs
-        archivedDeleteTargetIds={archived.archivedDeleteTargetIds}
+        archivedDeleteProgress={archived.archivedDeleteProgress}
+        archivedDeleteTarget={archived.archivedDeleteTarget}
         batchDeleteImages={actions.batchDeleteImages}
         batchDeleteMemories={actions.batchDeleteMemories}
         batchImagesCount={actions.batchImagesCount}
@@ -595,7 +597,7 @@ export function ChatsSection({
         batchDeleteProgress={actions.batchDeleteProgress}
         isBatchDeleting={actions.isBatchDeleting}
         isDeletingArchived={archived.deletingArchivedIds.size > 0}
-        onArchivedDeleteCancel={() => archived.setArchivedDeleteTargetIds(null)}
+        onArchivedDeleteCancel={() => archived.setArchivedDeleteTarget(null)}
         onArchivedDeleteConfirm={() =>
           void archived.handleArchivedDeleteConfirm()
         }

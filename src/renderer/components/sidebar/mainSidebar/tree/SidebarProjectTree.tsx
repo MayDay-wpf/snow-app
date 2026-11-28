@@ -453,7 +453,8 @@ export function SidebarProjectTree({
         tone={chatImport.notice?.tone ?? "success"}
       />
       <ChatsSectionDialogs
-        archivedDeleteTargetIds={archived.archivedDeleteTargetIds}
+        archivedDeleteProgress={archived.archivedDeleteProgress}
+        archivedDeleteTarget={archived.archivedDeleteTarget}
         batchDeleteImages={false}
         batchDeleteMemories={false}
         batchImagesCount={null}
@@ -461,7 +462,7 @@ export function SidebarProjectTree({
         batchDeleteProgress={null}
         isBatchDeleting={false}
         isDeletingArchived={archived.deletingArchivedIds.size > 0}
-        onArchivedDeleteCancel={() => archived.setArchivedDeleteTargetIds(null)}
+        onArchivedDeleteCancel={() => archived.setArchivedDeleteTarget(null)}
         onArchivedDeleteConfirm={() =>
           void archived.handleArchivedDeleteConfirm()
         }
@@ -488,6 +489,7 @@ export function SidebarProjectTree({
           onBatchDelete={archived.handleBatchDeleteArchived}
           onBatchRestore={() => void archived.handleBatchRestore()}
           onChangeSearch={archived.setArchivedSearchInput}
+          onDeleteAll={archived.handleDeleteAllArchived}
           onDeselectAll={archived.handleArchivedDeselectAll}
           onEnterMultiSelect={archived.enterArchivedMultiSelect}
           onExitMultiSelect={archived.handleExitArchivedMultiSelect}
